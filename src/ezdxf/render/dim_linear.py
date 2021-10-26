@@ -236,7 +236,7 @@ class LinearDimension(BaseDimensionRenderer):
 
         """
         shift_vec = Vec2((self.text_shift_h, self.text_shift_v))
-        location += shift_vec.rotate(text_rotation)
+        location += shift_vec.rotate_deg(text_rotation)
         return location
 
     def render(self, block: "GenericLayoutType") -> None:
@@ -560,20 +560,6 @@ class LinearDimension(BaseDimensionRenderer):
         end = end + direction * extension
         return start, end
 
-    def add_extension_line(
-        self, start: "Vertex", end: "Vertex", linetype: str = None
-    ) -> None:
-        """Add extension lines from dimension line to measurement point."""
-        attribs: Dict[str, Any] = {"color": self.ext_line_color}
-        if linetype is not None:
-            attribs["linetype"] = linetype
-
-        # lineweight requires DXF R2000 or later
-        if self.supports_dxf_r2000:
-            attribs["lineweight"] = self.ext_lineweight
-
-        self.add_line(start, end, dxfattribs=attribs)
-
     def transform_ucs_to_wcs(self) -> None:
         """Transforms dimension definition points into WCS or if required into
         OCS.
@@ -594,9 +580,6 @@ class LinearDimension(BaseDimensionRenderer):
         self.dimension.dxf.angle = self.ucs.to_ocs_angle_deg(
             self.dimension.dxf.angle
         )
-
-        if self.requires_extrusion:
-            self.dimension.dxf.extrusion = self.ucs.uz
 
 
 CAN_SUPPRESS_ARROW1 = {

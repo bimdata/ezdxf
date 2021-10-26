@@ -1,7 +1,7 @@
-.. _tut_radius_dimension:
+.. _tut_angular_dimension:
 
-Tutorial for Radius Dimensions
-==============================
+Tutorial for Angular Dimensions (work in progress)
+==================================================
 
 Please read the :ref:`tut_linear_dimension` before, if you haven't.
 
@@ -14,30 +14,61 @@ Please read the :ref:`tut_linear_dimension` before, if you haven't.
 
     import ezdxf
 
-    # DXF R2010 drawing, official DXF version name: 'AC1024',
-    # setup=True setups the default dimension styles
+    # Create a DXF R2010 document:
+    # Use argument setup=True to setup the default dimension styles.
     doc = ezdxf.new("R2010", setup=True)
 
-    msp = doc.modelspace()  # add new dimension entities to the modelspace
-    msp.add_circle((0, 0), radius=3)  # add a CIRCLE entity, not required
-    # add default radius dimension, measurement text is located outside
-    dim = msp.add_radius_dim(
-        center=(0, 0), radius=3, angle=45, dimstyle="EZ_RADIUS"
+    # Add new entities to the modelspace:
+    msp = doc.modelspace()
+
+    # Setup the geometric parameters for the DIMENSION entity:
+    base = (5.8833, -6.3408)  # location of the dimension line
+    p1 = (2.0101, -7.5156)  # start point of 1st leg
+    p2 = (2.7865, -10.4133)  # end point of 1st leg
+    p3 = (6.7054, -7.5156)  # start point of 2nd leg
+    p4 = (5.9289, -10.4133)  # end point of 2nd leg
+
+    # Draw the lines for visualization, not required to create the
+    # DIMENSION entity:
+    msp.add_line(p1, p2)
+    msp.add_line(p3, p4)
+
+    # Add an angular DIMENSION from two lines, the measurement text is placed
+    # at the default location above the dimension line:
+    dim = msp.add_angular_dim(
+        base=base,  # defines the location of the dimension line
+        line1=(p1, p2),  # start leg of the angle
+        line2=(p3, p4),  # end leg of the angle
+        dimstyle="EZ_ANGULAR",  # default angular dimension style
     )
-    # necessary second step, to create the BLOCK entity with the dimension geometry.
+
+    # Necessary second step to create the BLOCK entity with the dimension geometry.
+    # Additional processing of the DIMENSION entity could happen between adding
+    # the entity and the rendering call.
     dim.render()
-    doc.saveas("radius_dimension.dxf")
+    doc.saveas("angular_dimension.dxf")
 
-The example above creates a 45 degrees slanted radius :class:`~ezdxf.entities.Dimension`
-entity, the default dimension style "EZ_RADIUS" is defined as 1 drawing unit
-= 1m, drawing scale = 1:100 and the length factor = 100, which creates a
-measurement text in cm, the default location for the measurement text is outside
-of the circle.
+The example above creates an angular :class:`~ezdxf.entities.Dimension` entity
+to measures the angle between two lines (`line1` and `line2`).
+The default dimension style "EZ_ANGULAR" is defined as:
 
-The `center` point defines the the center of the circle but there doesn't have
-to exist a circle entity, `radius` defines the circle radius, which is also the
-measurement, and angle defines the slope of the dimension line, it is also
-possible to define the circle by a measurement point `mpoint` on the circle.
+- angle unit is decimal degrees
+- measurement text height = 0.25 (drawing scale = 1:100)
+- measurement text location is above the dimension line
+- closed filled arrow and arrow size :attr:`dimasz` = 0.25
+
+Every dimension style which does not exist will be replaced by the dimension
+style "Standard" at DXF export by :meth:`save` or :meth:`saveas`
+(e.g. dimension style setup was not initiated).
+
+The `base` point defines the location of the dimension line (arc), any point on
+the dimension line is valid. The points `p1` and `p2` define the first leg of
+the angle, `p1` also defines the start point of the first extension line.
+The points `p3` and `p4` define the second leg of the angle and point `p3` also
+defines the start point of the second extension line.
+
+The measurement of the DIMENSION entity is the angle enclosed by the first and
+the second leg and where the dimension line passes the `base` point.
 
 The return value `dim` is **not** a dimension entity, instead a
 :class:`~ezdxf.entities.DimStyleOverride` object is
@@ -68,7 +99,7 @@ The basic DIMSTYLE "EZ_RADIUS" settings are:
     - Graphical reference of many DIMVARS and some advanced information:
       :ref:`dimstyle_table_internals`
     - Source code file `standards.py`_ shows how to create your own DIMSTYLES.
-    - The Script `dimension_radius.py`_ shows examples for radius dimensions.
+    - The Script `dimension_angular.py`_ shows examples for radius dimensions.
 
 Default Text Locations Outside
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -232,31 +263,6 @@ User defined location inside of the circle and forced horizontal text:
 
 .. image:: gfx/dim_radial_user_inside_horiz.png
 
-.. _tut_center_mark:
-
-Center Mark/Lines
------------------
-
-Center mark/lines are controlled by :attr:`~ezdxf.entities.DimStyle.dxf.dimcen`,
-default value is 0 for predefined dimstyles "EZ_RADIUS" and "EZ_RADIUS_INSIDE":
-
-=== =====
-0   Center mark is off
->0  Create center mark of given size
-<0  Create center lines
-=== =====
-
-.. code-block:: Python
-
-    dim = msp.add_radius_dim(
-        center=(0, 0),
-        radius=2.5,
-        angle=45,
-        dimstyle="EZ_RADIUS",
-        override={"dimcen": 0.25},
-    )
-
-.. image:: gfx/dim_center_mark.png
 
 Overriding Measurement Text
 ---------------------------
@@ -269,5 +275,5 @@ Measurement Text Formatting and Styling
 See Linear Dimension Tutorial: :ref:`tut_measurement_text_formatting_and_styling`
 
 
-.. _dimension_radius.py:  https://github.com/mozman/ezdxf/blob/master/examples/render/dimension_radius.py
+.. _dimension_angular.py:  https://github.com/mozman/ezdxf/blob/master/examples/render/dimension_angular.py
 .. _standards.py: https://github.com/mozman/ezdxf/blob/master/src/ezdxf/tools/standards.py

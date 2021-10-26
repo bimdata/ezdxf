@@ -1,31 +1,29 @@
-# Purpose: Import data from another DXF drawing
+# Purpose: Import data from another DXF document
 # Copyright (c) 2013-2021, Manfred Moitzi
 # License: MIT License
 from typing import TYPE_CHECKING, Iterable, Set, cast, Union, List, Dict
 import logging
-from ezdxf.lldxf.const import (
-    DXFKeyError,
-    DXFStructureError,
-    DXFTableEntryError,
-    DXFTypeError,
-)
+from ezdxf.lldxf import const
 from ezdxf.render.arrows import ARROWS
+from ezdxf.entities import (
+    DXFEntity,
+    DXFGraphic,
+    Hatch,
+    Polyline,
+    DimStyle,
+    Dimension,
+    Viewport,
+    Linetype,
+    Insert,
+    MText,
+)
 
 if TYPE_CHECKING:
     from ezdxf.eztypes import (
         Drawing,
-        DXFEntity,
         BaseLayout,
         Layout,
-        DXFGraphic,
         BlockLayout,
-        Hatch,
-        Insert,
-        Polyline,
-        DimStyle,
-        Dimension,
-        Viewport,
-        Linetype,
     )
 
 logger = logging.getLogger("ezdxf")
@@ -62,22 +60,23 @@ IMPORT_ENTITIES = {
 class Importer:
     """
     The :class:`Importer` class is central element for importing data from
-    other DXF drawings.
+    other DXF documents.
 
     Args:
         source: source :class:`~ezdxf.drawing.Drawing`
         target: target :class:`~ezdxf.drawing.Drawing`
 
-    :ivar source: source drawing
-    :ivar target: target drawing
-    :ivar used_layer: Set of used layer names as string, AutoCAD accepts layer
-        names without a LAYER table entry.
-    :ivar used_linetypes: Set of used linetype names as string, these linetypes
-        require a TABLE entry or AutoCAD will crash.
-    :ivar used_styles: Set of used text style names, these text styles require
-        a TABLE entry or AutoCAD will crash.
-    :ivar used_dimstyles: Set of used dimension style names, these dimension
-        styles require a TABLE entry or AutoCAD will crash.
+    Attributes:
+        source: source DXF document
+        target: target DXF document
+        used_layers: Set of used layer names as string, AutoCAD accepts layer
+            names without a LAYER table entry.
+        used_linetypes: Set of used linetype names as string, these linetypes
+            require a TABLE entry or AutoCAD will crash.
+        used_styles: Set of used text style names, these text styles require
+            a TABLE entry or AutoCAD will crash.
+        used_dimstyles: Set of used dimension style names, these dimension
+            styles require a TABLE entry or AutoCAD will crash.
 
     """
 
@@ -137,13 +136,13 @@ class Importer:
     def import_tables(
         self, table_names: Union[str, Iterable[str]] = "*", replace=False
     ) -> None:
-        """Import DXF tables from source drawing into target drawing.
+        """Import DXF tables from the source document into the target docuement.
 
         Args:
             table_names: iterable of tables names as strings, or a single table
-                name as string or ``*`` for all supported tables
-            replace: True to replace already existing table entries else ignore
-                existing entries
+                name as string or "*" for all supported tables
+            replace: ``True`` to replace already existing table entries else
+                ignore existing entries
 
         Raises:
             TypeError: unsupported table type
@@ -161,14 +160,15 @@ class Importer:
         self, name: str, entries: Union[str, Iterable[str]] = "*", replace=False
     ) -> None:
         """
-        Import specific table entries from source drawing into target drawing.
+        Import specific table entries from the source document into the
+        target document.
 
         Args:
-            name: valid table names are ``layers``, ``linetypes`` and ``styles``
+            name: valid table names are "layers", "linetypes" and "styles"
             entries: Iterable of table names as strings, or a single table name
-                or ``*`` for all table entries
-            replace: True to replace already existing table entry else ignore
-                existing entry
+                or "*" for all table entries
+            replace: ``True`` to replace the already existing table entry else
+                ignore existing entries
 
         Raises:
             TypeError: unsupported table type
@@ -187,7 +187,7 @@ class Importer:
         for entry_name in entries:
             try:
                 table_entry = source_table.get(entry_name)
-            except DXFTableEntryError:
+            except const.DXFTableEntryError:
                 logger.warning(
                     f'Required table entry "{entry_name}" in table f{name} '
                     f"not found."
@@ -227,9 +227,9 @@ class Importer:
             ] = new_table_entry.dxf.handle
 
     def import_shape_files(self, fonts: Set[str]) -> None:
-        """Import shape file table entries from source drawing into target
-        drawing. Shape file entries are stored in the styles table but without
-        a name.
+        """Import shape file table entries from the source document into the
+        target document.
+        Shape file entries are stored in the styles table but without a name.
 
         """
         for font in fonts:
@@ -265,15 +265,15 @@ class Importer:
     ) -> None:
         """
         Imports a single DXF `entity` into `target_layout` or the modelspace
-        of the target drawing, if `target_layout` is `None`.
+        of the target document, if `target_layout` is ``None``.
 
         Args:
             entity: DXF entity to import
             target_layout: any layout (modelspace, paperspace or block) from
-                the target drawing
+                the target document
 
         Raises:
-            DXFStructureError: `target_layout` is not a layout of target drawing
+            DXFStructureError: `target_layout` is not a layout of target document
 
         """
 
@@ -287,9 +287,9 @@ class Importer:
         if target_layout is None:
             target_layout = self.target.modelspace()
         elif target_layout.doc != self.target:
-            raise DXFStructureError(
+            raise const.DXFStructureError(
                 "Target layout has to be a layout or block from the target "
-                "drawing."
+                "document."
             )
 
         dxftype = entity.dxftype()
@@ -300,7 +300,7 @@ class Importer:
 
         try:
             new_entity = cast("DXFGraphic", new_clean_entity(entity))
-        except DXFTypeError:
+        except const.DXFTypeError:
             logger.debug(f"Copying for DXF type {dxftype} not supported.")
             return
 
@@ -315,12 +315,12 @@ class Importer:
 
     def _import_insert(self, insert: "Insert"):
         self.imported_inserts.append(insert)
-        # remove all possible source drawing dependencies from sub entities
+        # remove all possible source document dependencies from sub entities
         for attrib in insert.attribs:
             remove_dependencies(attrib)
 
     def _import_polyline(self, polyline: "Polyline"):
-        # remove all possible source drawing dependencies from sub entities
+        # remove all possible source document dependencies from sub entities
         for vertex in polyline.vertices:
             remove_dependencies(vertex)
 
@@ -341,39 +341,14 @@ class Importer:
         viewport.dxf.discard("ref_vp_object_4")
 
     def _import_dimension(self, dimension: "Dimension"):
-        def import_arrow_blocks():
-            """Special import, because dimension blocks (arrows) must not
-            renamed if block already exist in target drawing.
-            """
-            for insert in self.imported_inserts:
-                self.import_block(insert.dxf.name, rename=False)
-
-        block_name = dimension.get_dxf_attrib("geometry")
-        if block_name:
-            if block_name not in self.source.blocks:
-                msg = (
-                    f'Required anonymous DIMENSION block "{block_name}" does '
-                    f"not exist in source drawing."
-                )
-                logger.error(msg)
-                return
-
-            # INSERT entities in an anonymous dimension block (arrows) gets
-            # special treatment:
-            # Do NOT rename BLOCK (arrow) if already exist! -> import_arrow_blocks()
-            save_imported_inserts = self.imported_inserts
-            self.imported_inserts = []
-            name = self.import_block(block_name, rename=True)
-            dimension.dxf.geometry = name
-
-            # special treatment for arrow blocks!
-            import_arrow_blocks()
-            # restore previous collected INSERT entities
-            self.imported_inserts = save_imported_inserts
-
+        if dimension.virtual_block_content:
+            for entity in dimension.virtual_block_content:
+                if isinstance(entity, Insert):  # import arrow blocks
+                    self.import_block(entity.dxf.name, rename=False)
+                self._add_used_resources(entity)
         else:
             logger.error(
-                "Required anonymous geometry block for DIMENSION not defined."
+                "The required geometry block for DIMENSION is not defined."
             )
 
     def import_entities(
@@ -382,15 +357,15 @@ class Importer:
         target_layout: "BaseLayout" = None,
     ) -> None:
         """Import all `entities` into `target_layout` or the modelspace of the
-        target drawing, if `target_layout` is`None`.
+        target document, if `target_layout` is ``None``.
 
         Args:
             entities: Iterable of DXF entities
             target_layout: any layout (modelspace, paperspace or block) from
-                the target drawing
+                the target document
 
         Raises:
-            DXFStructureError: `target_layout` is not a layout of target drawing
+            DXFStructureError: `target_layout` is not a layout of target document
 
         """
         for entity in entities:
@@ -398,14 +373,14 @@ class Importer:
 
     def import_modelspace(self, target_layout: "BaseLayout" = None) -> None:
         """Import all entities from source modelspace into `target_layout` or
-        the modelspace of the target drawing, if `target_layout` is `None`.
+        the modelspace of the target document, if `target_layout` is ``None``.
 
         Args:
             target_layout: any layout (modelspace, paperspace or block) from
-                the target drawing
+                the target document
 
         Raises:
-            DXFStructureError: `target_layout` is not a layout of target drawing
+            DXFStructureError: `target_layout` is not a layout of target document
 
         """
         self.import_entities(
@@ -413,9 +388,9 @@ class Importer:
         )
 
     def recreate_source_layout(self, name: str) -> "Layout":
-        """Recreate source paperspace layout `name` in the target drawing.
+        """Recreate source paperspace layout `name` in the target document.
         The layout will be renamed if `name` already exist in the target
-        drawing. Returns target modelspace for layout name "Model".
+        document. Returns target modelspace for layout name "Model".
 
         Args:
             name: layout name as string
@@ -464,10 +439,12 @@ class Importer:
         return target_layout
 
     def import_paperspace_layout(self, name: str) -> "Layout":
-        """Import paperspace layout `name` into target drawing. Recreates the
-        source paperspace layout in the target drawing, renames the target
-        paperspace if already a paperspace with same `name` exist and imports
-        all entities from source paperspace into target paperspace.
+        """Import paperspace layout `name` into the target document.
+
+        Recreates the source paperspace layout in the target document, renames
+        the target paperspace if a paperspace with same `name` already exist
+        and imports all entities from the source paperspace into the target
+        paperspace.
 
         Args:
             name: source paper space name as string
@@ -480,7 +457,7 @@ class Importer:
 
         """
         if name.lower() == "model":
-            raise DXFTypeError(
+            raise const.DXFTypeError(
                 "Can not import modelspace, use method import_modelspace()."
             )
         source_layout = self.source.layouts.get(name)
@@ -489,9 +466,10 @@ class Importer:
         return target_layout
 
     def import_paperspace_layouts(self) -> None:
-        """Import all paperspace layouts and their content into target drawing.
-        Target layouts will be renamed if already a layout with same name exist.
-        Layouts will be imported in original tab order.
+        """Import all paperspace layouts and their content into the target
+        document.
+        Target layouts will be renamed if a layout with the same name already
+        exist. Layouts will be imported in original tab order.
 
         """
         for name in self.source.layouts.names_in_taborder():
@@ -499,42 +477,48 @@ class Importer:
                 self.import_paperspace_layout(name)
 
     def import_blocks(self, block_names: Iterable[str], rename=False) -> None:
-        """Import all block definitions. If block already exist the block will
-        be renamed if argument `rename` is True, else the existing target block
-        will be used instead of the source block. Required name resolving for
-        imported block references (INSERT), will be done in
-        :meth:`Importer.finalize`.
+        """Import all BLOCK definitions from source document.
+
+        If a BLOCK already exist the BLOCK will be renamed if argument
+        `rename` is ``True``, otherwise the existing BLOCK in the target
+        document will be used instead of the BLOCK from the source document.
+        Required name resolving for imported BLOCK references (INSERT), will be
+        done in the :meth:`Importer.finalize` method.
 
         Args:
-            block_names: names of blocks to import
-            rename: rename block if exists in target drawing
+            block_names: names of BLOCK definitions to import
+            rename: rename BLOCK if a BLOCK with the same name already exist in
+                target document
 
         Raises:
-            ValueError: source block not found
+            ValueError: BLOCK in source document not found (defined)
 
         """
         for block_name in block_names:
             self.import_block(block_name, rename=rename)
 
     def import_block(self, block_name: str, rename=True) -> str:
-        """Import one block definition. If block already exist the block will
-        be renamed if argument `rename` is True, else the existing target block
-        will be used instead of the source block. Required name resolving for
-        imported block references (INSERT), will be done in
-        :meth:`Importer.finalize`.
+        """Import one BLOCK definition from source document.
 
-        To replace an existing block in the target drawing, just delete it
-        before importing:
+        If the BLOCK already exist the BLOCK will be renamed if argument
+        `rename` is ``True``, otherwise the existing BLOCK in the target
+        document will be used instead of the BLOCK in the source document.
+        Required name resolving for imported block references (INSERT), will be
+        done in the :meth:`Importer.finalize` method.
+
+        To replace an existing BLOCK in the target document, just delete it
+        before importing data:
         :code:`target.blocks.delete_block(block_name, safe=False)`
 
         Args:
-            block_name: name of block to import
-            rename: rename block if exists in target drawing
+            block_name: name of BLOCK to import
+            rename: rename BLOCK if a BLOCK with the same name already exist in
+                target document
 
-        Returns: block name (renamed)
+        Returns: (renamed) BLOCK name
 
         Raises:
-            ValueError: source block not found
+            ValueError: BLOCK in source document not found (defined)
 
         """
 
@@ -553,7 +537,7 @@ class Importer:
 
         try:
             source_block = self.source.blocks[block_name]
-        except DXFKeyError:
+        except const.DXFKeyError:
             raise ValueError(f'Source block "{block_name}" not found.')
 
         target_blocks = self.target.blocks
@@ -578,9 +562,9 @@ class Importer:
         return new_block_name
 
     def _create_missing_arrows(self):
-        """Create or import required arrows, used by LEADER or DIMSTYLE, which
-        are not imported automatically because they are not actually used in an
-        anonymous  DIMENSION blocks.
+        """Create or import required arrow blocks, used by the LEADER or the
+        DIMSTYLE entity, which are not imported automatically because they are
+        not used in an anonymous DIMENSION geometry BLOCK.
 
         """
         self.used_arrows.discard(
@@ -593,11 +577,11 @@ class Importer:
                 self.import_block(arrow_name, rename=False)
 
     def _resolve_inserts(self) -> None:
-        """Resolve block names of imported block reference entities (INSERT).
+        """Resolve BLOCK names of imported BLOCK reference entities (INSERT).
 
-        This is required for the case the name of the imported block collides
-        with an already existing block in the target drawing and conflict
-        resolving method was ``rename``.
+        This is required for the case the name of the imported BLOCK collides
+        with an already existing BLOCK in the target document and the conflict
+        resolving method is "rename".
 
         """
         while len(self.imported_inserts):
@@ -609,8 +593,8 @@ class Importer:
                 insert.dxf.name = block_name
 
     def _import_required_table_entries(self) -> None:
-        """Import required tables entries collected while importing entities
-        into target drawing.
+        """Import required table entries collected while importing entities
+        into the target document.
 
         """
         # 1. dimstyles import adds additional required linetype and style
@@ -646,10 +630,10 @@ class Importer:
                     linetype.pattern_tags.set_style_handle(new_handle)
 
     def finalize(self) -> None:
-        """Finalize import by importing required table entries and block
-        definition, without finalization the target drawing is maybe invalid
-        for AutoCAD. Call :meth:`~Importer.finalize()` as last step of the
-        import process.
+        """Finalize the import by importing required table entries and BLOCK
+        definitions, without finalization the target document is maybe invalid
+        for AutoCAD. Call the :meth:`~Importer.finalize()` method as last step
+        of the import process.
 
         """
         self._resolve_inserts()
@@ -657,33 +641,34 @@ class Importer:
         self._create_missing_arrows()
 
 
-def new_clean_entity(entity: "DXFEntity", xdata: bool = False) -> "DXFEntity":
+def new_clean_entity(
+    entity: "DXFEntity", keep_xdata: bool = False
+) -> "DXFEntity":
     """Copy entity and remove all external dependencies.
 
     Args:
         entity: DXF entity
-        xdata: remove xdata flag
+        keep_xdata: keep xdata flag
 
     """
     new_entity = entity.copy()
-    # clear drawing link
     new_entity.doc = None
-    return remove_dependencies(new_entity, xdata=xdata)
+    return remove_dependencies(new_entity, keep_xdata=keep_xdata)
 
 
 def remove_dependencies(
-    entity: "DXFEntity", xdata: bool = False
+    entity: "DXFEntity", keep_xdata: bool = False
 ) -> "DXFEntity":
     """Remove all external dependencies.
 
     Args:
         entity: DXF entity
-        xdata: remove xdata flag
+        keep_xdata: keep xdata flag
 
     """
     entity.appdata = None
     entity.reactors = None
     entity.extension_dict = None
-    if not xdata:
+    if not keep_xdata:
         entity.xdata = None
     return entity

@@ -2,8 +2,9 @@
 News
 ====
 
-Version 0.17.1 - dev
---------------------
+Version 0.17.1b2 - dev
+----------------------
+
 - CHANGE: using [PySide6](https://pypi.org/project/PySide6/) as Qt binding 
   if installed, `PyQt5` is still supported as fallback
 - NEW: tracking feature for DXF entity copies, new properties of `DXFEntity`
@@ -18,8 +19,14 @@ Version 0.17.1 - dev
     by a block reference
   - `source_block_reference` - the immediate source block reference (`INSERT`), 
     which created the virtual entity, otherwise ``None``
+- NEW: `ezdxf.tools.text_size` module to measure `TEXT` and `MTEXT` entity dimensions
 - BUGFIX: invalid XDATA processing in `XData.safe_init()` 
 - BUGFIX: group code 1003 is valid in XDATA section 
+- BUGFIX: fix loading error of `DIMSTYLE` attribute `dimtxsty` 
+- BUGFIX: fix "Next Entity" and "Previous Entity" actions in the `browse` command 
+- BUGFIX: export `MTEXT` entities with column count different than the count of 
+  linked `MTEXT` entities 
+- BUGFIX: fix invalid text rotation for relative text shifting for linear dimensions
 
 Version 0.17 - 2021-10-01
 -------------------------

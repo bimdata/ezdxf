@@ -150,7 +150,7 @@ def setup_dimstyles(doc: "Drawing", domain: str = "all") -> None:
             0  # size of center mark, 0=disable, >0=draw mark, <0=draw lines
         )
         # dimtmove: use leader, is the best setting for text outside to preserves
-        # appearance of DIMENSION entity,if editing DIMENSION afterwards in
+        # appearance of DIMENSION entity, if editing DIMENSION afterwards in
         # BricsCAD (AutoCAD)
         ez_radius.dxf.dimtmove = 1
 
@@ -166,6 +166,15 @@ def setup_dimstyles(doc: "Drawing", domain: str = "all") -> None:
             0  # required by BricsCAD (AutoCAD) to force text inside
         )
         ez_radius_inside.dxf.dimtad = 0  # center text vertical
+    if domain in ("angular", "all"):
+        # curved dimension lines for angular and arc dimensions
+        ez_angular = cast(
+            "DimStyle", doc.dimstyles.duplicate_entry("EZDXF", "EZ_ANGULAR")
+        )
+        ez_angular.set_arrows(blk=ARROWS.closed_filled)
+        ez_angular.dxf.dimasz = 0.25  # set arrow size
+        ez_angular.dxf.dimtad = 1  # above
+        ez_angular.dxf.dimaunit = 0  # 0=decimal deg 1=DMS 2=Grad 3=Radians
 
 
 class DimStyleFmt:
@@ -254,7 +263,7 @@ def setup_dimstyle(
     dim_style_fmt = DimStyleFmt(fmt)
     name = name or dim_style_fmt.name
     if doc.dimstyles.has_entry(name):
-        logging.debug('DimStyle "{}" already exists.'.format(name))
+        logging.debug(f'DimStyle "{name}" already exists.')
         return cast("DimStyle", doc.dimstyles.get(name))
 
     dimstyle = cast("DimStyle", doc.dimstyles.new(name))

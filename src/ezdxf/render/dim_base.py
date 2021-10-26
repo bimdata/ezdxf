@@ -8,11 +8,10 @@ from ezdxf._options import options
 from ezdxf.lldxf.const import DXFValueError, DXFUndefinedBlockError
 from ezdxf.tools import suppress_zeros
 from ezdxf.render.arrows import ARROWS
-from ezdxf.entities.dimstyleoverride import DimStyleOverride
+from ezdxf.entities import DimStyleOverride, Dimension
 
 if TYPE_CHECKING:
     from ezdxf.eztypes import (
-        Dimension,
         Vertex,
         Drawing,
         GenericLayoutType,
@@ -84,12 +83,16 @@ def format_text(
     if dimdsep != ".":
         text = text.replace(".", dimdsep)
     if dimpost:
-        if "<>" in dimpost:
-            fmt = dimpost.replace("<>", "{}", 1)
-            text = fmt.format(text)
-        else:
-            raise DXFValueError(f'Invalid dimpost string: "{dimpost}"')
+        text = apply_dimpost(text, dimpost)
     return text
+
+
+def apply_dimpost(text: str, dimpost: str) -> str:
+    if "<>" in dimpost:
+        fmt = dimpost.replace("<>", "{}", 1)
+        return fmt.format(text)
+    else:
+        raise DXFValueError(f'Invalid dimpost string: "{dimpost}"')
 
 
 class BaseDimensionRenderer:
@@ -97,13 +100,13 @@ class BaseDimensionRenderer:
 
     def __init__(
         self,
-        dimension: "Dimension",
+        dimension: Dimension,
         ucs: "UCS" = None,
         override: DimStyleOverride = None,
     ):
         assert dimension.doc is not None
         self.doc: "Drawing" = dimension.doc
-        self.dimension: "Dimension" = dimension
+        self.dimension: Dimension = dimension
         self.dxfversion: str = self.doc.dxfversion
         self.supports_dxf_r2000: bool = self.dxfversion >= "AC1015"
         self.supports_dxf_r2007: bool = self.dxfversion >= "AC1021"
@@ -511,6 +514,9 @@ class BaseDimensionRenderer:
             self.tol_text_width = None  # requires actual measurement
             self.text_height = max(self.text_height, self.tol_text_height)
 
+    def get_required_defpoint(self, name: str) -> Vec2:
+        return get_required_defpoint(self.dimension, name)
+
     def default_text_style(self):
         style = options.default_dimension_text_style
         if style not in self.doc.styles:
@@ -829,6 +835,9 @@ class BaseDimensionRenderer:
             "layer": "DEFPOINTS",
         }
         for point in points:
+            # Despite the fact that the POINT entity has WCS coordinates,
+            # the coordinates of defpoints in DIMENSION entities have OCS
+            # coordinates.
             location = self.ucs.to_ocs(Vec3(point)).replace(z=0)
             self.block.add_point(location, dxfattribs=attribs)  # type: ignore
 
@@ -847,7 +856,14 @@ class BaseDimensionRenderer:
         self.add_line(p2, p3, dxfattribs)
 
     def transform_ucs_to_wcs(self) -> None:
-        pass  # abstract method
+        """Transforms dimension definition points into WCS or if required into
+        OCS.
+
+        Can not be called in __init__(), because inherited classes may be need
+        unmodified values.
+
+        """
+        pass
 
     @property
     def vertical_placement(self) -> float:
@@ -876,6 +892,22 @@ class BaseDimensionRenderer:
 
     def finalize(self) -> None:
         self.transform_ucs_to_wcs()
+        if self.requires_extrusion:
+            self.dimension.dxf.extrusion = self.ucs.uz
+
+    def add_extension_line(
+        self, start: "Vertex", end: "Vertex", linetype: str = None
+    ) -> None:
+        """Add extension lines from dimension line to measurement point."""
+        attribs: Dict[str, Any] = {"color": self.ext_line_color}
+        if linetype is not None:
+            attribs["linetype"] = linetype
+
+        # lineweight requires DXF R2000 or later
+        if self.supports_dxf_r2000:
+            attribs["lineweight"] = self.ext_lineweight
+
+        self.add_line(start, end, dxfattribs=attribs)
 
 
 def order_leader_points(p1: Vec2, p2: Vec2, p3: Vec2) -> Tuple[Vec2, Vec2]:
@@ -883,3 +915,10 @@ def order_leader_points(p1: Vec2, p2: Vec2, p3: Vec2) -> Tuple[Vec2, Vec2]:
         return p3, p2
     else:
         return p2, p3
+
+
+def get_required_defpoint(dim: Dimension, name: str) -> Vec2:
+    dxf = dim.dxf
+    if dxf.hasattr(name):  # has to exist, ignore default value!
+        return Vec2(dxf.get(name))
+    raise const.DXFMissingDefinitionPoint(name)

@@ -13,7 +13,7 @@ from ezdxf.lldxf.tagger import ascii_tags_loader
 from ezdxf.addons.browser import DXFTagsModel, DXFStructureModel, DXFDocument
 from ezdxf.addons.browser.tags import compile_tags
 from ezdxf.addons.browser.data import (
-    LineIndex,
+    EntityIndex,
     EntityHistory,
     SearchIndex,
 )
@@ -176,16 +176,6 @@ class TestTagCompiler:
         assert tags[1] == (10, 1.1), "expected coords as single tags"
 
 
-def test_line_index_adds_missing_endsec_tag():
-    # The function load_dxf_structure() throws the ENDSEC tag away.
-    # The line indexer must take this issue into account!
-    sections = load_dxf_structure(txt2tags(SECTIONS))
-    index = LineIndex(sections)
-    entity = index.get_entity_at_line(15)
-    assert entity.get_handle() == "100"
-    assert index.get_start_line_for_entity(entity) == 15
-
-
 ENTITIES = """0
 SECTION
 2
@@ -227,6 +217,94 @@ ENDSEC
 0
 EOF
 """
+
+
+class TestEntityIndex:
+    @pytest.fixture(scope="class")
+    def index(self):
+        data = {
+            "ENTITIES": [
+                Tags([DXFTag(0, "ENTITY1"), DXFTag(5, "F001")]),
+                Tags([DXFTag(0, "ENTITY2"), DXFTag(5, "F002")]),
+                Tags([DXFTag(0, "ENTITY3"), DXFTag(5, "F003")]),
+                Tags([DXFTag(0, "ENTITY4"), DXFTag(5, "F004")]),
+                # last entity without handle, has dummy handle "*1"
+                Tags([DXFTag(0, "ENTITY5"), DXFTag(1, "DATA")]),
+            ]
+        }
+        return EntityIndex(data)
+
+    def test_contains_all_entities(self, index):
+        assert "F001" in index
+        assert "F002" in index
+        assert "F003" in index
+        assert "F004" in index
+        assert "*1" in index, "expected dummy handle"
+
+    def test_get_entity_by_handle(self, index):
+        tags = index.get("F001")
+        assert tags[0] == (0, "ENTITY1")
+
+    def test_get_entity_by_dummy_handle(self, index):
+        tags = index.get("*1")
+        assert tags[0] == (0, "ENTITY5")
+
+    def test_get_handle_from_casted_tags(self, index):
+        entity = Tags(index.get("F001"))
+        assert index.get_handle(entity) == "F001"
+
+    def test_get_dummy_handle_from_casted_tags(self, index):
+        entity = Tags(index.get("*1"))
+        assert index.get_handle(entity) == "*1"
+
+    def test_get_next_entity(self, index):
+        e1 = index.get("F001")
+        e2 = index.get("F002")
+        assert index.next_entity(e1) is e2
+
+    def test_next_entity_of_last_entity_is_last_entity(self, index):
+        e1 = index.get("*1")
+        assert index.next_entity(e1) is e1
+
+    def test_get_prev_entity(self, index):
+        e1 = index.get("F001")
+        e2 = index.get("F002")
+        assert index.previous_entity(e2) is e1
+
+    def test_prev_entity_of_first_entity_is_first_entity(self, index):
+        e1 = index.get("F001")
+        assert index.previous_entity(e1) is e1
+
+    def test_max_line_number(self, index):
+        assert index.max_line_number == 20
+
+    def test_get_start_line_number(self, index):
+        e = index.get("F003")
+        assert index.get_start_line_for_entity(e) == 9
+
+    def test_get_start_line_number_for_dummy_handle(self, index):
+        e = index.get("*1")
+        assert index.get_start_line_for_entity(e) == 17
+
+    def test_entity_at_line(self, index):
+        e3 = index.get("F003")
+        assert index.get_entity_at_line(9) is e3
+        assert index.get_entity_at_line(10) is e3
+
+    def test_entity_at_line_for_dummy_handle(self, index):
+        e = index.get("*1")
+        assert index.get_entity_at_line(19) is e
+        assert index.get_entity_at_line(20) is e
+
+
+def test_entity_index_adds_missing_endsec_tag():
+    # The function load_dxf_structure() throws the ENDSEC tag away.
+    # The entity indexer must take this issue into account!
+    sections = load_dxf_structure(txt2tags(SECTIONS))
+    index = EntityIndex(sections)
+    entity = index.get_entity_at_line(15)
+    assert entity.get_handle() == "100"
+    assert index.get_start_line_for_entity(entity) == 15
 
 
 class TestEntityHistory:
