@@ -20,6 +20,11 @@ Version 0.17.1b2 - dev
   - `source_block_reference` - the immediate source block reference (`INSERT`), 
     which created the virtual entity, otherwise ``None``
 - NEW: `ezdxf.tools.text_size` module to measure `TEXT` and `MTEXT` entity dimensions
+- CHANGE: `--ltype` arguments of the `draw` command  to `approximate` and `accurate`
+    to be in sync with the `drawing` add-on configuration.
+- CHANGE: `--ltype` arguments of the `view` command  to `approximate` and `accurate`
+    to be in sync with the `drawing` add-on configuration.
+- REMOVE `--scale` argument of the `view` command
 - BUGFIX: invalid XDATA processing in `XData.safe_init()` 
 - BUGFIX: group code 1003 is valid in XDATA section 
 - BUGFIX: fix loading error of `DIMSTYLE` attribute `dimtxsty` 
@@ -72,6 +77,8 @@ Version 0.17 - 2021-10-01
 - BUGFIX: graphic entities are not allowed as `DICTIONARY` entries 
 - BUGFIX: copied `DICTIONARY` was not added to the OBJECTS section by calling `factory.bind()`
 - BUGFIX: `XRecord.copy()` copies content tags
+- PREVIEW: angular dimension rendering support, new factory methods: 
+  `add_angular_dim_2l()`, `add_angular_dim_3p()`, `add_angular_dim_cra()` 
 
 Version 0.16.6 - 2021-08-28
 ---------------------------
