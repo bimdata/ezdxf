@@ -84,34 +84,17 @@ def get_gid(entity: Optional[DXFGraphic]) -> str:
     assert entity is not None, "this should not happen"
 
     # handle is None
-    entity = entity.origin_of_copy
+    if entity.is_copy:
+        entity = entity.origin_of_copy
+
     if entity is not None:  # doesn't have to have an origin -> virtual entity
         handle = entity.dxf.handle
 
     if handle is None:
         # virtual entity without a handle or handle is None
-        handle = uuid4().hex
+        handle = ""
+
     return handle + suffix
-
-
-# def recover_parent_handle(entity: DXFGraphic):
-#     if not entity.is_virtual and not entity.is_copy:
-#         return entity.dxf.handle
-
-#     suffix = ""
-#     if entity.has_source_block_reference:
-#         if not entity.source_block_reference.is_virtual:
-#             suffix += "_" + entity.uuid.hex
-#             entity = entity.source_block_reference
-#         else:
-#             while entity.has_source_block_reference:
-#                 suffix += "_" + entity.uuid.hex
-#                 entity = entity.source_block_reference
-
-#     if entity.is_copy:
-#         entity = entity.origin_of_copy
-
-#     return entity.dxf.handle + suffix
 
 
 def is_dark_color(color: Color, dark: float = 0.2) -> bool:
