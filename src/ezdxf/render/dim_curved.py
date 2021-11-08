@@ -1,7 +1,7 @@
 # Copyright (c) 2021, Manfred Moitzi
 # License: MIT License
 import math
-from typing import TYPE_CHECKING, Tuple, List
+from typing import TYPE_CHECKING, Tuple, List, Optional, Dict, Any
 from abc import abstractmethod
 import logging
 
@@ -9,22 +9,25 @@ from ezdxf.math import (
     Vec2,
     Vec3,
     UCS,
-    ConstructionBox,
     decdeg2dms,
-    ellipse_param_span,
+    arc_angle_span_rad,
+    xround,
 )
-
 from ezdxf.entities import DimStyleOverride, Dimension, DXFEntity
-from ezdxf.graphicsfactory import CreatorInterface
 from .dim_base import (
     BaseDimensionRenderer,
     get_required_defpoint,
     format_text,
     apply_dimpost,
+    TextBox,
+    Tolerance,
+    Measurement,
+    LengthMeasurement,
+    compile_mtext,
 )
-from ezdxf.render.arrows import ARROWS, connection_point
-from ezdxf.tools.text import upright_text_angle
-from ezdxf.math import ConstructionCircle, intersection_line_line_2d
+from ezdxf.render.arrows import ARROWS, arrow_length
+from ezdxf.tools.text import is_upside_down_text_angle
+from ezdxf.math import intersection_line_line_2d
 
 if TYPE_CHECKING:
     from ezdxf.eztypes import GenericLayoutType
@@ -41,6 +44,132 @@ def has_required_attributes(entity: DXFEntity, attrib_names: List[str]):
 
 GRAD = 200.0 / math.pi
 DEG = 180.0 / math.pi
+
+
+def format_angular_text(
+    value: float,
+    angle_units: int,
+    dimrnd: Optional[float],
+    dimdec: int,
+    dimzin: int,
+    dimdsep: str,
+) -> str:
+    def decimal_format(_value: float) -> str:
+        return format_text(
+            _value,
+            dimrnd=dimrnd,
+            dimdec=dimdec,
+            dimzin=dimzin,
+            dimdsep=dimdsep,
+        )
+
+    def dms_format(_value: float) -> str:
+        if dimrnd is not None:
+            _value = xround(_value, dimrnd)
+        d, m, s = decdeg2dms(_value)
+        if dimdec > 4:
+            places = dimdec - 5
+            s = round(s, places)
+            return f"{d:.0f}°{m:.0f}'{decimal_format(s)}\""
+        if dimdec > 2:
+            return f"{d:.0f}°{m:.0f}'{s:.0f}\""
+        if dimdec > 0:
+            return f"{d:.0f}°{m:.0f}'"
+        return f"{d:.0f}°"
+
+    # angular_unit:
+    # 0 = Decimal degrees
+    # 1 = Degrees/minutes/seconds
+    # 2 = Grad
+    # 3 = Radians
+    text = ""
+    if angle_units == 0:
+        text = decimal_format(value * DEG) + "°"
+    elif angle_units == 1:
+        text = dms_format(value * DEG)
+    elif angle_units == 2:
+        text = decimal_format(value * GRAD) + "g"
+    elif angle_units == 3:
+        text = decimal_format(value) + "r"
+    return text
+
+
+_ANGLE_UNITS = [
+    DEG,
+    DEG,
+    GRAD,
+    1.0,
+]
+
+
+def to_radians(value: float, dimaunit: int) -> float:
+    return value / _ANGLE_UNITS[dimaunit]
+
+
+class AngularTolerance(Tolerance):
+    def __init__(
+        self,
+        dim_style: DimStyleOverride,
+        cap_height: float = 1.0,
+        width_factor: float = 1.0,
+        dim_scale: float = 1.0,
+        angle_units: int = 0,
+    ):
+        self.angular_units = angle_units
+        super().__init__(dim_style, cap_height, width_factor, dim_scale)
+        # Tolerance values are interpreted in dimaunit:
+        # dimtp 1 means 1 degree for dimaunit = 0 or 1, but 1 radians for
+        # dimaunit = 3
+        # format_text() requires radians as input:
+        self.update_tolerance_text(
+            to_radians(self.maximum, angle_units),
+            to_radians(self.minimum, angle_units),
+        )
+
+    def format_text(self, value: float) -> str:
+        """Rounding and text formatting of tolerance `value`, removes leading
+        and trailing zeros if necessary.
+
+        """
+        return format_angular_text(
+            value=value,
+            angle_units=self.angular_units,
+            dimrnd=None,
+            dimdec=self.decimal_places,
+            dimzin=self.suppress_zeros,
+            dimdsep=self.text_decimal_separator,
+        )
+
+    def update_limits(self, measurement: float) -> None:
+        # measurement is in radians, tolerance values are interpreted in
+        # dimaunit: dimtp 1 means 1 degree for dimaunit = 0 or 1,
+        # but 1 radians for dimaunit = 3
+        # format_text() requires radians as input:
+        upper_limit = measurement + to_radians(self.maximum, self.angular_units)
+        lower_limit = measurement - to_radians(self.minimum, self.angular_units)
+        self.text_upper = self.format_text(upper_limit)
+        self.text_lower = self.format_text(lower_limit)
+        self.text_width = self.get_text_width(self.text_upper, self.text_lower)
+
+
+class AngleMeasurement(Measurement):
+    def update(self, raw_measurement_value: float) -> None:
+        self.raw_value = raw_measurement_value
+        self.value = raw_measurement_value
+        self.text = self.text_override(raw_measurement_value)
+
+    def format_text(self, value: float) -> str:
+        text = format_angular_text(
+            value=value,
+            angle_units=self.angle_units,
+            dimrnd=None,
+            dimdec=self.angular_decimal_places,
+            dimzin=self.angular_suppress_zeros << 2,  # convert to dimzin value
+            dimdsep=self.decimal_separator,
+        )
+        if self.text_post_process_format:
+            text = apply_dimpost(text, self.text_post_process_format)
+        return text
 
 
 class _CurvedDimensionLine(BaseDimensionRenderer):
@@ -60,13 +189,20 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
         self.end_angle_rad: float = self.ext2_dir.angle
         self.center_angle_rad = (
             self.start_angle_rad
-            + ellipse_param_span(self.start_angle_rad, self.end_angle_rad) / 2.0
+            + arc_angle_span_rad(self.start_angle_rad, self.end_angle_rad) / 2.0
         )
 
         # Additional required parameters but calculated later by sub-classes:
         self.ext1_start = Vec2()  # start of 1st extension line
         self.ext2_start = Vec2()  # start of 2nd extension line
         self.arrows_outside = False
+
+        # Class specific setup:
+        self.update_measurement()
+        if self.tol.has_limits:
+            self.tol.update_limits(self.measurement.value)
+        self.setup_text_properties()
+        self.setup_text_box()
 
     def render(self, block: "GenericLayoutType") -> None:
         """Main method to create dimension geometry of basic DXF entities in the
@@ -77,27 +213,28 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
 
         """
         super().render(block)
-        self.make_measurement_text()
-        self.setup_text_properties()
         self.add_extension_lines()
-        self.add_arrows()
-        self.add_dimension_line()
-        if self.text:
-            if self.supports_dxf_r2000:
-                text = self.compile_mtext()
+        adjust_start_angle, adjust_end_angle = self.add_arrows()
+
+        measurement = self.measurement
+        if measurement.text:
+            if self.geometry.supports_dxf_r2000:
+                text = compile_mtext(measurement, self.tol)
             else:
-                text = self.text
+                text = measurement.text
             self.add_measurement_text(
-                text, self.text_location, self.text_rotation
+                text, measurement.text_location, measurement.text_rotation
             )
-            if self.text_has_leader:
+            if measurement.has_leader:
                 leader1, leader2 = self.get_leader_points()
                 self.add_leader(self.dim_midpoint, leader1, leader2)
-        self.add_defpoints(self.get_defpoints())
+        # requires the TextBox to remove hidden parts of the dimension line
+        self.add_dimension_line(adjust_start_angle, adjust_end_angle)
+        self.geometry.add_defpoints(self.get_defpoints())
 
     @property
     def ocs_center_of_arc(self) -> Vec3:
-        return self.ucs.to_ocs(Vec3(self.center_of_arc))
+        return self.geometry.ucs.to_ocs(Vec3(self.center_of_arc))
 
     @property
     def dim_midpoint(self) -> Vec2:
@@ -107,7 +244,7 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
         )
 
     @abstractmethod
-    def make_measurement_text(self) -> None:
+    def update_measurement(self) -> None:
         """Setup measurement text."""
         pass
 
@@ -115,19 +252,68 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
         """Setup geometric text properties (location, rotation) and the TextBox
         object.
         """
-        # todo: take more DIMSTYLE attributes into account!
-        # place text in the center of the angle above the dimension line
-        center_dir = Vec2.from_angle(self.center_angle_rad)
-        offset = self.text_height / 2.0 + self.text_gap
-        radius = self.dim_line_radius + offset
-        self.text_location = self.center_of_arc + center_dir * radius
+        # text radial direction = center -> text
+        text_radial_dir: Vec2  # text "vertical" direction
+        measurement = self.measurement
+        radius = self.dim_line_radius + measurement.text_vertical_distance()
 
-        self.dimension.dxf.text_midpoint = self.text_location
-        rotation = center_dir.orthogonal(ccw=False).angle_deg
-        # check WCS text orientation
-        wcs_angle = self.ucs.to_ocs_angle_deg(rotation)
-        rotation = upright_text_angle(wcs_angle)
-        self.text_rotation = rotation
+        # determine text location:
+        if measurement.user_location is None:
+            # place text in the center of the dimension line
+            text_radial_dir = Vec2.from_angle(self.center_angle_rad)
+            measurement.text_location = (
+                self.center_of_arc + text_radial_dir * radius
+            )
+        else:
+            # place text at user location:
+            measurement.text_location = measurement.user_location
+            text_radial_dir = (
+                measurement.text_location - self.center_of_arc
+            ).normalize()
+
+        # set text "horizontal":
+        text_tangential_dir = text_radial_dir.orthogonal(ccw=False)
+
+        # apply text relative shift (ezdxf only feature)
+        if measurement.text_shift_h:
+            measurement.text_location += (
+                text_tangential_dir * measurement.text_shift_h
+            )
+        if measurement.text_shift_v:
+            measurement.text_location += (
+                text_radial_dir * measurement.text_shift_v
+            )
+
+        # Update final text location in the DIMENSION entity:
+        self.dimension.dxf.text_midpoint = measurement.text_location
+
+        # apply user text rotation
+        if measurement.user_text_rotation is None:
+            rotation = text_tangential_dir.angle_deg
+        else:
+            rotation = measurement.user_text_rotation
+
+        if not self.geometry.requires_extrusion:
+            # todo: extrusion vector (0, 0, -1)?
+            # Practically all DIMENSION entities are 2D entities,
+            # where OCS == WCS, check WCS text orientation:
+            wcs_angle = self.geometry.ucs.to_ocs_angle_deg(rotation)
+            if is_upside_down_text_angle(wcs_angle):
+                rotation += 180.0  # apply to UCS rotation!
+        measurement.text_rotation = rotation
+
+    def setup_text_box(self):
+        measurement = self.measurement
+        self.geometry.set_text_box(
+            TextBox(
+                center=measurement.text_location,
+                width=self.total_text_width(),
+                height=measurement.text_height,
+                angle=measurement.text_rotation,
+                # Arbitrary choice to reduce the too large gap!
+                gap=measurement.text_gap * 0.75,
+            )
+        )
 
     @abstractmethod
     def get_ext1_dir(self) -> Vec2:
@@ -160,21 +346,24 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
         return []
 
     def add_extension_lines(self) -> None:
-        if not self.suppress_ext1_line:
+        ext_lines = self.extension_lines
+        if not ext_lines.suppress1:
             self._add_ext_line(
-                self.ext1_start, self.ext1_dir, self.ext1_linetype_name
+                self.ext1_start, self.ext1_dir, ext_lines.dxfattribs(1)
             )
-        if not self.suppress_ext2_line:
+        if not ext_lines.suppress2:
             self._add_ext_line(
-                self.ext2_start, self.ext2_dir, self.ext2_linetype_name
+                self.ext2_start, self.ext2_dir, ext_lines.dxfattribs(2)
             )
 
-    def _add_ext_line(self, start: Vec2, direction: Vec2, ltype) -> None:
-        start = start + direction * self.ext_line_offset
+    def _add_ext_line(
+        self, start: Vec2, direction: Vec2, dxfattribs: Dict[str, Any]
+    ) -> None:
+        start = start + direction * self.extension_lines.offset
         end = self.center_of_arc + direction * (
-            self.dim_line_radius + self.ext_line_extension
+            self.dim_line_radius + self.extension_lines.extension_above
         )
-        self.add_extension_line(start, end, ltype)
+        self.add_line(start, end, dxfattribs=dxfattribs)
 
     def add_arrows(self) -> Tuple[float, float]:
         """Add arrows or ticks to dimension.
@@ -183,9 +372,8 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
             dimension line
 
         """
-        attribs = {
-            "color": self.dim_line_color,
-        }
+        arrows = self.arrows
+        attribs = arrows.dxfattribs()
         radius = self.dim_line_radius
         if abs(radius) < 1e-12:
             return 0.0, 0.0
@@ -195,17 +383,17 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
         angle1 = self.ext1_dir.orthogonal().angle_deg
         angle2 = self.ext2_dir.orthogonal().angle_deg
         outside = self.arrows_outside
-        arrow1 = not self.suppress_arrow1
-        arrow2 = not self.suppress_arrow2
+        arrow1 = not arrows.suppress1
+        arrow2 = not arrows.suppress2
         start_angle_offset = 0.0
         end_angle_offset = 0.0
-        if self.tick_size > 0.0:  # oblique stroke, but double the size
+        if arrows.tick_size > 0.0:  # oblique stroke, but double the size
             if arrow1:
                 self.add_blockref(
                     ARROWS.oblique,
                     insert=start,
                     rotation=angle1,
-                    scale=self.tick_size * 2,
+                    scale=arrows.tick_size * 2.0,
                     dxfattribs=attribs,
                 )
             if arrow2:
@@ -213,11 +401,11 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
                     ARROWS.oblique,
                     insert=end,
                     rotation=angle2,
-                    scale=self.tick_size * 2,
+                    scale=arrows.tick_size * 2.0,
                     dxfattribs=attribs,
                 )
         else:
-            scale = self.arrow_size
+            scale = arrows.arrow_size
             start_angle = angle1 + 180.0
             end_angle = angle2
             if outside:
@@ -225,7 +413,7 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
 
             if arrow1:
                 self.add_blockref(
-                    self.arrow1_name,  # type: ignore
+                    arrows.arrow1_name,
                     insert=start,
                     scale=scale,
                     rotation=start_angle,
@@ -233,38 +421,35 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
                 )  # reverse
             if arrow2:
                 self.add_blockref(
-                    self.arrow2_name,  # type: ignore
+                    arrows.arrow2_name,
                     insert=end,
                     scale=scale,
                     rotation=end_angle,
                     dxfattribs=attribs,
                 )
             if not outside:
-                # arrows inside extension lines: adjust connection points for
-                # the remaining dimension line
-                # acr angle in radians = arc length / radius
+                # arrows inside extension lines:
+                # adjust angles for the remaining dimension line
                 if arrow1:
                     start_angle_offset = (
-                        connection_point(
-                            self.arrow1_name, start, scale, start_angle  # type: ignore
-                        )
-                        / radius
+                        arrow_length(arrows.arrow1_name, scale) / radius
                     )
                 if arrow2:
                     end_angle_offset = (
-                        connection_point(
-                            self.arrow2_name, end, scale, end_angle  # type: ignore
-                        )
-                        / radius
+                        arrow_length(arrows.arrow2_name, scale) / radius
                     )
         return start_angle_offset, end_angle_offset
 
-    def add_dimension_line(self) -> None:
-        self.add_dxf_arc(
+    def add_dimension_line(
+        self, start_offset: float, end_offset: float
+    ) -> None:
+        self.add_arc(
+            self.center_of_arc,
             self.dim_line_radius,
-            self.start_angle_rad,
-            self.end_angle_rad,
-            remove_hidden_lines=False,
+            self.start_angle_rad + start_offset,
+            self.end_angle_rad - end_offset,
+            dxfattribs=self.dimension_line.dxfattribs(),
+            remove_hidden_lines=True,
         )
 
     def add_measurement_text(
@@ -278,104 +463,32 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
             rotation: text rotation in degrees
 
         """
-        attribs = {
-            "color": self.text_color,
-        }
-        self.add_text(
-            dim_text, pos=Vec3(pos), rotation=rotation, dxfattribs=attribs
-        )
-
-    def add_dxf_arc(
-        self,
-        radius: float,
-        start_angle: float,
-        end_angle: float,
-        dxfattribs: dict = None,
-        remove_hidden_lines=False,
-    ) -> None:
-        """Add a ARC entity to the dimension BLOCK. Removes parts of the arc
-        hidden by dimension text if `remove_hidden_lines` is True.
-        The center of the arc is always :attr: `self.ocs_center_of_arc`.
-
-        Args:
-            radius: radius of arc
-            start_angle: start angle in radians
-            end_angle: end angle in radians
-            dxfattribs: additional or overridden DXF attributes
-            remove_hidden_lines: removes parts of the arc hidden by dimension
-                text if ``True``
-
-        """
-
-        def add_arc(start: float, end: float) -> None:
-            """Add ARC entity to geometry block."""
-            self.block.add_arc(  # type: ignore
-                center=ocs_center,
-                radius=radius,
-                start_angle=math.degrees(ocs_angle(start)),
-                end_angle=math.degrees(ocs_angle(end)),
-                dxfattribs=dxfattribs,
-            )
-
-        assert isinstance(self.block, CreatorInterface)
-        ocs_center = self.ucs.to_ocs(Vec3(self.center_of_arc)).replace(z=0)
-        ocs_angle = self.ucs.to_ocs_angle_rad
-        attribs = self.default_attributes()
-        if dxfattribs:
-            attribs.update(dxfattribs)
-        if self.requires_extrusion:
-            attribs["extrusion"] = self.ucs.uz
-        if remove_hidden_lines:
-            assert isinstance(self.text_box, ConstructionBox)
-            for start, end in visible_arcs(
-                self.center_of_arc,
-                radius,
-                start_angle,
-                end_angle,
-                self.text_box,
-            ):
-                add_arc(start, end)
-        else:
-            add_arc(start_angle, end_angle)
+        attribs = self.measurement.dxfattribs()
+        self.add_text(dim_text, pos=pos, rotation=rotation, dxfattribs=attribs)
 
 
 class _AngularCommonBase(_CurvedDimensionLine):
-    def make_measurement_text(self) -> None:
-        angle = ellipse_param_span(self.start_angle_rad, self.end_angle_rad)
-        self.text = self.text_override(angle)  # -> self.format_text()
+    def init_tolerance(
+        self, scale: float, measurement: Measurement
+    ) -> Tolerance:
+        return AngularTolerance(
+            self.dim_style,
+            cap_height=measurement.text_height,
+            width_factor=measurement.text_width_factor,
+            dim_scale=scale,
+            angle_units=measurement.angle_units,
+        )
 
-    def format_text(self, value: float) -> str:
-        def decimal_format(value: float) -> str:
-            return format_text(
-                value,
-                dimrnd=self.text_round,
-                dimdec=self.text_decimal_places,
-                dimzin=self.text_suppress_zeros,
-                dimdsep=self.text_decimal_separator,
-            )
+    def init_measurement(self, color: int, scale: float) -> Measurement:
+        return AngleMeasurement(
+            self.dim_style, self.default_color, self.dim_scale
+        )
 
-        def dms_format(value: float) -> str:
-            d, m, s = decdeg2dms(value)
-            return f"{d:.0f}°{m:.0f}'{decimal_format(s)}\""
-
-        # 0 = Decimal degrees
-        # 1 = Degrees/minutes/seconds
-        # 2 = Grad
-        # 3 = Radians
-        fmt = self.dim_style.get("dimaunit", 0)
-        text = ""
-        if fmt == 0:
-            text = decimal_format(value * DEG) + "°"
-        elif fmt == 1:
-            text = dms_format(value * DEG)
-        elif fmt == 2:
-            text = decimal_format(value * GRAD) + "g"
-        elif fmt == 3:
-            text = decimal_format(value) + "r"
-        dimpost = self.text_format
-        if dimpost:
-            text = apply_dimpost(text, dimpost)
-        return text
+    def update_measurement(self) -> None:
+        measurement = arc_angle_span_rad(
+            self.start_angle_rad, self.end_angle_rad
+        )
+        self.measurement.update(measurement)
 
 
 class AngularDimension(_AngularCommonBase):
@@ -447,13 +560,14 @@ class AngularDimension(_AngularCommonBase):
             point = self.dimension.get_dxf_attrib(attr)
             self.dimension.set_dxf_attrib(attr, func(point))
 
-        from_ucs("defpoint", self.ucs.to_wcs)
-        from_ucs("defpoint2", self.ucs.to_wcs)
-        from_ucs("defpoint3", self.ucs.to_wcs)
-        from_ucs("defpoint4", self.ucs.to_wcs)
-        from_ucs("defpoint5", self.ucs.to_wcs)
-        from_ucs("text_midpoint", self.ucs.to_ocs)
-        self.dimension.dxf.angle = self.ucs.to_ocs_angle_deg(
+        ucs = self.geometry.ucs
+        from_ucs("defpoint", ucs.to_wcs)
+        from_ucs("defpoint2", ucs.to_wcs)
+        from_ucs("defpoint3", ucs.to_wcs)
+        from_ucs("defpoint4", ucs.to_wcs)
+        from_ucs("defpoint5", ucs.to_wcs)
+        from_ucs("text_midpoint", ucs.to_ocs)
+        self.dimension.dxf.angle = ucs.to_ocs_angle_deg(
             self.dimension.dxf.angle
         )
 
@@ -543,12 +657,13 @@ class Angular3PDimension(_AngularCommonBase):
             point = self.dimension.get_dxf_attrib(attr)
             self.dimension.set_dxf_attrib(attr, func(point))
 
-        from_ucs("defpoint", self.ucs.to_wcs)
-        from_ucs("defpoint2", self.ucs.to_wcs)
-        from_ucs("defpoint3", self.ucs.to_wcs)
-        from_ucs("defpoint4", self.ucs.to_wcs)
-        from_ucs("text_midpoint", self.ucs.to_ocs)
-        self.dimension.dxf.angle = self.ucs.to_ocs_angle_deg(
+        ucs = self.geometry.ucs
+        from_ucs("defpoint", ucs.to_wcs)
+        from_ucs("defpoint2", ucs.to_wcs)
+        from_ucs("defpoint3", ucs.to_wcs)
+        from_ucs("defpoint4", ucs.to_wcs)
+        from_ucs("text_midpoint", ucs.to_ocs)
+        self.dimension.dxf.angle = ucs.to_ocs_angle_deg(
             self.dimension.dxf.angle
         )
 
@@ -605,6 +720,11 @@ class ArcLengthDimension(_CurvedDimensionLine):
         self.ext1_start = self.leg1_start
         self.ext2_start = self.leg2_start
 
+    def init_measurement(self, color: int, scale: float) -> Measurement:
+        return LengthMeasurement(
+            self.dim_style, self.default_color, self.dim_scale
+        )
+
     def transform_ucs_to_wcs(self) -> None:
         """Transforms dimension definition points into WCS or if required into
         OCS.
@@ -614,12 +734,13 @@ class ArcLengthDimension(_CurvedDimensionLine):
             point = self.dimension.get_dxf_attrib(attr)
             self.dimension.set_dxf_attrib(attr, func(point))
 
-        from_ucs("defpoint", self.ucs.to_wcs)
-        from_ucs("defpoint2", self.ucs.to_wcs)
-        from_ucs("defpoint3", self.ucs.to_wcs)
-        from_ucs("defpoint4", self.ucs.to_wcs)
-        from_ucs("text_midpoint", self.ucs.to_ocs)
-        self.dimension.dxf.angle = self.ucs.to_ocs_angle_deg(
+        ucs = self.geometry.ucs
+        from_ucs("defpoint", ucs.to_wcs)
+        from_ucs("defpoint2", ucs.to_wcs)
+        from_ucs("defpoint3", ucs.to_wcs)
+        from_ucs("defpoint4", ucs.to_wcs)
+        from_ucs("text_midpoint", ucs.to_ocs)
+        self.dimension.dxf.angle = ucs.to_ocs_angle_deg(
             self.dimension.dxf.angle
         )
 
@@ -635,67 +756,10 @@ class ArcLengthDimension(_CurvedDimensionLine):
     def get_ext2_dir(self) -> Vec2:
         return (self.ext2_start - self.center_of_arc).normalize()
 
-    def make_measurement_text(self) -> None:
-        angle = ellipse_param_span(self.start_angle_rad, self.end_angle_rad)
+    def update_measurement(self) -> None:
+        angle = arc_angle_span_rad(self.start_angle_rad, self.end_angle_rad)
         arc_length = angle * self.arc_radius * 2.0
-        self.text = self.text_override(arc_length)  # -> self.format_text()
-
-
-def visible_arcs(
-    center: Vec2,
-    radius: float,
-    start_angle: float,
-    end_angle: float,
-    box: ConstructionBox,
-) -> List[Tuple[float, float]]:
-    """Returns the visible parts of an arc intersecting with a construction box
-    as (start angle, end angle) tuples.
-
-    Args:
-        center: center of the arc
-        radius: radius of the arc
-        start_angle: start angle of arc in radians
-        end_angle: end angle of arc in radians
-        box: construction box which may intersect the arc
-
-    """
-    tau = math.tau
-    # normalize angles into range 0 to 2pi
-    start_angle = start_angle % tau
-    end_angle = end_angle % tau
-    intersection_angles: List[float] = []  # angles are in the range 0 to 2pi
-    circle = ConstructionCircle(center, radius)
-    shift_angles = 0.0
-    if start_angle > end_angle:  # angles should not pass 0
-        shift_angles = tau
-        end_angle += tau
-
-    for line in box.border_lines():
-        for intersection_point in circle.intersect_ray(line.ray):
-            # is the intersection point in the range of the rectangle border
-            if line.bounding_box.inside(intersection_point):
-                angle = (
-                    (intersection_point - center).angle % tau
-                ) + shift_angles
-                # is angle in range of the arc
-                if start_angle < angle < end_angle:
-                    # new angle should be different than the last angle added:
-                    if intersection_angles and math.isclose(
-                        intersection_angles[-1], angle
-                    ):
-                        continue
-                    intersection_angles.append(angle)
-    if len(intersection_angles) == 2:
-        # Arc has to intersect the box in exact two locations!
-        intersection_angles.sort()
-        return [
-            (start_angle, intersection_angles[0]),
-            (intersection_angles[1], end_angle),
-        ]
-    else:
-        # Ignore cases where the start- or the end point is inside the box.
-        # Ignore cases where the box touches the arc in one point.
-        return [(start_angle, end_angle)]
+        self.measurement.update(arc_length)
 
 
 def detect_closer_defpoint(

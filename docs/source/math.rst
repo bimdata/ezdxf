@@ -23,6 +23,12 @@ Functions
 
 .. autofunction:: arc_angle_span_deg
 
+.. autofunction:: arc_angle_span_rad
+
+.. autofunction:: arc_segment_count
+
+.. autofunction:: arc_chord_length
+
 .. autofunction:: ellipse_param_span
 
 .. autofunction:: has_matrix_2d_stretching(m: Matrix44) -> bool
@@ -50,10 +56,6 @@ Bulge Related Functions
 
 2D Functions
 ============
-
-.. autofunction:: arc_segment_count
-
-.. autofunction:: arc_chord_length
 
 .. autofunction:: distance_point_line_2d(point: Vec2, start: Vec2, end: Vec2) -> float
 
@@ -648,11 +650,17 @@ ConstructionCircle
 
     .. automethod:: point_at(angle: float) -> Vec2
 
+    .. automethod:: vertices(angles: Iterable[float]) -> Iterator[Vec2]
+
+    .. automethod:: flattening(sagitta: float) -> Iterator[Vec2]
+
     .. automethod:: inside
 
     .. automethod:: tangent(angle: float) -> ConstructionRay
 
     .. automethod:: intersect_ray(ray: ConstructionRay, abs_tol: float = 1e-10) -> Sequence[Vec2]
+
+    .. automethod:: intersect_line(ray: ConstructionLine, abs_tol: float = 1e-10) -> Sequence[Vec2]
 
     .. automethod:: intersect_circle(other: ConstructionCircle, abs_tol: float = 1e-10) -> Sequence[Vec2]
 
@@ -708,6 +716,14 @@ ConstructionArc
     .. automethod:: from_3p(start_point: Vertex, end_point: Vertex, def_point: Vertex, ccw: bool = True) -> ConstructionArc
 
     .. automethod:: add_to_layout(layout: BaseLayout, ucs: UCS = None, dxfattribs: dict = None) -> Arc
+
+    .. automethod:: intersect_ray(ray: ConstructionRay, abs_tol: float = 1e-10) -> Sequence[Vec2]
+
+    .. automethod:: intersect_line(ray: ConstructionLine, abs_tol: float = 1e-10) -> Sequence[Vec2]
+
+    .. automethod:: intersect_circle(circle: ConstructionCircle, abs_tol: float = 1e-10) -> Sequence[Vec2]
+
+    .. automethod:: intersect_arc(other: ConstructionArc, abs_tol: float = 1e-10) -> Sequence[Vec2]
 
 ConstructionEllipse
 -------------------
@@ -818,6 +834,24 @@ ConstructionBox
     .. automethod:: border_lines() -> Sequence[ConstructionLine]
 
     .. automethod:: intersect(line: ConstructionLine) -> List[Vec2]
+
+ConstructionPolyline
+--------------------
+
+.. autoclass:: ConstructionPolyline
+
+    .. autoproperty:: length
+
+    .. autoproperty:: is_closed
+
+    .. automethod:: data(index: int) -> Tuple[float, float, Vec3]
+
+    .. automethod:: vertex_at(distance: float) -> Vec3
+
+    .. automethod:: divide(count: int) -> Iterator[Vec3]
+
+    .. automethod:: divide_by_length(length: float, force_last: bool = False) -> Iterator[Vec3]
+
 
 Shape2d
 -------

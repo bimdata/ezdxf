@@ -1,9 +1,9 @@
 # Copyright (c) 2010-2021 Manfred Moitzi
 # License: MIT License
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Sequence, Iterator, Iterable
 import math
-from ezdxf.math import Vec2
-from .line import ConstructionRay
+from ezdxf.math import Vec2, linspace
+from .line import ConstructionRay, ConstructionLine
 from .bbox import BoundingBox2d
 
 if TYPE_CHECKING:
@@ -72,10 +72,40 @@ class ConstructionCircle:
         """Returns point on circle at `angle` as :class:`Vec2` object.
 
         Args:
-            angle: angle in radians
+            angle: angle in radians, angle goes counter
+                clockwise around the z-axis, x-axis = 0 deg.
 
         """
         return self.center + Vec2.from_angle(angle, self.radius)
+
+    def vertices(self, angles: Iterable[float]) -> Iterable[Vec2]:
+        """Yields vertices of the circle for iterable `angles`.
+
+        Args:
+            angles: iterable of angles as radians, angle goes counter
+                clockwise around the z-axis, x-axis = 0 deg.
+
+        .. versionadded:: 0.17.1
+
+        """
+        center = self.center
+        radius = self.radius
+        for angle in angles:
+            yield center + Vec2.from_angle(angle, radius)
+
+    def flattening(self, sagitta: float) -> Iterator[Vec2]:
+        """Approximate the circle by vertices, argument `sagitta` is the
+        max. distance from the center of an arc segment to the center of its
+        chord. Returns a closed polygon where the start vertex is coincident
+        with the end vertex!
+
+        .. versionadded:: 0.17.1
+
+        """
+        from .arc import arc_segment_count
+
+        count = arc_segment_count(self.radius, math.tau, sagitta)
+        yield from self.vertices(linspace(0.0, math.tau, count + 1))
 
     def inside(self, point: "Vertex") -> bool:
         """Returns ``True`` if `point` is inside circle."""
@@ -115,6 +145,7 @@ class ConstructionCircle:
             =========== ==================================
 
         """
+        assert isinstance(ray, ConstructionRay)
         ortho_ray = ray.orthogonal(self.center)
         intersection_point = ray.intersect(ortho_ray)
         dist = self.center.distance(intersection_point)
@@ -140,6 +171,37 @@ class ConstructionCircle:
         # else: No intersection
         return tuple(result)
 
+    def intersect_line(
+        self, line: ConstructionLine, abs_tol: float = 1e-10
+    ) -> Sequence[Vec2]:
+        """Returns intersection points of circle and `line` as sequence of
+        :class:`Vec2` objects.
+
+        Args:
+            line: intersection line
+            abs_tol: absolute tolerance for tests (e.g. test for tangents)
+
+        Returns:
+            tuple of :class:`Vec2` objects
+
+            =========== ==================================
+            tuple size  Description
+            =========== ==================================
+            0           no intersection
+            1           line intersects or touches the circle at one point
+            2           line intersects the circle at two points
+            =========== ==================================
+
+        .. versionadded:: 0.17.1
+
+        """
+        assert isinstance(line, ConstructionLine)
+        return [
+            point
+            for point in self.intersect_ray(line.ray, abs_tol=abs_tol)
+            if is_point_in_line_range(line.start, line.end, point)
+        ]
+
     def intersect_circle(
         self, other: "ConstructionCircle", abs_tol: float = 1e-10
     ) -> Sequence[Vec2]:
@@ -162,24 +224,32 @@ class ConstructionCircle:
             =========== ==================================
 
         """
+        assert isinstance(other, ConstructionCircle)
         r1 = self.radius
         r2 = other.radius
         d = self.center.distance(other.center)
+        if d < abs_tol:
+            # concentric circles do not intersect by definition
+            return tuple()
+
         d_max = r1 + r2
         d_min = math.fabs(r1 - r2)
-        result = []
         if d_min <= d <= d_max:
             angle = (other.center - self.center).angle
             # Circles touches at one point:
             if math.isclose(d, d_max, abs_tol=abs_tol) or math.isclose(
                 d, d_min, abs_tol=abs_tol
             ):
-                result.append(self.point_at(angle))
+                return (self.point_at(angle),)
             else:  # Circles intersect in two points:
                 # Law of Cosines:
-                alpha = math.acos(
-                    (r2 ** 2 - r1 ** 2 - d ** 2) / (-2.0 * r1 * d)
-                )
-                result.append(self.point_at(angle + alpha))
-                result.append(self.point_at(angle - alpha))
-        return tuple(result)
+                alpha = math.acos((r2 * r2 - r1 * r1 - d * d) / (-2.0 * r1 * d))
+                return tuple(self.vertices((angle + alpha, angle - alpha)))
+        return tuple()
+
+
+def is_point_in_line_range(start: Vec2, end: Vec2, point: Vec2) -> bool:
+    length = (end - start).magnitude
+    if (point - start).magnitude > length:
+        return False
+    return (point - end).magnitude <= length

@@ -161,7 +161,7 @@ class DimStyleOverride:
         if ldrblk is not None:
             set_arrow("dimldrblk", ldrblk)
 
-    def get_arrow_names(self) -> Tuple[Optional[str], Optional[str]]:
+    def get_arrow_names(self) -> Tuple[str, str]:
         """Get arrow names as strings like 'ARCHTICK'.
 
         Returns:
@@ -169,7 +169,7 @@ class DimStyleOverride:
 
         """
         dimtsz = self.get("dimtsz", 0)
-        blk1, blk2 = None, None
+        blk1, blk2 = "", ""
         if dimtsz == 0.0:
             if bool(self.get("dimsah")):
                 blk1 = self.get("dimblk1", "")
@@ -179,6 +179,10 @@ class DimStyleOverride:
                 blk1 = blk
                 blk2 = blk
         return blk1, blk2
+
+    def get_decimal_separator(self) -> str:
+        dimdsep: int = self.get("dimdsep", 0)
+        return "," if dimdsep == 0 else chr(dimdsep)
 
     def set_tick(self, size: float = 1) -> None:
         """Use oblique stroke as tick, disables arrows.
@@ -530,16 +534,13 @@ class DimStyleOverride:
         renderer = self.get_renderer(ucs)
         if discard:
             self.doc.add_acad_incompatibility_message(
-                f"DIMENSION entity without geometry BLOCK (discard=True)"
+                "DIMENSION entity without geometry BLOCK (discard=True)"
             )
         else:
             block = self.doc.blocks.new_anonymous_block(type_char="D")
             self.dimension.dxf.geometry = block.name
             renderer.render(block)
-
-        # should be called after rendering
         renderer.finalize()
-
         if len(self.dimstyle_attribs):
             self.commit()
         return renderer

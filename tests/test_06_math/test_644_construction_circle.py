@@ -7,6 +7,7 @@ import pytest
 
 from ezdxf.math import (
     ConstructionRay,
+    ConstructionLine,
     ConstructionCircle,
     Vec2,
 )
@@ -168,32 +169,25 @@ def test_cicles_do_not_intersect():
     assert len(cross_points) == 0
 
 
-def test_intersect_circle_touch():
-    def check_touch(m, t, abs_tol=1e-9):
-        circle2 = ConstructionCircle(m, 1.5)
-        points = circle1.intersect_circle(circle2, 4)
-        assert len(points) == 1
-        return points[0].isclose(t, abs_tol=abs_tol)
-
+@pytest.mark.parametrize(
+    "center, point",
+    [
+        ((26.5, 20.0), (25.0, 20.0)),
+        ((20.0, 26.5), (20.0, 25.0)),
+        ((13.5, 20.0), (15.0, 20.0)),
+        ((20.0, 13.5), (20.0, 15.0)),
+        ((23.5, 20.0), (25.0, 20.0)),
+        ((20.0, 23.5), (20.0, 25.0)),
+        ((16.5, 20.0), (15.0, 20.0)),
+        ((20.0, 16.5), (20.0, 15.0)),
+    ],
+)
+def test_two_circles_touching_at_one_point(center, point):
     circle1 = ConstructionCircle((20, 20), 5)
-
-    assert check_touch((26.5, 20.0), (25.0, 20.0)) is True
-    assert check_touch((20.0, 26.5), (20.0, 25.0)) is True
-    assert check_touch((13.5, 20.0), (15.0, 20.0)) is True
-    assert check_touch((20.0, 13.5), (20.0, 15.0)) is True
-    assert (
-        check_touch((14.9339, 15.9276), (16.1030, 16.8674), abs_tol=1e-4)
-        is True
-    )
-
-    assert check_touch((23.5, 20.0), (25.0, 20.0)) is True
-    assert check_touch((20.0, 23.5), (20.0, 25.0)) is True
-    assert check_touch((16.5, 20.0), (15.0, 20.0)) is True
-    assert check_touch((20.0, 16.5), (20.0, 15.0)) is True
-    assert (
-        check_touch((17.2721, 17.8071), (16.1030, 16.8673), abs_tol=1e-4)
-        is True
-    )
+    circle2 = ConstructionCircle(center, 1.5)
+    points = circle1.intersect_circle(circle2)
+    assert len(points) == 1
+    return points[0].isclose(point, abs_tol=1e-9)
 
 
 def test_intersect_circle_intersect():
@@ -257,6 +251,22 @@ def test_intersect_circle_intersect():
     )
 
 
+def test_vertices():
+    circle = ConstructionCircle((0, 0), 1.0)
+    vertices = list(circle.vertices([0, math.pi * 0.5, math.pi, math.pi * 1.5]))
+    assert vertices[0].isclose((1, 0))
+    assert vertices[1].isclose((0, 1))
+    assert vertices[2].isclose((-1, 0))
+    assert vertices[3].isclose((0, -1))
+
+
+def test_flattening():
+    circle = ConstructionCircle((0, 0), 1.0)
+    vertices = list(circle.flattening(0.01))
+    assert len(vertices) == 24
+    assert vertices[0].isclose(vertices[-1]), "expected closed polygon"
+
+
 def test_create_3P():
     p1 = (3.0, 3.0)
     p2 = (5.0, 7.0)
@@ -265,3 +275,51 @@ def test_create_3P():
     assert isclose(circle.center[0], 7.6875, abs_tol=1e-4)
     assert isclose(circle.center[1], 3.15625, abs_tol=1e-4)
     assert isclose(circle.radius, 4.6901, abs_tol=1e-4)
+
+
+@pytest.mark.parametrize(
+    "start,end",
+    [
+        [(0.5, 2.0), (1.5, 2.0)],
+        [(0.5, -2.0), (1.5, -2.0)],
+        [(2.0, -2.0), (2.0, 2.0)],
+        [(-2.0, -2.0), (-2.0, 2.0)],
+    ],
+)
+def test_intersect_line_in_no_point(start, end):
+    """The intersection calculation itself is based on intersect_ray() and is
+    already tested.
+    """
+    circle = ConstructionCircle((0, 0), 1.0)
+    assert len(circle.intersect_line(ConstructionLine(start, end))) == 0
+
+
+@pytest.mark.parametrize(
+    "start,end",
+    [
+        [(0.5, 0.5), (1.5, 1.5)],
+        [(-0.5, -0.5), (-1.5, -1.5)],
+        [(0.0, 1.0), (0.5, 1.0)],  # touches the circle at one point
+    ],
+)
+def test_intersect_line_in_one_point(start, end):
+    """The intersection calculation itself is based on intersect_ray() and is
+    already tested.
+    """
+    circle = ConstructionCircle((0, 0), 1.0)
+    assert len(circle.intersect_line(ConstructionLine(start, end))) == 1
+
+
+@pytest.mark.parametrize(
+    "start,end",
+    [
+        [(0.0, -2.0), (0.0, 2.0)],
+        [(0.5, -2.0), (0.5, 2.0)],
+        [(-2.0, 0.0), (2.0, 0.0)],
+        [(-2.0, 0.5), (2.0, 0.5)],
+        [(-2.0, -2.0), (2.0, 2.0)],
+    ],
+)
+def test_intersect_line_in_two_points(start, end):
+    circle = ConstructionCircle((0, 0), 1.0)
+    assert len(circle.intersect_line(ConstructionLine(start, end))) == 2

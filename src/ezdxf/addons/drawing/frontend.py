@@ -48,7 +48,7 @@ from ezdxf.entities import (
 )
 from ezdxf.entities.attrib import BaseAttrib
 from ezdxf.entities.polygon import DXFPolygon
-from ezdxf.entities.boundary_paths import TBoundaryPath
+from ezdxf.entities.boundary_paths import AbstractBoundaryPath
 from ezdxf.layouts import Layout
 from ezdxf.math import Vec3, OCS, NULLVEC
 from ezdxf.path import (
@@ -64,6 +64,7 @@ from ezdxf import reorder
 from ezdxf.proxygraphic import ProxyGraphic
 from ezdxf.protocols import SupportsVirtualEntities, virtual_entities
 from ezdxf.tools.text import has_inline_formatting_codes
+from ezdxf.lldxf import const
 
 __all__ = ["Frontend"]
 
@@ -427,7 +428,9 @@ class Frontend:
             external_paths, holes = winding_deconstruction(polygons)
 
         if external_paths:
-            self.out.draw_filled_paths(external_paths, holes, properties)
+            self.out.draw_filled_paths(
+                ignore_text_boxes(external_paths), holes, properties
+            )
         elif holes:
             # First path is the exterior path, everything else is a hole
             self.out.draw_filled_paths([holes[0]], holes[1:], properties)
@@ -650,7 +653,7 @@ def is_spatial_text(extrusion: Vec3) -> bool:
 
 
 def closed_loops(
-    paths: List[TBoundaryPath],
+    paths: List[AbstractBoundaryPath],
     ocs: OCS,
     elevation: float,
     offset: Vec3 = NULLVEC,
@@ -658,7 +661,23 @@ def closed_loops(
     loops = []
     for boundary in paths:
         path = from_hatch_boundary_path(boundary, ocs, elevation, offset)
+        assert isinstance(
+            path.user_data, const.BoundaryPathState
+        ), "missing attached boundary path state"
         for sub_path in path.sub_paths():
             sub_path.close()
             loops.append(sub_path)
     return loops
+
+
+def ignore_text_boxes(paths: Iterable[Path]) -> Iterable[Path]:
+    """Filters text boxes from paths if BoundaryPathState() information is
+    attached.
+    """
+    for path in paths:
+        if (
+            isinstance(path.user_data, const.BoundaryPathState)
+            and path.user_data.textbox
+        ):
+            continue  # skip text box paths
+        yield path

@@ -2,7 +2,7 @@
 News
 ====
 
-Version 0.17.1b2 - dev
+Version 0.17.1b3 - dev
 ----------------------
 
 - CHANGE: using [PySide6](https://pypi.org/project/PySide6/) as Qt binding 
@@ -25,6 +25,8 @@ Version 0.17.1b2 - dev
 - CHANGE: `--ltype` arguments of the `view` command  to `approximate` and `accurate`
     to be in sync with the `drawing` add-on configuration.
 - REMOVE `--scale` argument of the `view` command
+- REMOVE: `PolylinePath.PATH_TYPE`, use `PolylinePath.type` instead
+- REMOVE: `EdgePath.PATH_TYPE`, use `EdgePath.type` instead
 - BUGFIX: invalid XDATA processing in `XData.safe_init()` 
 - BUGFIX: group code 1003 is valid in XDATA section 
 - BUGFIX: fix loading error of `DIMSTYLE` attribute `dimtxsty` 
@@ -32,6 +34,11 @@ Version 0.17.1b2 - dev
 - BUGFIX: export `MTEXT` entities with column count different than the count of 
   linked `MTEXT` entities 
 - BUGFIX: fix invalid text rotation for relative text shifting for linear dimensions
+- PREVIEW: angular dimension rendering support, new factory methods: 
+  `add_angular_dim_2l()`, `add_angular_dim_3p()`, `add_angular_dim_cra()` 
+- PREVIEW: helper class `ezdxf.math.ConstructionPolyline` to measure, interpolate and 
+  divide polylines and anything that can be approximated or flattened into 
+  vertices
 
 Version 0.17 - 2021-10-01
 -------------------------
@@ -77,8 +84,6 @@ Version 0.17 - 2021-10-01
 - BUGFIX: graphic entities are not allowed as `DICTIONARY` entries 
 - BUGFIX: copied `DICTIONARY` was not added to the OBJECTS section by calling `factory.bind()`
 - BUGFIX: `XRecord.copy()` copies content tags
-- PREVIEW: angular dimension rendering support, new factory methods: 
-  `add_angular_dim_2l()`, `add_angular_dim_3p()`, `add_angular_dim_cra()` 
 
 Version 0.16.6 - 2021-08-28
 ---------------------------
