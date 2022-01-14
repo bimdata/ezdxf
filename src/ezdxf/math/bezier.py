@@ -1,15 +1,14 @@
-# Copyright (c) 2010-2021 Manfred Moitzi
+# Copyright (c) 2010-2022 Manfred Moitzi
 # License: MIT License
-from typing import TYPE_CHECKING, Iterable, Tuple, Sequence
+from typing import Iterable, Tuple, Sequence
 from functools import lru_cache
 import math
-from ezdxf.math import Vec3, NULLVEC, Matrix44
+from ezdxf.math import Vec3, NULLVEC, Matrix44, Vertex
 from .construct2d import linspace
 
-if TYPE_CHECKING:
-    from ezdxf.eztypes import Vertex
 
 __all__ = ["Bezier"]
+
 
 """
 
@@ -154,7 +153,7 @@ class Bezier:
         yield from linspace(0.0, 1.0, segments + 1)
 
     def point(self, t: float) -> Vec3:
-        """ Returns a point for parameter `t` in range [0, 1] as :class:`Vec3`
+        """Returns a point for parameter `t` in range [0, 1] as :class:`Vec3`
         object.
         """
         if t < 0.0 or t > 1.0:

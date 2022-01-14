@@ -116,6 +116,42 @@ def test_flattening(bezier):
     assert len(list(curve.flattening(0.1, segments=4))) == 7
 
 
+@pytest.mark.parametrize(
+    "z",
+    [
+        1e99,
+        1e79,
+        1e59,
+        1e39,
+        1e19,
+        1e9,
+        1e6,
+        1000,
+        0,
+        -1e99,
+        -1e79,
+        -1e59,
+        -1e39,
+        -1e19,
+        -1e9,
+        -1e6,
+        -1000,
+    ],
+)
+def test_flattening_big_z_coordinates(bezier, z):
+    """Test based on issue #574"""
+    cp = [
+        (888, 770, z),
+        (887, 623, z),
+        (901, 478, z),
+        (930, 335, z),
+    ]
+    curve = bezier(cp)
+    points = list(curve.flattening(0.01))
+    # Don't care about the result, it should just not break!
+    assert len(points) > 0
+
+
 def test_pickle_support(bezier):
     curve = bezier(DEFPOINTS3D)
     pickled_curve = pickle.loads(pickle.dumps(curve))
@@ -205,17 +241,36 @@ def test_bezier_curves_from_complex_elliptic_arc(ellipse):
 
 def test_arc_params_issue_708(arc_params):
     cpts = list(arc_params(-2.498091544796509, -0.6435011087932844))
-    assert cpts[0] == (
-        Vec3(-0.8, -0.6, 0.0),
-        Vec3(-0.6111456180001683, -0.8518058426664423, 0.0),
-        Vec3(-0.3147573033330529, -1.0, 0.0),
-        Vec3(6.123233995736766e-17, -1.0, 0.0),
+    assert (
+        all(
+            a.isclose(b)
+            for a, b in zip(
+                cpts[0],
+                (
+                    Vec3(-0.8, -0.6, 0.0),
+                    Vec3(-0.6111456180001683, -0.8518058426664423, 0.0),
+                    Vec3(-0.3147573033330529, -1.0, 0.0),
+                    Vec3(6.123233995736766e-17, -1.0, 0.0),
+                ),
+            )
+        )
+        is True
     )
-    assert cpts[1] == (
-        Vec3(6.123233995736766e-17, -1.0, 0.0),
-        Vec3(0.314757303333053, -1.0, 0.0),
-        Vec3(0.6111456180001683, -0.8518058426664423, 0.0),
-        Vec3(0.8, -0.5999999999999999, 0.0),
+
+    assert (
+        all(
+            a.isclose(b)
+            for a, b in zip(
+                cpts[1],
+                (
+                    Vec3(6.123233995736766e-17, -1.0, 0.0),
+                    Vec3(0.314757303333053, -1.0, 0.0),
+                    Vec3(0.6111456180001683, -0.8518058426664423, 0.0),
+                    Vec3(0.8, -0.5999999999999999, 0.0),
+                ),
+            )
+        )
+        is True
     )
 
 
@@ -228,17 +283,35 @@ def test_bezier_curves_ellipse_issue_708(ellipse):
         end_param=-0.6435011087932844,
     )
     curves = list(ellipse(ellipse_))
-    assert curves[0].control_points == (
-        Vec3(0.9999999999999999, 1.6653345369377348e-16, 0.0),
-        Vec3(1.1180339887498947, -0.15737865166652631, 0.0),
-        Vec3(1.3032766854168418, -0.2499999999999999, 0.0),
-        Vec3(1.4999999999999998, -0.25, 0.0),
+    assert (
+        all(
+            a.isclose(b)
+            for a, b in zip(
+                curves[0].control_points,
+                (
+                    Vec3(0.9999999999999999, 1.6653345369377348e-16, 0.0),
+                    Vec3(1.1180339887498947, -0.15737865166652631, 0.0),
+                    Vec3(1.3032766854168418, -0.2499999999999999, 0.0),
+                    Vec3(1.4999999999999998, -0.25, 0.0),
+                ),
+            )
+        )
+        is True
     )
-    assert curves[1].control_points == (
-        Vec3(1.4999999999999998, -0.25, 0.0),
-        Vec3(1.696723314583158, -0.25, 0.0),
-        Vec3(1.881966011250105, -0.15737865166652654, 0.0),
-        Vec3(2.0, -5.551115123125783e-17, 0.0),
+    assert (
+        all(
+            a.isclose(b)
+            for a, b in zip(
+                curves[1].control_points,
+                (
+                    Vec3(1.4999999999999998, -0.25, 0.0),
+                    Vec3(1.696723314583158, -0.25, 0.0),
+                    Vec3(1.881966011250105, -0.15737865166652654, 0.0),
+                    Vec3(2.0, -5.551115123125783e-17, 0.0),
+                ),
+            )
+        )
+        is True
     )
 
 

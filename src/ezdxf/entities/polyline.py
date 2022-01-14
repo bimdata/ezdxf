@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2021 Manfred Moitzi
+# Copyright (c) 2019-2022 Manfred Moitzi
 # License: MIT License
 from typing import (
     TYPE_CHECKING,
@@ -20,6 +20,7 @@ from ezdxf.lldxf.attributes import (
     XType,
     RETURN_DEFAULT,
     group_code_mapping,
+    merge_group_code_mappings,
 )
 from ezdxf.lldxf.const import DXF12, SUBCLASS_MARKER, VERTEXNAMES
 from ezdxf.lldxf import const
@@ -31,7 +32,7 @@ from ezdxf.query import EntityQuery
 from ezdxf.entities import factory
 from ezdxf.audit import AuditError
 from .dxfentity import base_class, SubclassProcessor
-from .dxfgfx import DXFGraphic, acdb_entity
+from .dxfgfx import DXFGraphic, acdb_entity, acdb_entity_group_codes
 from .lwpolyline import FORMAT_CODES
 from .subentity import LinkedEntities
 
@@ -110,6 +111,9 @@ acdb_polyline = DefSubclass(
     },
 )
 acdb_polyline_group_codes = group_code_mapping(acdb_polyline, ignore=(66,))
+merged_polyline_group_codes = merge_group_code_mappings(
+    acdb_entity_group_codes, acdb_polyline_group_codes  # type: ignore
+)
 
 
 # Notes to SEQEND:
@@ -155,11 +159,11 @@ class Polyline(LinkedEntities):
     def load_dxf_attribs(
         self, processor: SubclassProcessor = None
     ) -> "DXFNamespace":
-        dxf = super().load_dxf_attribs(processor)
+        """Loading interface. (internal API)"""
+        # bypass DXFGraphic, loading proxy graphic is skipped!
+        dxf = super(DXFGraphic, self).load_dxf_attribs(processor)
         if processor:
-            processor.fast_load_dxfattribs(
-                dxf, acdb_polyline_group_codes, subclass=2, recover=True
-            )
+            processor.simple_dxfattribs_loader(dxf, merged_polyline_group_codes)
         return dxf
 
     def export_dxf(self, tagwriter: "TagWriter"):
@@ -347,16 +351,16 @@ class Polyline(LinkedEntities):
         self.vertices.append(vertex)
 
     def append_vertices(
-        self, points: Iterable["Vertex"], dxfattribs: Dict = None
+        self, points: Iterable["Vertex"], dxfattribs=None
     ) -> None:
         """Append multiple :class:`Vertex` entities at location `points`.
 
         Args:
             points: iterable of ``(x, y[, z])`` tuples
-            dxfattribs: dict of DXF attributes for :class:`Vertex` class
+            dxfattribs: dict of DXF attributes for the VERTEX objects
 
         """
-        dxfattribs = dxfattribs or {}
+        dxfattribs = dict(dxfattribs or {})
         for vertex in self._build_dxf_vertices(points, dxfattribs):
             self._append_vertex(vertex)
 
@@ -364,7 +368,7 @@ class Polyline(LinkedEntities):
         self,
         points: Iterable["Vertex"],
         format: str = "xy",
-        dxfattribs: Dict = None,
+        dxfattribs=None,
     ) -> None:
         """Append multiple :class:`Vertex` entities at location `points`.
 
@@ -372,10 +376,10 @@ class Polyline(LinkedEntities):
             points: iterable of (x, y, [start_width, [end_width, [bulge]]])
                     tuple
             format: format string, default is ``'xy'``, see: :ref:`format codes`
-            dxfattribs: dict of DXF attributes for :class:`Vertex` class
+            dxfattribs: dict of DXF attributes for the VERTEX objects
 
         """
-        dxfattribs = dxfattribs or {}
+        dxfattribs = dict(dxfattribs or {})
         dxfattribs["flags"] = (
             dxfattribs.get("flags", 0) | self.get_vertex_flags()
         )
@@ -394,7 +398,7 @@ class Polyline(LinkedEntities):
             )
             self._append_vertex(vertex)
 
-    def append_vertex(self, point: "Vertex", dxfattribs: dict = None) -> None:
+    def append_vertex(self, point: "Vertex", dxfattribs=None) -> None:
         """Append a single :class:`Vertex` entity at location `point`.
 
         Args:
@@ -402,12 +406,12 @@ class Polyline(LinkedEntities):
             dxfattribs: dict of DXF attributes for :class:`Vertex` class
 
         """
-        dxfattribs = dxfattribs or {}
+        dxfattribs = dict(dxfattribs or {})
         for vertex in self._build_dxf_vertices([point], dxfattribs):
             self._append_vertex(vertex)
 
     def insert_vertices(
-        self, pos: int, points: Iterable["Vertex"], dxfattribs: dict = None
+        self, pos: int, points: Iterable["Vertex"], dxfattribs=None
     ) -> None:
         """Insert vertices `points` into :attr:`Polyline.vertices` list
         at insertion location `pos` .
@@ -418,7 +422,7 @@ class Polyline(LinkedEntities):
             dxfattribs: dict of DXF attributes for :class:`Vertex` class
 
         """
-        dxfattribs = dxfattribs or {}
+        dxfattribs = dict(dxfattribs or {})
         self.vertices[pos:pos] = list(
             self._build_dxf_vertices(points, dxfattribs)
         )
@@ -457,15 +461,26 @@ class Polyline(LinkedEntities):
             return self
 
     def transform(self, m: Matrix44) -> "Polyline":
-        """Transform the POLYLINE entity by transformation matrix `m` inplace."""
+        """Transform the POLYLINE entity by transformation matrix `m` inplace.
+
+        A non uniform scaling is not supported if a 2D POLYLINE contains
+        circular arc segments (bulges).
+
+        Args:
+            m: transformation :class:`~ezdxf.math.Matrix44`
+
+        Raises:
+            NonUniformScalingError: for non uniform scaling of 2D POLYLINE
+                containing circular arc segments (bulges)
+
+        """
 
         def _ocs_locations(elevation):
             for vertex in self.vertices:
                 location = vertex.dxf.location
                 if elevation is not None:
-                    # Older DXF version may not have written the z-axis, which
-                    # is now 0 by default in ezdxf, so replace existing z-axis
-                    # by elevation value.
+                    # Older DXF versions may not have written the z-axis, so
+                    # replace existing z-axis by the elevation value.
                     location = location.replace(z=elevation)
                 yield location
 
@@ -473,12 +488,11 @@ class Polyline(LinkedEntities):
             dxf = self.dxf
             ocs = OCSTransform(self.dxf.extrusion, m)
             if not ocs.scale_uniform and self.has_arc:
-                # Parent function has to catch this Exception and explode this
-                # 2D POLYLINE into LINE and ELLIPSE entities.
                 raise NonUniformScalingError(
-                    "2D POLYLINE with arcs does not support non uniform scaling"
+                    "2D POLYLINE containing arcs (bulges) does not support non uniform scaling"
                 )
-
+                # The caller function has to catch this exception and explode the
+                # 2D POLYLINE into LINE and ELLIPSE entities.
             if dxf.hasattr("elevation"):
                 z_axis = dxf.elevation.z
             else:
@@ -488,7 +502,8 @@ class Polyline(LinkedEntities):
                 for vertex in _ocs_locations(z_axis)
             ]
 
-            # All vertices of a 2D polyline have the same z-axis:
+            # All vertices of a 2D polyline must have the same z-axis, which is
+            # the elevation of the polyline:
             if vertices:
                 dxf.elevation = vertices[0].replace(x=0, y=0)
 
@@ -519,26 +534,27 @@ class Polyline(LinkedEntities):
         return self
 
     def explode(self, target_layout: "BaseLayout" = None) -> "EntityQuery":
-        """Explode POLYLINE as DXF LINE, ARC or 3DFACE primitives into target
-        layout, if the target layout is ``None``, the target layout is the
-        layout of the POLYLINE entity .
-        Returns an :class:`~ezdxf.query.EntityQuery` container including all
+        """Explode the POLYLINE entity as DXF primitives (LINE, ARC or 3DFACE)
+        into the target layout, if the target layout is ``None``, the target
+        layout is the layout of the POLYLINE entity.
+
+        Returns an :class:`~ezdxf.query.EntityQuery` container of all
         DXF primitives.
 
         Args:
             target_layout: target layout for DXF primitives, ``None`` for same
-            layout as source entity.
+                layout as source entity.
 
         """
         return explode_entity(self, target_layout)
 
     def virtual_entities(self) -> Iterable[Union["Line", "Arc", "Face3d"]]:
-        """Yields 'virtual' parts of POLYLINE as LINE, ARC or 3DFACE
-        primitives.
+        """Yields the graphical representation of POLYLINE as virtual DXF
+        primitives (LINE, ARC or 3DFACE).
 
-        This entities are located at the original positions, but are not stored
-        in the entity database, have no handle and are not assigned to any
-        layout.
+        These virtual entities are located at the original location, but are not
+        stored in the entity database, have no handle and are not assigned to
+        any layout.
 
         """
         for e in virtual_polyline_entities(self):
@@ -546,7 +562,7 @@ class Polyline(LinkedEntities):
             yield e
 
     def audit(self, auditor: "Auditor") -> None:
-        """Audit and repair POLYLINE entity."""
+        """Audit and repair the POLYLINE entity."""
 
         def audit_sub_entity(entity):
             entity.doc = doc  # grant same document
@@ -569,7 +585,7 @@ class Polyline(LinkedEntities):
             self.new_seqend()
             auditor.fixed_error(
                 code=AuditError.MISSING_REQUIRED_SEQEND,
-                message=f"Create required SEQEND entity for {str(self)}.",
+                message=f"Created required SEQEND entity for {str(self)}.",
                 dxf_entity=self,
             )
 
@@ -605,12 +621,12 @@ class Polyface(Polyline):
         # do not destroy polyline - all data would be lost
         return polyface
 
-    def append_face(self, face: "FaceType", dxfattribs: Dict = None) -> None:
+    def append_face(self, face: "FaceType", dxfattribs=None) -> None:
         """Append a single face. A `face` is a list of ``(x, y, z)`` tuples.
 
         Args:
             face: List[``(x, y, z)`` tuples]
-            dxfattribs: dict of DXF attributes for :class:`Vertex` entity
+            dxfattribs: dict of DXF attributes for VERTEX objects
 
         """
         self.append_faces([face], dxfattribs)
@@ -618,7 +634,7 @@ class Polyface(Polyline):
     def _points_to_dxf_vertices(
         self, points: Iterable["Vertex"], dxfattribs: Dict
     ) -> List["DXFVertex"]:
-        """Converts point (x,y, z)-tuples into DXFVertex objects.
+        """Convert (x, y, z)-tuples into DXFVertex objects.
 
         Args:
             points: List[``(x, y, z)`` tuples]
@@ -642,14 +658,14 @@ class Polyface(Polyline):
         return vertices
 
     def append_faces(
-        self, faces: Iterable["FaceType"], dxfattribs: Dict = None
+        self, faces: Iterable["FaceType"], dxfattribs=None
     ) -> None:
         """Append multiple `faces`. `faces` is a list of single faces and a
         single face is a list of ``(x, y, z)`` tuples.
 
         Args:
             faces: list of List[``(x, y, z)`` tuples]
-            dxfattribs: dict of DXF attributes for :class:`Vertex` entity
+            dxfattribs: dict of DXF attributes for teh VERTEX objects
 
         """
 
@@ -661,7 +677,7 @@ class Polyface(Polyline):
                 DXFVertex, self._new_compound_entity("VERTEX", dxfattribs)
             )
 
-        dxfattribs = dxfattribs or {}
+        dxfattribs = dict(dxfattribs or {})
 
         existing_vertices, existing_faces = self.indexed_faces()
         new_faces: List[FaceProxy] = []
@@ -883,7 +899,7 @@ class Polymesh(Polyline):
         return polymesh
 
     def set_mesh_vertex(
-        self, pos: Tuple[int, int], point: "Vertex", dxfattribs: dict = None
+        self, pos: Tuple[int, int], point: "Vertex", dxfattribs=None
     ):
         """Set location and DXF attributes of a single mesh vertex.
 
@@ -893,7 +909,7 @@ class Polymesh(Polyline):
             dxfattribs: dict of DXF attributes
 
         """
-        dxfattribs = dxfattribs or {}
+        dxfattribs = dict(dxfattribs or {})
         dxfattribs["location"] = point
         vertex = self.get_mesh_vertex(pos)
         vertex.update_dxf_attribs(dxfattribs)
@@ -995,6 +1011,9 @@ acdb_vertex = DefSubclass(
     },
 )
 acdb_vertex_group_codes = group_code_mapping(acdb_vertex)
+merged_vertex_group_codes = merge_group_code_mappings(
+    acdb_entity_group_codes, acdb_vertex_group_codes  # type: ignore
+)
 
 
 @factory.register_entity
@@ -1025,18 +1044,18 @@ class DXFVertex(DXFGraphic):
     def load_dxf_attribs(
         self, processor: SubclassProcessor = None
     ) -> "DXFNamespace":
-        dxf = super().load_dxf_attribs(processor)
+        """Loading interface. (internal API)"""
+        # bypass DXFGraphic, loading proxy graphic is skipped!
+        dxf = super(DXFGraphic, self).load_dxf_attribs(processor)
         if processor:
-            # VERTEX can have 3 subclasses if representing a `face record` or
-            # 4 subclasses if representing a vertex location, just the last
-            # subclass contains data:
-            processor.fast_load_dxfattribs(
-                dxf, acdb_vertex_group_codes, subclass=-1, recover=True
-            )
+            processor.simple_dxfattribs_loader(dxf, merged_vertex_group_codes)
         return dxf
 
     def export_entity(self, tagwriter: "TagWriter") -> None:
         """Export entity specific data as DXF tags."""
+        # VERTEX can have 3 subclasses if representing a `face record` or
+        # 4 subclasses if representing a vertex location, just the last
+        # subclass contains data
         super().export_entity(tagwriter)
         if tagwriter.dxfversion > DXF12:
             if self.is_face_record:

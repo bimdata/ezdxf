@@ -25,6 +25,7 @@ DXF Document
     drawing/management
     drawing/drawing
     drawing/recover
+    appsettings
 
 DXF Structures
 --------------
@@ -43,6 +44,8 @@ DXF Structures
     appdata
     xdict
     reactors
+    blkrefs
+    const
 
 DXF Entity Creation
 -------------------
@@ -51,6 +54,22 @@ DXF Entity Creation
     :maxdepth: 1
 
     entity_creation
+
+Enums
+-----
+
+.. toctree::
+    :maxdepth: 1
+
+    enums
+
+Colors
+------
+
+.. toctree::
+    :maxdepth: 1
+
+    colors
 
 Data Query
 ----------
@@ -96,6 +115,7 @@ Tools
     :maxdepth: 2
 
     tools/functions
+    tools/gfxattribs
     tools/text
     tools/text_size
     tools/fonts

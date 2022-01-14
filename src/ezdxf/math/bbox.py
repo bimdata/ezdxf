@@ -8,7 +8,7 @@ from ezdxf.math import Vec3, Vec2
 if TYPE_CHECKING:
     from ezdxf.math import Vertex, AnyVec
 
-__all__ = ["BoundingBox2d", "BoundingBox"]
+__all__ = ["BoundingBox2d", "BoundingBox", "AbstractBoundingBox"]
 
 
 class AbstractBoundingBox:
@@ -52,6 +52,19 @@ class AbstractBoundingBox:
     @abc.abstractmethod
     def intersect(self, other: "AbstractBoundingBox") -> bool:
         pass
+
+    @abc.abstractmethod
+    def overlap(self, other: "AbstractBoundingBox") -> bool:
+        pass
+
+    def contains(self, other: "AbstractBoundingBox") -> bool:
+        """Returns ``True`` if the `other` bounding box is completely inside
+        of this bounding box.
+
+        .. versionadded:: 0.17.2
+
+        """
+        return self.inside(other.extmin) and self.inside(other.extmax)
 
     def any_inside(self, vertices: Iterable["Vertex"]) -> bool:
         """Returns ``True`` if any vertex is inside this bounding box.
@@ -162,9 +175,12 @@ class BoundingBox(AbstractBoundingBox):
         )
 
     def intersect(self, other: "AbstractBoundingBox") -> bool:
-        """Returns `True` if this bounding box intersects with `other`.
+        """Returns ``True`` if this bounding box intersects with `other` but does
+        not include touching bounding boxes, see also :meth:`overlap`::
 
-        Touching bounding boxes do not intersect!
+            bbox1 = BoundingBox([(0, 0, 0), (1, 1, 1)])
+            bbox2 = BoundingBox([(1, 1, 1), (2, 2, 2)])
+            assert bbox1.intersect(bbox2) is False
 
         """
         # Source: https://gamemath.com/book/geomtests.html#intersection_two_aabbs
@@ -189,6 +205,42 @@ class BoundingBox(AbstractBoundingBox):
         if self.extmin.z >= other.extmax.z:
             return False
         if self.extmax.z <= other.extmin.z:
+            return False
+        return True
+
+    def overlap(self, other: "AbstractBoundingBox") -> bool:
+        """Returns ``True`` if this bounding box intersects with `other` but
+        in contrast to :meth:`intersect` includes touching bounding boxes too::
+
+            bbox1 = BoundingBox([(0, 0, 0), (1, 1, 1)])
+            bbox2 = BoundingBox([(1, 1, 1), (2, 2, 2)])
+            assert bbox1.overlap(bbox2) is True
+
+        .. versionadded:: 0.17.2
+
+        """
+        # Source: https://gamemath.com/book/geomtests.html#intersection_two_aabbs
+        # Check for a separating axis:
+        if (
+            self.extmin is None
+            or self.extmax is None
+            or other.extmin is None
+            or other.extmax is None
+        ):
+            return False
+
+        # Check for a separating axis:
+        if self.extmin.x > other.extmax.x:
+            return False
+        if self.extmax.x < other.extmin.x:
+            return False
+        if self.extmin.y > other.extmax.y:
+            return False
+        if self.extmax.y < other.extmin.y:
+            return False
+        if self.extmin.z > other.extmax.z:
+            return False
+        if self.extmax.z < other.extmin.z:
             return False
         return True
 
@@ -237,9 +289,12 @@ class BoundingBox2d(AbstractBoundingBox):
         return (min_.x <= v.x <= max_.x) and (min_.y <= v.y <= max_.y)
 
     def intersect(self, other: "AbstractBoundingBox") -> bool:
-        """Returns `True` if this bounding box intersects with `other`.
+        """Returns ``True`` if this bounding box intersects with `other` but does
+        not include touching bounding boxes, see also :meth:`overlap`::
 
-        Touching bounding boxes do not intersect!
+            bbox1 = BoundingBox2d([(0, 0), (1, 1)])
+            bbox2 = BoundingBox2d([(1, 1), (2, 2)])
+            assert bbox1.intersect(bbox2) is False
 
         """
         # Source: https://gamemath.com/book/geomtests.html#intersection_two_aabbs
@@ -258,6 +313,36 @@ class BoundingBox2d(AbstractBoundingBox):
         if self.extmin.y >= other.extmax.y:
             return False
         if self.extmax.y <= other.extmin.y:
+            return False
+        return True
+
+    def overlap(self, other: "AbstractBoundingBox") -> bool:
+        """Returns ``True`` if this bounding box intersects with `other` but
+        in contrast to :meth:`intersect` includes touching bounding boxes too::
+
+            bbox1 = BoundingBox2d([(0, 0), (1, 1)])
+            bbox2 = BoundingBox2d([(1, 1), (2, 2)])
+            assert bbox1.overlap(bbox2) is True
+
+        .. versionadded:: 0.17.2
+
+        """
+        # Source: https://gamemath.com/book/geomtests.html#intersection_two_aabbs
+        if (
+            self.extmin is None
+            or self.extmax is None
+            or other.extmin is None
+            or other.extmax is None
+        ):
+            return False
+        # Check for a separating axis:
+        if self.extmin.x > other.extmax.x:
+            return False
+        if self.extmax.x < other.extmin.x:
+            return False
+        if self.extmin.y > other.extmax.y:
+            return False
+        if self.extmax.y < other.extmin.y:
             return False
         return True
 

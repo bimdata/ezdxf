@@ -19,17 +19,11 @@ from .dim_base import (
     LengthMeasurement,
     Measurement,
     compile_mtext,
+    order_leader_points,
 )
 
 if TYPE_CHECKING:
     from ezdxf.eztypes import Dimension, Vertex, GenericLayoutType
-
-
-def order_leader_points(p1: Vec2, p2: Vec2, p3: Vec2) -> Tuple[Vec2, Vec2]:
-    if (p1 - p2).magnitude > (p1 - p3).magnitude:
-        return p3, p2
-    else:
-        return p2, p3
 
 
 class LinearDimension(BaseDimensionRenderer):
@@ -196,13 +190,7 @@ class LinearDimension(BaseDimensionRenderer):
                 rotation = 0.0
             measurement.text_rotation = rotation
 
-            text_box = TextBox(
-                center=measurement.text_location,
-                width=self._total_text_width,
-                height=measurement.text_height,
-                angle=measurement.text_rotation,
-                gap=measurement.text_gap * 0.75,
-            )
+            text_box = self.init_text_box()
             self.geometry.set_text_box(text_box)
             if measurement.has_leader:
                 p1, p2, *_ = text_box.corners

@@ -17,7 +17,6 @@ from typing import (
     Tuple,
     Iterable,
     Type,
-    Sequence,
     Any,
 )
 from array import array
@@ -125,6 +124,7 @@ VALID_XDATA_GROUP_CODES = {
     1071,
 }
 
+
 def _build_type_table(types):
     table = {}
     for caster, codes in types:
@@ -146,7 +146,7 @@ TYPE_TABLE = _build_type_table(
 
 
 class DXFTag:
-    """Immutable DXFTag class - immutable by design, not by implementation.
+    """Immutable DXFTag class.
 
     Args:
         code: group code as int
@@ -154,19 +154,24 @@ class DXFTag:
 
     """
 
-    __slots__ = ("code", "_value")
+    __slots__ = ("_code", "_value")
 
     def __init__(self, code: int, value: Any):
-        self.code: int = code
+        self._code: int = int(code)
+        # Do not use _value, always use property value - overwritten in subclasses
         self._value = value
 
     def __str__(self) -> str:
         """Returns content string ``'(code, value)'``."""
-        return str((self.code, self.value))
+        return str((self._code, self.value))
 
     def __repr__(self) -> str:
         """Returns representation string ``'DXFTag(code, value)'``."""
         return f"DXFTag{str(self)}"
+
+    @property
+    def code(self) -> int:
+        return self._code
 
     @property
     def value(self) -> Any:
@@ -176,22 +181,22 @@ class DXFTag:
         """Returns :attr:`code` for index 0 and :attr:`value` for index 1,
         emulates a tuple.
         """
-        return (self.code, self.value)[index]
+        return (self._code, self.value)[index]
 
     def __iter__(self):
         """Returns (code, value) tuples."""
-        yield self.code
+        yield self._code
         yield self.value
 
     def __eq__(self, other) -> bool:
         """``True`` if `other` and `self` has same content for :attr:`code`
         and :attr:`value`.
         """
-        return (self.code, self.value) == other
+        return (self._code, self.value) == other
 
     def __hash__(self):
         """Hash support, :class:`DXFTag` can be used in sets and as dict key."""
-        return hash((self.code, self._value))
+        return hash((self._code, self._value))
 
     def dxfstr(self) -> str:
         """Returns the DXF string e.g. ``'  0\\nLINE\\n'``"""
@@ -237,7 +242,7 @@ class DXFVertex(DXFTag):
 
     __slots__ = ()
 
-    def __init__(self, code: int, value: Sequence[float]):
+    def __init__(self, code: int, value: Iterable[float]):
         super(DXFVertex, self).__init__(code, array("d", value))
 
     def __str__(self) -> str:
@@ -311,9 +316,7 @@ def dxftag(code: int, value: Any) -> DXFTag:
         return DXFTag(code, cast_tag_value(code, value))
 
 
-def tuples_to_tags(
-    iterable: Iterable[Tuple[int, Any]]
-) -> Iterable[DXFTag]:
+def tuples_to_tags(iterable: Iterable[Tuple[int, Any]]) -> Iterable[DXFTag]:
     """Returns an iterable if :class:`DXFTag` or inherited, accepts an
     iterable of (code, value) tuples as input.
     """
@@ -327,12 +330,14 @@ def tuples_to_tags(
             yield DXFTag(code, value)
 
 
-def is_valid_handle(handle: str) -> bool:
-    try:
-        int(handle, 16)
-        return True
-    except (ValueError, TypeError):
-        return False
+def is_valid_handle(handle) -> bool:
+    if isinstance(handle, str):
+        try:
+            int(handle, 16)
+            return True
+        except (ValueError, TypeError):
+            pass
+    return False
 
 
 def is_binary_data(code: int) -> bool:

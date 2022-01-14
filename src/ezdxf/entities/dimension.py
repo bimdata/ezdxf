@@ -3,6 +3,7 @@
 import math
 from typing import TYPE_CHECKING, Optional, Union, Iterable
 import logging
+from ezdxf.audit import AuditError
 from ezdxf.lldxf import validator, const
 from ezdxf.lldxf.attributes import (
     DXFAttr,
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
         BaseLayout,
         EntityQuery,
         DXFEntity,
+        Auditor,
     )
 
 logger = logging.getLogger("ezdxf")
@@ -744,7 +746,7 @@ class Dimension(DXFGraphic, OverrideMixin):
                 pass  # ignore transformation errors
 
     def __virtual_entities__(self) -> Iterable["DXFGraphic"]:
-        """Implements the SupportsVirtualEntities protocol. """
+        """Implements the SupportsVirtualEntities protocol."""
         transform = False
         insert = self.dxf.get("insert", None)
         if insert:
@@ -795,15 +797,51 @@ class Dimension(DXFGraphic, OverrideMixin):
         del self.virtual_block_content
         super().destroy()
 
+    def __referenced_blocks__(self) -> Iterable[str]:
+        """Support for "ReferencedBlocks" protocol."""
+        if self.doc:
+            block_name = self.dxf.get("geometry", None)
+            if block_name:
+                block = self.doc.blocks.get(block_name)
+                if block is not None:
+                    return (block.block_record_handle,)
+        return tuple()
+
+    def audit(self, auditor: "Auditor") -> None:
+        super().audit(auditor)
+        doc = auditor.doc
+        dxf = self.dxf
+
+        if dxf.get("geometry", "*") not in doc.blocks:
+            auditor.fixed_error(
+                code=AuditError.UNDEFINED_BLOCK,
+                message=f"Removed {str(self)} without valid geometry block.",
+            )
+            auditor.trash(self)
+            return
+
+        dimstyle = dxf.get("dimstyle", "Standard")
+        if not doc.dimstyles.has_entry(dimstyle):
+            auditor.fixed_error(
+                code=AuditError.INVALID_DIMSTYLE,
+                message=f"Replaced invalid DIMSTYLE '{dimstyle}' by 'Standard'.",
+            )
+            dxf.discard("dimstyle")
+        # AutoCAD ignores invalid data in the XDATA section, no need to
+        # check or repair. Ezdxf also ignores invalid XDATA overrides.
+
 
 acdb_arc_dimension = DefSubclass(
     "AcDbArcDimension",
     {
-        "ext_line1_point": DXFAttr(13, xtype=XType.point3d, default=NULLVEC),
-        "ext_line2_point": DXFAttr(14, xtype=XType.point3d, default=NULLVEC),
-        "arc_center": DXFAttr(15, xtype=XType.point3d, default=NULLVEC),
-        "start_angle": DXFAttr(40),  # radians?
-        "end_angle": DXFAttr(41),  # radians?
+        # start point of the 1st extension line:
+        "defpoint2": DXFAttr(13, xtype=XType.point3d, default=NULLVEC),
+        # start point of the 2ndt extension line:
+        "defpoint3": DXFAttr(14, xtype=XType.point3d, default=NULLVEC),
+        # center of arc:
+        "defpoint4": DXFAttr(15, xtype=XType.point3d, default=NULLVEC),
+        "start_angle": DXFAttr(40),  # radians, unknown meaning
+        "end_angle": DXFAttr(41),  # radians, unknown meaning
         "is_partial": DXFAttr(70, validator=validator.is_integer_bool),
         "has_leader": DXFAttr(71, validator=validator.is_integer_bool),
         "leader_point1": DXFAttr(16, xtype=XType.point3d, default=NULLVEC),
@@ -848,16 +886,16 @@ class ArcDimension(Dimension):
 
     def export_entity(self, tagwriter: "TagWriter") -> None:
         """Export entity specific data as DXF tags."""
-        dimtype = self.dxf.dimtype
+        dimtype = self.dxf.dimtype  # preserve original dimtype
         self.dxf.dimtype = self.versioned_dimtype(tagwriter.dxfversion)
         super().export_entity(tagwriter)
         tagwriter.write_tag2(SUBCLASS_MARKER, "AcDbArcDimension")
         self.dxf.export_dxf_attribs(
             tagwriter,
             [
-                "ext_line1_point",
-                "ext_line2_point",
-                "arc_center",
+                "defpoint2",
+                "defpoint3",
+                "defpoint4",
                 "start_angle",
                 "end_angle",
                 "is_partial",
@@ -866,7 +904,7 @@ class ArcDimension(Dimension):
                 "leader_point2",
             ],
         )
-        self.dxf.dimtype = dimtype
+        self.dxf.dimtype = dimtype  # restore original dimtype
 
     def transform(self, m: "Matrix44") -> "Dimension":
         """Transform the ARC_DIMENSION entity by transformation matrix `m` inplace.
@@ -880,12 +918,7 @@ class ArcDimension(Dimension):
                 dxf.set(name, func(dxf.get(name)))
 
         dxf = self.dxf
-        ocs = OCSTransform(dxf.extrusion, m)
         super().transform(m)
-
-        for angle_name in ("start_angle", "end_angle"):
-            transform_if_exist(angle_name, ocs.transform_deg_angle)
-
         for vertex_name in ("leader_point1", "leader_point2"):
             transform_if_exist(vertex_name, m.transform)
 

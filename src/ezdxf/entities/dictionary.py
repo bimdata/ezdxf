@@ -288,9 +288,18 @@ class Dictionary(DXFObject):
                     f"Invalid entity handle #{entity} for key {key}"
                 )
         elif isinstance(entity, DXFGraphic):
-            raise DXFTypeError(
-                f"Graphic entities not allowed: {entity.dxftype()}"
-            )
+            if self.doc is not None and self.doc.is_loading:
+                # AutoCAD add-ons can store graphical entities in DICTIONARIES
+                # in the OBJECTS section and AutoCAD does not complain - so just
+                # preserve them!
+                # Example "ZJMC-288.dxf" in issue #585, add-on: "acdgnlsdraw.crx"?
+                logger.warning(f"Invalid entity {str(entity)} in {str(self)}")
+            else:
+                # Do not allow ezdxf users to add graphical entities to a
+                # DICTIONARY object!
+                raise DXFTypeError(
+                    f"Graphic entities not allowed: {entity.dxftype()}"
+                )
         self._data[key] = entity
 
     def remove(self, key: str) -> None:
@@ -421,11 +430,21 @@ class Dictionary(DXFObject):
         return dxf_dict  # type: ignore
 
     def audit(self, auditor: "Auditor") -> None:
+        if not self.is_alive:
+            return
+        if not self.dxf.hasattr("owner"):
+            rootdict = auditor.doc.rootdict
+            if self is rootdict:
+                self.dxf.owner = "0"
+            else:  # most likely scenario, avoids deleting required tables
+                self.dxf.owner = rootdict.dxf.handle
+
         super().audit(auditor)
         self._check_invalid_entries(auditor)
 
     def _check_invalid_entries(self, auditor: "Auditor"):
         trash: List[str] = []  # do not delete content while iterating
+        owner_handle = self.dxf.handle
         append = trash.append
         db = auditor.entitydb
         for key, entry in self._data.items():
@@ -433,9 +452,16 @@ class Dictionary(DXFObject):
                 if entry not in db:
                     append(key)
             elif entry.is_alive:
-                # TODO: remove graphical entities without destroying them
                 if entry.dxf.handle not in db:
                     append(key)
+                    continue
+                # valid entry object
+                if entry.dxf.owner != owner_handle:
+                    entry.dxf.owner = owner_handle
+                    auditor.fixed_error(
+                        code=AuditError.INVALID_OWNER_HANDLE,
+                        message=f'Fixed invalid owner handle in {str(entry)}',
+                    )
             else:  # entry is destroyed
                 append(key)
         for key in trash:

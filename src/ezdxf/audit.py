@@ -16,7 +16,6 @@ from enum import IntEnum
 from ezdxf.lldxf import const, validator
 from ezdxf.entities import factory, DXFEntity
 from ezdxf.math import NULLVEC
-from ezdxf.sections.table import table_key
 
 if TYPE_CHECKING:
     from ezdxf.eztypes import (
@@ -60,6 +59,10 @@ class AuditError(IntEnum):
     CREATED_MISSING_OBJECT = 112
     RESET_MLINE_STYLE = 113
     INVALID_GROUP_ENTITIES = 114
+    UNDEFINED_BLOCK_NAME = 115
+    INVALID_INTEGER_VALUE = 116
+    INVALID_FLOATING_POINT_VALUE = 117
+    REMOVED_ENTITY_FROM_BLOCK_RECORD = 118
 
     # DXF entity property errors:
     INVALID_ENTITY_HANDLE = 201
@@ -68,6 +71,7 @@ class AuditError(IntEnum):
     INVALID_COLOR_INDEX = 204
     INVALID_LINEWEIGHT = 205
     INVALID_MLINESTYLE_HANDLE = 206
+    INVALID_DIMSTYLE = 207
 
     # DXF entity geometry or content errors:
     INVALID_EXTRUSION_VECTOR = 210
@@ -83,6 +87,9 @@ class AuditError(IntEnum):
     INVALID_SPLINE_KNOT_VALUE_COUNT = 220
     INVALID_SPLINE_WEIGHT_COUNT = 221
     INVALID_DIMENSION_GEOMETRY_LOCATION = 222
+    INVALID_TRANSPARENCY = 223
+    INVALID_CREASE_VALUE_COUNT = 224
+    INVALID_ELLIPSE_RATIO = 225
 
 
 REQUIRED_ROOT_DICT_ENTRIES = ("ACAD_GROUP", "ACAD_PLOTSTYLENAME")
@@ -262,33 +269,16 @@ class Auditor:
                 )
 
     def check_tables(self) -> None:
-        def fix_table_head(table):
-            head = table.head
-            # Another exception for an invalid owner tag, but this usage is
-            # covered in Auditor.check_owner_exist():
-            head.dxf.owner = "0"
-            handle = head.dxf.handle
-            if handle is None or handle == "0":
-                # Entity database does not assign new handle:
-                head.dxf.handle = self.entitydb.next_handle()
-                self.entitydb.add(head)
-                self.fixed_error(
-                    code=AuditError.INVALID_TABLE_HANDLE,
-                    message=f"Fixed invalid table handle in {table.name}",
-                )
-            # Just to be sure owner handle is valid in every circumstance:
-            table.update_owner_handles()
-
         table_section = self.doc.tables
-        fix_table_head(table_section.viewports)
-        fix_table_head(table_section.linetypes)
-        fix_table_head(table_section.layers)
-        fix_table_head(table_section.styles)
-        fix_table_head(table_section.views)
-        fix_table_head(table_section.ucs)
-        fix_table_head(table_section.appids)
-        fix_table_head(table_section.dimstyles)
-        fix_table_head(table_section.block_records)
+        table_section.viewports.audit(self)
+        table_section.linetypes.audit(self)
+        table_section.layers.audit(self)
+        table_section.styles.audit(self)
+        table_section.views.audit(self)
+        table_section.ucs.audit(self)
+        table_section.appids.audit(self)
+        table_section.dimstyles.audit(self)
+        table_section.block_records.audit(self)
 
     def audit_all_database_entities(self) -> None:
         """Audit all entities stored in the entity database."""
@@ -320,7 +310,7 @@ class Auditor:
         assert self.doc is entity.doc, "Entity from different DXF document."
         if not entity.dxf.hasattr("linetype"):
             return
-        linetype = table_key(entity.dxf.linetype)
+        linetype = validator.make_table_key(entity.dxf.linetype)
         # No table entry in linetypes required:
         if linetype in ("bylayer", "byblock"):
             return
@@ -406,7 +396,7 @@ class Auditor:
 
     def check_owner_exist(self, entity: DXFEntity) -> None:
         assert self.doc is entity.doc, "Entity from different DXF document."
-        if not entity.dxf.hasattr("owner"):
+        if not entity.dxf.hasattr("owner"):  # important for recover mode
             return
         doc = self.doc
         owner_handle = entity.dxf.owner
@@ -443,6 +433,18 @@ class Auditor:
             self.fixed_error(
                 code=AuditError.INVALID_EXTRUSION_VECTOR,
                 message=f"Fixed extrusion vector for entity: {str(self)}.",
+                dxf_entity=entity,
+            )
+
+    def check_transparency(self, entity: DXFEntity) -> None:
+        value = entity.dxf.transparency
+        if value is None:
+            return
+        if not validator.is_transparency(value):
+            entity.dxf.discard("transparency")
+            self.fixed_error(
+                code=AuditError.INVALID_TRANSPARENCY,
+                message=f"Fixed invalid transparency for entity: {str(self)}.",
                 dxf_entity=entity,
             )
 

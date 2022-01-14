@@ -153,7 +153,16 @@ class Bezier4P:
             chk_point: "AnyVec" = start_point.lerp(end_point)
             # center point point is faster than projecting mid point onto
             # vector start -> end:
-            if chk_point.distance(mid_point) < distance:
+            # very big numbers (>1e99) can cause calculation errors #574
+            # distance from 2.999999999999987e+99 to 2.9999999999999e+99 is
+            # very big even it is only a floating point imprecision error in the
+            # mantissa!
+            d = chk_point.distance(mid_point)
+            if d < distance or d > 1e12:  # educated guess
+                # Optimizing the max sagitta value, e.g. using the sum of chords
+                # cp0 ... cp3 as max sagitta, does not improve the result!
+                # keep in sync with Cython implementation: ezdxf/acc/bezier4p.pyx
+                # emergency exit if distance d is suddenly very large!
                 yield end_point
             else:
                 yield from subdiv(start_point, mid_point, start_t, mid_t)

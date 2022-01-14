@@ -61,7 +61,7 @@ from ezdxf.path import (
 )
 from ezdxf.render import MeshBuilder, TraceBuilder
 from ezdxf import reorder
-from ezdxf.proxygraphic import ProxyGraphic
+from ezdxf.proxygraphic import ProxyGraphic, ProxyGraphicError
 from ezdxf.protocols import SupportsVirtualEntities, virtual_entities
 from ezdxf.tools.text import has_inline_formatting_codes
 from ezdxf.lldxf import const
@@ -71,6 +71,7 @@ __all__ = ["Frontend"]
 
 # typedef
 TDispatchTable = Dict[str, Callable[[DXFGraphic, Properties], None]]
+POST_ISSUE_MSG = "Please post sample DXF file at https://github.com/mozman/ezdxf/issues."
 
 
 class Frontend:
@@ -604,10 +605,6 @@ class Frontend:
     def draw_composite_entity(
         self, entity: DXFGraphic, properties: Properties
     ) -> None:
-        def set_opaque(entities: Iterable[DXFGraphic]):
-            for child in entities:
-                child.transparency = 0.0
-                yield child
 
         def draw_insert(insert: Insert):
             self.draw_entities(insert.attribs)
@@ -628,13 +625,21 @@ class Frontend:
             self.ctx.pop_state()
         elif isinstance(entity, SupportsVirtualEntities):
             # draw_entities() includes the visibility check:
-            self.draw_entities(set_opaque(virtual_entities(entity)))
+            try:
+                self.draw_entities(virtual_entities(entity))
+            except ProxyGraphicError as e:
+                print(str(e))
+                print(POST_ISSUE_MSG)
         else:
             raise TypeError(entity.dxftype())
 
     def draw_proxy_graphic(self, data: bytes, doc) -> None:
         if data:
-            self.draw_entities(virtual_entities(ProxyGraphic(data, doc)))
+            try:
+                self.draw_entities(virtual_entities(ProxyGraphic(data, doc)))
+            except ProxyGraphicError as e:
+                print(str(e))
+                print(POST_ISSUE_MSG)
 
 
 def is_spatial_text(extrusion: Vec3) -> bool:

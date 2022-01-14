@@ -371,7 +371,8 @@ class ConstructionEllipse:
         def subdiv(s: Vec3, e: Vec3, s_param: float, e_param: float):
             m_param = (s_param + e_param) * 0.5
             m = vertex_(m_param)
-            if distance_point_line_3d(m, s, e) < distance:
+            d = distance_point_line_3d(m, s, e)
+            if d < distance:
                 yield e
             else:
                 yield from subdiv(s, m, s_param, m_param)
@@ -383,6 +384,9 @@ class ConstructionEllipse:
         radius_y = radius_x * self.ratio
 
         delta = self.param_span / segments
+        if delta == 0.0:
+            return
+
         param = self.start_param % math.tau
         if math.isclose(self.end_param, math.tau):
             end_param = math.tau
@@ -466,7 +470,7 @@ class ConstructionEllipse:
         self.end_param = (end_param - HALF_PI) % math.tau
 
     def add_to_layout(
-        self, layout: "BaseLayout", dxfattribs: dict = None
+        self, layout: "BaseLayout", dxfattribs=None
     ) -> "Ellipse":
         """Add ellipse as DXF :class:`~ezdxf.entities.Ellipse` entity to a
         layout.
@@ -474,13 +478,12 @@ class ConstructionEllipse:
         Args:
             layout: destination layout as :class:`~ezdxf.layouts.BaseLayout`
                 object
-            dxfattribs: additional DXF attributes for DXF
-                :class:`~ezdxf.entities.Ellipse` entity
+            dxfattribs: additional DXF attributes for the ELLIPSE entity
 
         """
         from ezdxf.entities import Ellipse
 
-        dxfattribs = dxfattribs or dict()
+        dxfattribs = dict(dxfattribs or {})
         dxfattribs.update(self.dxfattribs())
         e = Ellipse.new(dxfattribs=dxfattribs, doc=layout.doc)
         layout.add_entity(e)

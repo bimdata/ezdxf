@@ -207,11 +207,22 @@ def virtual_polyface_entities(polyline: "Polyline") -> Iterable["Face3d"]:
 
     face_records = (v for v in vertices if v.is_face_record)
     for face in face_records:
+        # check if vtx0, vtx1 and vtx2 exist
+        for name in VERTEXNAMES[:-1]:
+            if not face.dxf.hasattr(name):
+                logger.info(
+                    f"skipped face {str(face)} with less than 3 vertices"
+                    f"in PolyFaceMesh(#{str(polyline.dxf.handle)})"
+                )
+                continue
+                # Alternate solutions: return a face with less than 3 vertices
+                # as LINE (breaks the method signature) or as degenerated 3DFACE
+                # (vtx0, vtx1, vtx1, vtx1)
+
         face3d_attribs = dict(base_attribs)
         face3d_attribs.update(face.graphic_properties())
         invisible = 0
         pos = 1
-
         indices = (
             (face.dxf.get(name), name)
             for name in VERTEXNAMES
@@ -226,6 +237,11 @@ def virtual_polyface_entities(polyline: "Polyline") -> Iterable["Face3d"]:
             face3d_attribs[name] = vertices[index - 1].dxf.location
             # vertex index bit encoded: 1=0b0001, 2=0b0010, 3=0b0100, 4=0b1000
             pos <<= 1
+
+        if "vtx3" not in face3d_attribs:
+            # A triangle face ends with two identical vertices vtx2 and vtx3.
+            # This is a requirement defined by AutoCAD.
+            face3d_attribs["vtx3"] = face3d_attribs["vtx2"]
 
         face3d_attribs["invisible"] = invisible
         yield factory.new(dxftype="3DFACE", dxfattribs=face3d_attribs, doc=doc)  # type: ignore

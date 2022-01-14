@@ -1,7 +1,8 @@
-# Copyright (c) 2019-2021 Manfred Moitzi
+# Copyright (c) 2019-2022 Manfred Moitzi
 # License: MIT License
 from typing import TYPE_CHECKING, Iterable
 import math
+from ezdxf.audit import AuditError
 from ezdxf.lldxf import validator
 from ezdxf.math import (
     Vec3,
@@ -20,14 +21,21 @@ from ezdxf.lldxf.attributes import (
     XType,
     RETURN_DEFAULT,
     group_code_mapping,
+    merge_group_code_mappings,
 )
 from ezdxf.lldxf.const import SUBCLASS_MARKER, DXF2000
 from .dxfentity import base_class, SubclassProcessor
-from .dxfgfx import DXFGraphic, acdb_entity, add_entity, replace_entity
+from .dxfgfx import (
+    DXFGraphic,
+    acdb_entity,
+    add_entity,
+    replace_entity,
+    acdb_entity_group_codes,
+)
 from .factory import register_entity
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import TagWriter, DXFNamespace, Spline
+    from ezdxf.eztypes import TagWriter, DXFNamespace, Spline, Auditor
 
 __all__ = ["Ellipse"]
 
@@ -81,6 +89,10 @@ acdb_ellipse = DefSubclass(
     },
 )
 acdb_ellipse_group_code = group_code_mapping(acdb_ellipse)
+merged_ellipse_group_codes = merge_group_code_mappings(
+    acdb_entity_group_codes, acdb_ellipse_group_code  # type: ignore
+)
+
 HALF_PI = math.pi / 2.0
 
 
@@ -95,11 +107,11 @@ class Ellipse(DXFGraphic):
     def load_dxf_attribs(
         self, processor: SubclassProcessor = None
     ) -> "DXFNamespace":
-        dxf = super().load_dxf_attribs(processor)
+        """Loading interface. (internal API)"""
+        # bypass DXFGraphic, loading proxy graphic is skipped!
+        dxf = super(DXFGraphic, self).load_dxf_attribs(processor)
         if processor:
-            processor.fast_load_dxfattribs(
-                dxf, acdb_ellipse_group_code, 2, recover=True
-            )
+            processor.simple_dxfattribs_loader(dxf, merged_ellipse_group_codes)
         return dxf
 
     def export_entity(self, tagwriter: "TagWriter") -> None:
@@ -265,3 +277,29 @@ class Ellipse(DXFGraphic):
         # WCS entity which supports the "extrusion" attribute in a
         # different way!
         return OCS()
+
+    def audit(self, auditor: "Auditor") -> None:
+        if not self.is_alive:
+            return
+        super().audit(auditor)
+        entity = str(self)
+        major_axis = Vec3(self.dxf.major_axis)
+        if major_axis.is_null:
+            auditor.trash(self)
+            auditor.fixed_error(
+                code=AuditError.INVALID_MAJOR_AXIS,
+                message=f"Removed {entity} with invalid major axis: (0, 0, 0).",
+            )
+            return
+        if abs(self.dxf.ratio) > MAX_RATIO:
+            self.swap_axis()
+            auditor.fixed_error(
+                code=AuditError.INVALID_ELLIPSE_RATIO,
+                message=f"Fixed invalid ratio in {entity} by swapping axis.",
+            )
+        elif abs(self.dxf.ratio) < MIN_RATIO:
+            self.dxf.ratio = fix_ratio(self.dxf.ratio)
+            auditor.fixed_error(
+                code=AuditError.INVALID_ELLIPSE_RATIO,
+                message=f"Fixed invalid ratio in {entity}, set to {MIN_RATIO}.",
+            )

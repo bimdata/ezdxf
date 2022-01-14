@@ -5,9 +5,8 @@ Add-ons
 -------
 
 - drawing
-    - (v0.18) MLEADER full rendering support, requires `MLeader.virtual_entities()`
-    - (>v1.0) ACAD_TABLE
-    - (>v1.0) support for switching plot styles (DXF_DEFAULT_PAPERSPACE_COLORS)
+  - (>v1.0) support for switching plot styles (DXF_DEFAULT_PAPERSPACE_COLORS)
+  - (>v1.0) VIEWPORT rendering support?
   
 - (>v1.0) Native SVG exporter, planned after the matplotlib backend supports 
   all v1.0 features. 
@@ -34,60 +33,63 @@ Add-ons
 Render Tools
 ------------
 
-- (v0.18) `MLeader.virtual_entities()`
-- (v0.18) DIMENSION rendering
-    - angular dim
-    - angular 3 point dim
-    - ordinate dim
-    - arc dim
-- (>v1.0) `ACADTable.virtual_entities()`, requires basic ACAD_TABLE support
+- (>v1.0) ACAD_TABLE tool to render content as DXF primitives to create the 
+  content of the anonymous block `*T...`
+- (>v1.0) factory methods to create ACAD_TABLE entities
+- (>v1.0) fix LWPOLYLINE parsing error in ProxyGraphic, see test script 239
 - (>v1.0) tool to create proxy graphic 
 
-Construction Tools
-------------------
-
-- (<v1.0) `make_primitive()`: apply thickness if not 0, which creates meshes 
 
 DXF Entities
 ------------
 
 - (v0.18) MLEADER: factory methods to create new MLEADER entities
-- (<v1.0) do more entities support the DXF "thickness" attribute (group code 39)?
-  possible candidates: HATCH, MPOLYGON, planar SPLINE, ELLIPSE, MLINE 
-  -> `make_primitive()` 
+
+- (>v1.0) ACAD_TABLE entity load and export support beyond `AcadTableBlockContent`
+- (>v1.0) ACAD_TABLE tool to manage content at table and cell basis
 - (>v1.0) GEODATA version 1 support, see mpolygon examples and DXF reference R2009
 - (>v1.0) FIELD, used by ACAD_TABLE and MTEXT
-- (>v1.0) ACAD_TABLE
 
 DXF Document
 ------------
 
 - (>v1.0) `doc.to_dxf_r12()`: convert the whole DXF document into DXF R12. 
-  This is a destructive process, which converts MTEXT to TEXT, 
-  MESH to PolyFaceMesh, LWPOLYLINE into POLYLINE, flatten SPLINE into 
-  POLYLINE ..., and removes all entities not supported by DXF R12 
-  like TABLE, ACIS entities, ...
+  This is a destructive process, which converts or explodes DXF entities:
   
-- (>v1.0) Optimize DXF export: write tags direct in export_entity() 
-  without any indirections, this requires some additional tag writing 
-  function in the Tagwriter() class, these additional functions should only use 
-  methods from AbstractTagwriter():
-  - write_tag2_skip_default(code, value, default)
-  - write_vertex_2d(code, value, default) write explicit 2D vertices and 
-    skip default value if given
-  - a check function for tags containing user strings (line breaks!)
+  - explode MTEXT, MULTILEADER, MLINE, ACAD_TABLE, ARC_DIMENSION
+  - convert MESH to PolyFaceMesh
+  - convert LWPOLYLINE into 2D polyline
+  - flatten SPLINE into a 3D polyline
+  - flatten ELLIPSE into a 3D polyline
+
+  Removes all data not supported by DXF R12:
+  - all ACIS based entities 
+  - HATCH and MPOLYGON entities
+  - IMAGE and UNDERLAY entities
+  - XLINE and RAY entities
+  - OBJECTS and the CLASSES sections
+  - all but the first paper space layout
+
+- (>v1.0) core module `ezdxf.xref` as replacement for the `Importer` add-on
+  - AutoCAD does not support DXF as XREF objects!
+  - ezdxf will only support DXF as XREF objects, use the `odafc` add-on to convert 
+    DWG to DXF
+  - has to be much more versatile than the current `Importer` add-on otherwise 
+    just improve and extend the `Importer` add-on 
+  - resource management like CAD applications, e.g. layer names of xrefs: 
+    <dwg-name>$0$layername
+  - `xref.bind(xref_block)`: convert a XREF into a common BLOCK, this replaces 
+    the model space import of the `Importer` add-on
+  - `xref.attach(doc, "xref_filename.dxf")`, replaces `Drawing.add_xref_def()`
+  - `xmgr = xref.XRefManager(source_doc, target_doc)`
+  - `xmgr.import_modelspace()` import all modelspace entities
+  - `xmgr.import_entities(entities)` import selected entities
+  - modify entities on import (transform, change DXF properties)
+  - `xmgr.import_block("block_name")`
+  - `xmgr.import_resources(resource_desc)`
+  - `xmgr.import_paperspace("layout_name")` ???
+  - `xmgr.finalize()`
   
-DXF Audit & Repair
-------------------
-
-- (<v1.0) check DIMENSION
-  - overridden properties in XDATA have to be checked!
-  - dimstyle exist; repair: set to 'Standard'
-  - arrows exist; repair: set to '' = default open filled arrow
-  - text style exist; repair: set to 'Standard'
-  - check consistent defpoint and POINT entity locations in the associated 
-    geometry block 
-
 Documentation
 -------------
 

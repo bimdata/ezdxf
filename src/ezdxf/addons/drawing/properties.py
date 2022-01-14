@@ -21,8 +21,9 @@ from ezdxf.colors import luminance, DXF_DEFAULT_COLORS, int2rgb
 from ezdxf.entities import Attrib, Insert, Face3d, Linetype
 from ezdxf.entities.ltype import CONTINUOUS_PATTERN
 from ezdxf.entities.polygon import DXFPolygon
+from ezdxf.enums import InsertUnits, Measurement
 from ezdxf.lldxf import const
-from ezdxf.sections.table import table_key as layer_key
+from ezdxf.lldxf.validator import make_table_key as layer_key
 from ezdxf.tools import fonts
 from ezdxf.tools.pattern import scale_pattern, HatchPatternType
 
@@ -61,7 +62,7 @@ OLE2FRAME_COLOR = "#89adba"  # arbitrary choice
 
 
 def is_dark_color(color: Color, dark: float = 0.2) -> bool:
-    luma = luminance(hex_to_rgb(color))
+    luma = luminance(hex_to_rgb(color[:7]))
     return luma <= dark
 
 
@@ -144,8 +145,7 @@ class Properties:
         # Filling properties: Solid, Pattern, Gradient
         self.filling: Optional[Filling] = None
 
-        # default is unit less
-        self.units = 0
+        self.units = InsertUnits.Unitless
 
     def __str__(self):
         return (
@@ -197,16 +197,16 @@ class LayoutProperties:
         name: str,
         background_color: Color,
         foreground_color: Optional[Color] = None,
-        units: int = 0,
+        units=InsertUnits.Unitless,
         dark_background: Optional[bool] = None,
     ):
         """
         Args:
             name: tab/display name
-            units: see InsertUnits for valid values
+            units: enum :class:`ezdxf.enums.InsertUnits`
         """
         self.name = name
-        self.units = int(units)
+        self.units: InsertUnits = units
 
         self._background_color = ""
         self._default_color = ""
@@ -232,11 +232,13 @@ class LayoutProperties:
         return self._has_dark_background
 
     @staticmethod
-    def modelspace(units: int = 0) -> "LayoutProperties":
+    def modelspace(units=InsertUnits.Unitless) -> "LayoutProperties":
         return LayoutProperties("Model", MODEL_SPACE_BG_COLOR, units=units)
 
     @staticmethod
-    def paperspace(name: str = "", units: int = 0) -> "LayoutProperties":
+    def paperspace(
+        name: str = "", units=InsertUnits.Unitless
+    ) -> "LayoutProperties":
         return LayoutProperties(name, PAPER_SPACE_BG_COLOR, units=units)
 
     @staticmethod
@@ -294,7 +296,9 @@ class RenderContext:
                 CAD application.
         """
         self._saved_states: List[Properties] = []
-        self.line_pattern: Dict[str, Sequence[float]] = _load_line_pattern(doc.linetypes) if doc else dict()
+        self.line_pattern: Dict[str, Sequence[float]] = (
+            _load_line_pattern(doc.linetypes) if doc else dict()
+        )
         self.current_layout_properties = LayoutProperties.modelspace()
         self.current_block_reference_properties: Optional[Properties] = None
         self.plot_styles = self._load_plot_style_table(ctb)
@@ -305,40 +309,46 @@ class RenderContext:
         self.layers: Dict[str, LayerProperties] = dict()
         # Text-style -> font mapping
         self.fonts: Dict[str, fonts.FontFace] = dict()
-        self.units = 0  # store modelspace units as enum, see ezdxf/units.py
+        self.units = InsertUnits.Unitless
         self.linetype_scale: float = 1.0  # overall modelspace linetype scaling
-        self.measurement: int = 0
+        self.measurement = Measurement.Imperial
         self.pdsize = 0
         self.pdmode = 0
         if doc:
             self.linetype_scale = doc.header.get("$LTSCALE", 1.0)
-            self.units = doc.header.get("$INSUNITS", 0)
-            self.measurement = doc.header.get("$MEASUREMENT", 0)
+            try:
+                self.units = InsertUnits(doc.header.get("$INSUNITS", 0))
+            except ValueError:
+                self.units = InsertUnits.Unitless
+            try:
+                self.measurement = Measurement(
+                    doc.header.get("$MEASUREMENT", 0)
+                )
+            except ValueError:
+                self.measurement = Measurement.Imperial
             self.pdsize = doc.header.get("$PDSIZE", 1.0)
             self.pdmode = doc.header.get("$PDMODE", 0)
             self._setup_layers(doc)
             self._setup_text_styles(doc)
-            if self.units == 0:
-                # set default units based on measurement system:
-                # imperial (0) / metric (1)
-                if self.measurement == 1:
-                    self.units = 6  # 1 m
+            if self.units == InsertUnits.Unitless:
+                if self.measurement == Measurement.Metric:
+                    self.units = InsertUnits.Meters
                 else:
-                    self.units = 1  # 1 in
+                    self.units = InsertUnits.Inches
         self.current_layout_properties.units = self.units
         self._hatch_pattern_cache: Dict[str, HatchPatternType] = dict()
 
     def update_configuration(self, config: Configuration) -> Configuration:
-        """ Where the user has not specified a value, populate configuration
+        """Where the user has not specified a value, populate configuration
         fields based on the dxf header values
         """
         changes = {}
         if config.pdsize is None:
-            changes['pdsize'] = self.pdsize
+            changes["pdsize"] = self.pdsize
         if config.pdmode is None:
-            changes['pdmode'] = self.pdmode
+            changes["pdmode"] = self.pdmode
         if config.measurement is None:
-            changes['measurement'] = self.measurement
+            changes["measurement"] = self.measurement
         return config.with_changes(**changes)
 
     def _setup_layers(self, doc: "Drawing"):
@@ -356,6 +366,11 @@ class RenderContext:
         # Store real layer name (mixed case):
         properties.layer = layer.dxf.name
         properties.color = self._true_layer_color(layer)
+
+        # set layer transparency
+        alpha = transparency_to_alpha(layer.transparency)
+        if alpha < 255:
+            properties.color = set_color_alpha(properties.color, alpha)
 
         # Depend layer ACI color from layout background color?
         # True color overrides ACI color and layers with only true color set
@@ -486,7 +501,7 @@ class RenderContext:
             p.filling = self.resolve_filling(entity)
         return p
 
-    def resolve_units(self) -> int:
+    def resolve_units(self) -> InsertUnits:
         return self.current_layout_properties.units
 
     def resolve_linetype_scale(self, entity: "DXFGraphic") -> float:
@@ -535,12 +550,13 @@ class RenderContext:
         else:
             aci = entity.dxf.color  # defaults to BYLAYER
 
+        entity_layer = resolved_layer or layer_key(self.resolve_layer(entity))
+        layer_properties = self.layers.get(
+            entity_layer, DEFAULT_LAYER_PROPERTIES
+        )
+
         if aci == const.BYLAYER:
-            entity_layer = resolved_layer or layer_key(
-                self.resolve_layer(entity)
-            )
-            layer = self.layers.get(entity_layer, DEFAULT_LAYER_PROPERTIES)
-            color = layer.get_entity_color_from_layer(
+            color = layer_properties.get_entity_color_from_layer(
                 self.current_layout_properties.default_color
             )
         elif aci == const.BYBLOCK:
@@ -550,12 +566,34 @@ class RenderContext:
                 color = self.current_block_reference_properties.color  # type: ignore
         else:  # BYOBJECT
             color = self._true_entity_color(entity.rgb, aci)
+        alpha = self._entity_alpha_str(
+            entity.dxf.get("transparency"), layer_properties.color
+        )
+        return color[:7] + alpha
 
-        alpha = int(round((1.0 - entity.transparency) * 255))
-        if alpha == 255:
-            return color
-        else:
-            return set_color_alpha(color, alpha)
+    def _entity_alpha_str(
+        self, raw_transparency: Optional[int], layer_color: Color
+    ) -> str:
+        """Returns the alpha value as hex string "xx" or empty string if opaque."""
+        # alpha 0 = fully transparent
+        # alpha 255 = opaque
+        # DXF Transparency 0 = fully transparent
+        # DXF Transparency 255 = opaque
+        if raw_transparency == const.TRANSPARENCY_BYBLOCK:
+            if self.inside_block_reference:
+                return self.current_block_reference_properties.color[7:]  # type: ignore
+            # else: entity is not in a block
+            # There is no default transparency value for layouts, AutoCAD and
+            # BricsCAD shows opaque entities!
+            return ""
+        # No transparency attribute means "by layer"
+        elif raw_transparency is None:
+            return layer_color[7:]
+
+        alpha = raw_transparency & 0xFF
+        if alpha < 255:
+            return f"{alpha:02x}"
+        return ""
 
     def resolve_aci_color(self, aci: int, resolved_layer: str) -> Color:
         """Resolve the `aci` color as hex color string: "#RRGGBB" """
@@ -813,6 +851,12 @@ def set_color_alpha(color: Color, alpha: int) -> Color:
     ), f'invalid RGB color: "{color}"'
     assert 0 <= alpha < 256, f"alpha out of range: {alpha}"
     return f"{color[:7]}{alpha:02x}"
+
+
+def transparency_to_alpha(value: float) -> int:
+    # clamp into range [0, 1]
+    value = min(max(0.0, value), 1.0)
+    return int(round((1.0 - value) * 255))
 
 
 def _load_line_pattern(linetypes: "Table") -> Dict[str, Sequence[float]]:

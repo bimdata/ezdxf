@@ -1,10 +1,10 @@
-# Copyright (c) 2019-2020 Manfred Moitzi
+# Copyright (c) 2019-2022 Manfred Moitzi
 # License: MIT License
 import pytest
 import math
 
 from ezdxf.entities.line import Line
-from ezdxf.lldxf.const import DXF12, DXF2000
+from ezdxf.lldxf.const import DXF12, DXF2000, DXFValueError
 from ezdxf.lldxf.tagwriter import TagCollector, basic_tags_from_text
 from ezdxf.math import Matrix44
 
@@ -211,6 +211,32 @@ def test_scaling():
     assert line.dxf.thickness == 4
 
 
+def test_copy_entity_transparency():
+    line = Line()
+    line2 = line.copy()
+    assert line2.dxf.hasattr("transparency") is False
+
+    line.transparency = 0.5
+    line2 = line.copy()
+    assert line2.dxf.transparency == 0x0200007F
+
+
+def test_setting_invalid_transparency_value_raises_exception():
+    line = Line()
+    with pytest.raises(DXFValueError):
+        line.dxf.transparency = 0
+
+
+def test_load_entity_with_invalid_transparency():
+    line = Line.from_text(ENTITY_INVALID_TRANSPARENCY)
+    # No auto fix in normal loading mode - Auditor fixes this issue at DXF
+    # attribute level!
+    assert line.dxf.transparency == 268435456
+    assert (
+        line.transparency == 0.0
+    ), "should replace invalid transparency by opaque"
+
+
 ERR_LINE = """0
 LINE
 5
@@ -241,9 +267,80 @@ Linetype
 1.0
 """
 
+ENTITY_INVALID_TRANSPARENCY = """0
+LINE
+5
+0
+330
+0
+100
+AcDbEntity
+8
+0
+440
+268435456
+100
+AcDbLine
+10
+0.0
+20
+0.0
+30
+0.0
+11
+1.0
+21
+1.0
+31
+1.0
+"""
+
 
 def test_recover_acdb_entity_tags():
     line = Line.from_text(ERR_LINE)
     assert line.dxf.layer == "0"
     assert line.dxf.color == 1
     assert line.dxf.linetype == "Linetype"
+
+
+MALFORMED_LINE = """0
+LINE
+5
+0
+62
+7
+330
+0
+6
+LT_EZDXF
+8
+LY_EZDXF
+100
+AcDbEntity
+10
+1.0
+20
+1.0
+30
+1.0
+100
+AcDbLine
+11
+2.0
+21
+2.0
+31
+2.0
+100
+AcDbInvalidSubclass
+"""
+
+
+def test_malformed_line():
+    line = Line.from_text(MALFORMED_LINE)
+    assert line.dxf.layer == "LY_EZDXF"
+    assert line.dxf.linetype == "LT_EZDXF"
+    assert line.dxf.color == 7
+    assert line.dxf.start.isclose((1, 1, 1))
+    assert line.dxf.end.isclose((2, 2, 2))
+

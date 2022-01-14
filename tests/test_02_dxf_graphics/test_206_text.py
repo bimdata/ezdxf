@@ -1,11 +1,11 @@
-# Copyright (c) 2019-2020 Manfred Moitzi
+# Copyright (c) 2019-2021 Manfred Moitzi
 # License: MIT License
-# created 2019-02-15
 import pytest
 import math
 
 import ezdxf
 from ezdxf.entities.text import Text
+from ezdxf.enums import TextEntityAlignment
 from ezdxf.lldxf.const import DXF12, DXF2000
 from ezdxf.lldxf.tagwriter import TagCollector, basic_tags_from_text
 from ezdxf.math import Vec3, Matrix44
@@ -188,44 +188,59 @@ def text():
     return Text.new(handle="ABBA", owner="0")
 
 
-def test_text_set_alignment(text):
-    text.set_pos((2, 2), align="TOP_CENTER")
+def test_set_alignment(text):
+    text.set_placement((2, 2), align=TextEntityAlignment.TOP_CENTER)
     assert text.dxf.halign == 1
     assert text.dxf.valign == 3
     assert text.dxf.align_point == (2, 2)
 
 
-def test_text_set_fit_alignment(text):
-    text.set_pos((2, 2), (4, 2), align="FIT")
+def test_set_fit_alignment(text):
+    text.set_placement((2, 2), (4, 2), align=TextEntityAlignment.FIT)
     assert text.dxf.halign == 5
     assert text.dxf.valign == 0
     assert text.dxf.insert == (2, 2)
     assert text.dxf.align_point == (4, 2)
 
 
-def test_text_get_alignment(text):
+def test_reset_fit_alignment(text):
+    text.set_placement((2, 2), (4, 2), align=TextEntityAlignment.FIT)
+    text.set_placement((3, 3), (5, 3))
+    assert text.dxf.halign == 5
+    assert text.dxf.valign == 0
+    assert text.dxf.insert == (3, 3)
+    assert text.dxf.align_point == (5, 3)
+
+
+def test_resetting_location_raises_value_error_for_missing_point(text):
+    text.set_placement((2, 2), (4, 2), align=TextEntityAlignment.FIT)
+    with pytest.raises(ValueError):
+        text.set_placement((3, 3))
+
+
+def test_get_align_enum(text):
     text.dxf.halign = 1
     text.dxf.valign = 3
-    assert text.get_align() == "TOP_CENTER"
+    assert text.get_align_enum() == TextEntityAlignment.TOP_CENTER
 
 
-def test_text_get_pos_TOP_CENTER(text):
-    text.set_pos((2, 2), align="TOP_CENTER")
-    align, p1, p2 = text.get_pos()
-    assert align == "TOP_CENTER"
+def test_get_pos_enum_TOP_CENTER(text):
+    text.set_placement((2, 2), align=TextEntityAlignment.TOP_CENTER)
+    align, p1, p2 = text.get_placement()
+    assert align == TextEntityAlignment.TOP_CENTER
     assert p1 == (2, 2)
     assert p2 is None
 
 
-def test_text_get_pos_LEFT(text):
-    text.set_pos((2, 2))
-    align, p1, p2 = text.get_pos()
-    assert align == "LEFT"
+def test_get_pos_LEFT(text):
+    text.set_placement((2, 2))
+    align, p1, p2 = text.get_placement()
+    assert align == TextEntityAlignment.LEFT
     assert p1 == (2, 2)
     assert p2 is None
 
 
-def test_text_transform_interface():
+def test_transform_interface():
     text = Text()
     text.dxf.insert = (1, 0, 0)
     text.transform(Matrix44.translate(1, 2, 3))
@@ -238,6 +253,19 @@ def test_text_transform_interface():
     assert text.dxf.align_point == (4, 4, 4)
 
 
+def test_fit_length(text):
+    text.set_placement((2, 2), (4, 2), align=TextEntityAlignment.FIT)
+    assert text.fit_length() == 2
+
+    # remove align point
+    del text.dxf.align_point
+    assert text.fit_length() == 0
+
+
+def test_default_font_name(text):
+    assert text.font_name() == "arial.ttf"
+
+
 @pytest.fixture
 def text2():
     return Text.new(
@@ -248,11 +276,11 @@ def text2():
             "rotation": 0,
             "layer": "text",
         }
-    ).set_pos((0, 0, 0), align="LEFT")
+    ).set_placement((0, 0, 0), align=TextEntityAlignment.LEFT)
 
 
 @pytest.mark.parametrize("rx, ry", [(1, 1), (-1, 1), (-1, -1), (1, -1)])
-def test_text_scale_and_reflexion(rx, ry, text2):
+def test_scale_and_reflexion(rx, ry, text2):
     insert = Vec3(0, 0, 0)
     m = Matrix44.chain(
         Matrix44.scale(2 * rx, 3 * ry, 1),
@@ -268,7 +296,7 @@ def test_text_scale_and_reflexion(rx, ry, text2):
     assert math.isclose(text2.dxf.width, 2.0 / 3.0)
 
 
-def test_text_non_uniform_scaling(text2):
+def test_non_uniform_scaling(text2):
     text2.rotate_z(math.radians(30))
     text2.scale(1, 2, 1)
     assert math.isclose(text2.dxf.oblique, 33.004491598883064)
@@ -290,3 +318,91 @@ def test_is_upside_down(text):
 def test_set_is_upside_down(text):
     text.is_upside_down = True
     assert text.is_upside_down is True
+
+
+def test_get_pos_handles_missing_align_point():
+    """Any text alignment except LEFT requires and uses the align_point
+    attribute as text location point. But there are real world example from
+    AutoCAD which do not provide the align_point even it is required.
+
+    In this case the get_pos() method returns the insert attribute.
+
+    """
+    text = Text()
+    text.dxf.halign = 1  # center
+    text.dxf.valign = 1  # bottom
+    text.dxf.insert = (1, 2)
+    text.dxf.align_point = (3, 4)  # the real alignment point
+
+    # the expected and correct align point:
+    alignment, p1, p2 = text.get_placement()
+    assert p1 == (3, 4)
+    assert p2 is None  # only used for FIT and ALIGNED
+
+    # remove the align point
+    del text.dxf.align_point
+
+    alignment, p1, p2 = text.get_placement()
+    assert p1 == (1, 2)  # use the insert point instead
+    assert p2 is None  # only used for FIT and ALIGNED
+
+MALFORMED_TEXT = """0
+TEXT
+5
+0
+6
+LT_EZDXF
+8
+LY_EZDXF
+330
+0
+100
+AcDbEntity
+10
+1.0
+20
+2.0
+30
+3.0
+40
+1.0
+1
+TEXTCONTENT
+50
+0.0
+51
+0.0
+7
+STY_EZDXF
+41
+1.0
+71
+0
+72
+3
+11
+3.0
+21
+4.0
+31
+5.0
+100
+AcDbText
+73
+1
+62
+7
+"""
+
+
+def test_malformed_text():
+    line = Text.from_text(MALFORMED_TEXT)
+    assert line.dxf.layer == "LY_EZDXF"
+    assert line.dxf.linetype == "LT_EZDXF"
+    assert line.dxf.style == "STY_EZDXF"
+    assert line.dxf.color == 7
+    assert line.dxf.text == "TEXTCONTENT"
+    assert line.dxf.insert.isclose((1, 2, 3))
+    assert line.dxf.align_point.isclose((3, 4, 5))
+    assert line.dxf.halign == 3
+    assert line.dxf.valign == 1

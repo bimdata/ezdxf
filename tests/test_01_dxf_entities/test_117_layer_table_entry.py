@@ -1,5 +1,4 @@
-# Created: 16.03.2011, 2018 rewritten for pytest
-# Copyright (C) 2011-2019, Manfred Moitzi
+# Copyright (C) 2011-2022, Manfred Moitzi
 # License: MIT License
 import pytest
 from ezdxf.entities.layer import Layer
@@ -149,6 +148,33 @@ def test_get_default_transparency(layer):
     assert layer.transparency == 0
 
 
+def test_fully_transparent_layer(layer):
+    layer.set_xdata("AcCmTransparency", [(1071, 0x02000000)])
+    assert layer.transparency == 1.0
+
+
+def test_half_transparent_layer(layer):
+    layer.set_xdata("AcCmTransparency", [(1071, 0x0200007F)])
+    assert round(layer.transparency, 2) == 0.5
+
+
+def test_opaque_layer(layer):
+    layer.set_xdata("AcCmTransparency", [(1071, 0x020000FF)])
+    assert layer.transparency == 0.0
+
+
+def test_invalid_transparency_returns_opaque(layer):
+    # The flag 0x02000000 has to be set for a valid transparency
+    layer.set_xdata("AcCmTransparency", [(1071, 0)])
+    assert layer.transparency == 0.0
+
+
+def test_transparency_byblock_returns_opaque(layer):
+    # Transparency BYBLOCK (0x01000000) make no sense for a layer!?
+    layer.set_xdata("AcCmTransparency", [(1071, 0x01000000)])
+    assert layer.transparency == 0.0
+
+
 def test_set_transparency(layer):
     layer.transparency = 0.11
     assert round(layer.transparency, 2) == 0.11
@@ -162,3 +188,30 @@ def test_replace_transparency(layer):
     assert round(layer.transparency, 2) == 0.11
     layer.transparency = 0.77
     assert round(layer.transparency, 2) == 0.77
+
+
+MALFORMED_LAYER = """0
+LAYER
+2
+LY_EZDXF
+5
+FEFE
+100
+AcDbLayerTableRecord
+70
+0
+62
+7
+6
+CONTINUOUS
+100
+AcDbSymbolTableRecord
+"""
+
+
+def test_malformed_layer():
+    layer = Layer.from_text(MALFORMED_LAYER)
+    assert layer.dxf.name == "LY_EZDXF"
+    assert layer.dxf.handle == "FEFE"
+    assert layer.dxf.color == 7
+    assert layer.dxf.linetype == "CONTINUOUS"

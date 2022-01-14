@@ -20,6 +20,14 @@ For more information about dimensions see the online help from AutoDesk:
     objects. Dimensional constraints are not documented in the DXF reference and
     not supported by `ezdxf`.
 
+.. seealso::
+
+    - :ref:`tut_linear_dimension`
+    - :ref:`tut_radius_dimension`
+    - :ref:`tut_diameter_dimension`
+    - :ref:`tut_angular_dimension`
+    - :ref:`tut_ordinate_dimension`
+
 ======================== ==========================================
 Subclass of              :class:`ezdxf.entities.DXFGraphic`
 DXF type                 ``'DIMENSION'``
@@ -33,8 +41,10 @@ Factory Functions
 =========================================== ==========================================
 `Linear and Rotated Dimension (DXF)`_       :meth:`~ezdxf.layouts.BaseLayout.add_linear_dim`
 `Aligned Dimension (DXF)`_                  :meth:`~ezdxf.layouts.BaseLayout.add_aligned_dim`
-`Angular Dimension (DXF)`_                  :meth:`~ezdxf.layouts.BaseLayout.add_angular_dim` (not implemented)
-`Angular 3P Dimension (DXF)`_               :meth:`~ezdxf.layouts.BaseLayout.add_angular_3p_dim` (not implemented)
+`Angular Dimension (DXF)`_                  :meth:`~ezdxf.layouts.BaseLayout.add_angular_dim_2l`
+`Angular 3P Dimension (DXF)`_               :meth:`~ezdxf.layouts.BaseLayout.add_angular_dim_3p`
+Angular Dimension by center, radius, angles :meth:`~ezdxf.layouts.BaseLayout.add_angular_dim_cra`
+Angular Dimension by ConstructionArc        :meth:`~ezdxf.layouts.BaseLayout.add_angular_dim_arc`
 `Diameter Dimension (DXF)`_                 :meth:`~ezdxf.layouts.BaseLayout.add_diameter_dim`
 `Radius Dimension (DXF)`_                   :meth:`~ezdxf.layouts.BaseLayout.add_radius_dim`
 `Ordinate Dimension (DXF)`_                 :meth:`~ezdxf.layouts.BaseLayout.add_ordinate_dim` (not implemented)

@@ -6,6 +6,7 @@ import itertools
 import enum
 
 from ezdxf.math import Matrix44, BoundingBox2d
+from ezdxf.tools.text import leading
 
 """
 
@@ -807,7 +808,7 @@ class EmptyParagraph(Cell):
     def __init__(self, cap_height: float, line_spacing: float = 1):
         self._height: float = cap_height
         self._width: float = 0
-        self._last_line_spacing = cap_height - leading(cap_height, line_spacing)
+        self._last_line_spacing = leading(cap_height, line_spacing) - cap_height
 
     @property
     def total_width(self) -> float:
@@ -826,19 +827,6 @@ class EmptyParagraph(Cell):
     @property
     def distance_to_next_paragraph(self) -> float:
         return self._last_line_spacing
-
-
-def leading(cap_height: float, line_spacing: float = 1.0) -> float:
-    """Returns the distance from baseline to baseline.
-
-    Args:
-        cap_height: cap height of the line
-        line_spacing: line spacing factor as percentage of 3-on-5 spacing
-
-    """
-    # method "exact": 3-on-5 line spacing = 5/3 = 1.667
-    # method "at least" is not supported
-    return cap_height * 1.667 * line_spacing
 
 
 class Paragraph(Container):
@@ -1429,7 +1417,7 @@ class AbstractLine(ContentCell):  # ABC
 
     @property
     def total_width(self) -> float:
-        width: float = 0
+        width: float = 0.0
         if len(self._cells):
             last_cell = self._cells[-1]
             width = last_cell.offset + last_cell.cell.total_width
@@ -1437,7 +1425,9 @@ class AbstractLine(ContentCell):  # ABC
 
     @property
     def total_height(self) -> float:
-        return max(c.cell.total_height for c in self._cells)
+        if len(self._cells):
+            return max(c.cell.total_height for c in self._cells)
+        return 0.0
 
     def cells(self) -> Iterable[Cell]:
         """Yield line content including RigidConnections."""

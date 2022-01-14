@@ -1,4 +1,4 @@
-# Copyright (c) 2011-2021, Manfred Moitzi
+# Copyright (c) 2011-2022, Manfred Moitzi
 # License: MIT License
 import pytest
 import ezdxf
@@ -141,6 +141,18 @@ def doc():
     return ezdxf.new()
 
 
+def test_do_not_recover_owner_tag_at_loading_stage():
+    # this is the task of the audit process and breaks otherwise the
+    # recover mode for test file: "ProE_AC1018.dxf"
+    d = Dictionary.from_text(WITHOUT_OWNER_TAG)
+    assert d.dxf.hasattr("owner") is False
+
+
+def test_dictionary_loads_owner_tag():
+    d = Dictionary.from_text(WITH_OWNER_TAG)
+    assert d.dxf.owner == "FEFE"
+
+
 def test_get_entity_invalid_handle(doc):
     rootdict = doc.rootdict
     e = factory.new("ACDBPLACEHOLDER", {})
@@ -260,6 +272,15 @@ def test_audit_fix_invalid_pointer():
     # test if invalid entry was removed
     assert len(d) == 0
     assert "TEST_VAR_3" not in d
+
+
+def test_audit_restores_deleted_owner_tag():
+    doc = ezdxf.new()
+    d = doc.objects.add_dictionary()
+    d.dxf.discard("owner")
+    auditor = Auditor(doc)
+    d.audit(auditor)
+    assert d.dxf.owner == doc.rootdict.dxf.handle, "assign to root dict"
 
 
 def test_link_dxf_object_to_dictionary():
@@ -536,3 +557,26 @@ AcDbDictionaryWithDefault
 340
 F
 """
+
+WITHOUT_OWNER_TAG = """0
+DICTIONARY
+5
+C
+100
+AcDbDictionary
+281
+1
+"""
+
+WITH_OWNER_TAG = """0
+DICTIONARY
+5
+C
+330
+FEFE
+100
+AcDbDictionary
+281
+1
+"""
+

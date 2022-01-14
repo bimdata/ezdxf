@@ -1,4 +1,4 @@
-# Copyright (c) 2011-2021, Manfred Moitzi
+# Copyright (c) 2011-2022, Manfred Moitzi
 # License: MIT License
 from typing import (
     TYPE_CHECKING,
@@ -41,7 +41,7 @@ from ezdxf.entitydb import EntityDB
 from ezdxf.layouts.layouts import Layouts
 from ezdxf.tools.codepage import tocodepage, toencoding
 from ezdxf.tools.juliandate import juliandate
-from ezdxf.tools.text import escape_dxf_line_endings
+from ezdxf.tools.text import safe_string, MAX_STR_LEN
 
 from ezdxf.tools import guid
 from ezdxf.query import EntityQuery
@@ -77,8 +77,8 @@ if TYPE_CHECKING:
     )
     from ezdxf.sections.tables import (
         LayerTable,
-        LineTypeTable,
-        StyleTable,
+        LinetypeTable,
+        TextstyleTable,
         DimStyleTable,
         AppIDTable,
         UCSTable,
@@ -280,6 +280,10 @@ class Drawing:
         self.header["$ACADVER"] = version
 
     @property
+    def loaded_dxfversion(self) -> Optional[str]:
+        return self._loaded_dxfversion
+
+    @property
     def output_encoding(self):
         """Returns required output encoding for writing document to a text
         streams.
@@ -477,9 +481,10 @@ class Drawing:
         """For upgrading DXF R12/13/14 files to R2000, it is necessary to
         create all used arrow blocks before saving the DXF file, else $HANDSEED
         is not the next available handle, which is a problem for AutoCAD.
-        To be save create all known AutoCAD arrows, because references to arrow
-        blocks can be in DIMSTYLE, DIMENSION override, LEADER override and maybe
-        other places.
+
+        Create all known AutoCAD arrows to be on the safe side, because
+        references to arrow blocks can be in DIMSTYLE, DIMENSION override,
+        LEADER override and maybe other locations.
 
         """
         from ezdxf.render.arrows import ARROWS
@@ -722,11 +727,11 @@ class Drawing:
         return self.tables.layers
 
     @property
-    def linetypes(self) -> "LineTypeTable":
+    def linetypes(self) -> "LinetypeTable":
         return self.tables.linetypes
 
     @property
-    def styles(self) -> "StyleTable":
+    def styles(self) -> "TextstyleTable":
         return self.tables.styles
 
     @property
@@ -819,9 +824,7 @@ class Drawing:
         self._acad_compatible = False
         if msg not in self._acad_incompatibility_reason:
             self._acad_incompatibility_reason.add(msg)
-            logger.warning(
-                f"DXF document is not AutoCAD compatible! {msg}."
-            )
+            logger.warning(f"DXF document is not AutoCAD compatible! {msg}.")
 
     def query(self, query: str = "*") -> EntityQuery:
         """
@@ -1064,20 +1067,35 @@ class Drawing:
         else:
             return True
 
-    def set_modelspace_vport(self, height, center=(0, 0)) -> "VPort":
+    def set_modelspace_vport(
+        self, height, center=(0, 0), *, dxfattribs=None
+    ) -> "VPort":
         r"""Set initial view/zoom location for the modelspace, this replaces
-        the current "\*Active" viewport configuration.
+        the current "\*Active" viewport configuration
+        (:class:`~ezdxf.entities.VPort`) and reset the coordinate system to the
+        :ref:`WCS`.
 
         Args:
              height: modelspace area to view
              center: modelspace location to view in the center of the CAD
                 application window.
+             dxfattribs: additional DXF attributes for the VPORT entity
+
+        .. versionchanged:: 0.17.2
+
+            added argument `dxfattribs` to pass additional DXF attributes to
+            the VPORT entity
 
         """
         self.viewports.delete_config("*Active")
-        vport = cast("VPort", self.viewports.new("*Active"))
+        dxfattribs = dict(dxfattribs or {})
+        vport = cast(
+            "VPort", self.viewports.new("*Active", dxfattribs=dxfattribs)
+        )
         vport.dxf.center = center
         vport.dxf.height = height
+        vport.reset_wcs()
+        self.header.reset_wcs()
         return vport
 
 
@@ -1100,7 +1118,7 @@ class MetaData(abc.ABC):
         try:
             return self.__getitem__(key)
         except KeyError:
-            return safe_string(default)
+            return safe_string(default, MAX_STR_LEN)
 
     @abc.abstractmethod
     def __setitem__(self, key: str, value: str) -> None:
@@ -1137,10 +1155,6 @@ def ezdxf_marker_string():
         return ezdxf.__version__ + " @ " + now.isoformat()
 
 
-def safe_string(s: str) -> str:
-    return escape_dxf_line_endings(s)[:254]
-
-
 class R12MetaData(MetaData):
     """Manage ezdxf meta data for DXF version R12 as XDATA of layer "0".
 
@@ -1154,17 +1168,17 @@ class R12MetaData(MetaData):
         self._data = self._load()
 
     def __contains__(self, key: str) -> bool:
-        return safe_string(key) in self._data
+        return safe_string(key, MAX_STR_LEN) in self._data
 
     def __getitem__(self, key: str) -> str:
-        return self._data[safe_string(key)]
+        return self._data[safe_string(key, MAX_STR_LEN)]
 
     def __setitem__(self, key: str, value: str) -> None:
-        self._data[safe_string(key)] = safe_string(value)
+        self._data[safe_string(key)] = safe_string(value, MAX_STR_LEN)
         self._commit()
 
     def __delitem__(self, key: str) -> None:
-        del self._data[safe_string(key)]
+        del self._data[safe_string(key, MAX_STR_LEN)]
         self._commit()
 
     def _commit(self) -> None:
@@ -1199,14 +1213,126 @@ class R2000MetaData(MetaData):
         )
 
     def __contains__(self, key: str) -> bool:
-        return safe_string(key) in self._data
+        return safe_string(key, MAX_STR_LEN) in self._data
 
     def __getitem__(self, key: str) -> str:
-        v = self._data[safe_string(key)]
+        v = self._data[safe_string(key, MAX_STR_LEN)]
         return v.dxf.get("value", "")
 
     def __setitem__(self, key: str, value: str) -> None:
-        self._data.set_or_add_dict_var(safe_string(key), safe_string(value))
+        self._data.set_or_add_dict_var(
+            safe_string(key, MAX_STR_LEN), safe_string(value, MAX_STR_LEN)
+        )
 
     def __delitem__(self, key: str) -> None:
-        self._data.remove(safe_string(key))
+        self._data.remove(safe_string(key, MAX_STR_LEN))
+
+
+def info(doc: Drawing, verbose=False, content=False, fmt="ASCII") -> List[str]:
+    from ezdxf.units import unit_name
+    from collections import Counter
+
+    def count(entities, indent="  ") -> Iterator[str]:
+        counter: Counter = Counter()
+        for e in entities:
+            counter[e.dxftype()] += 1
+        for name in sorted(counter.keys()):
+            yield f"{indent}{name} ({counter[name]})"
+
+    def append_container(table, name: str, container="table"):
+        indent = "  "
+        data.append(f"{name} {container} entries: {len(table)}")
+        if verbose:
+            if name == "STYLE":
+                names: List[str] = []
+                for entry in table:
+                    name = entry.dxf.name
+                    if name == "":
+                        names.append(f'{indent}*shape-file: "{entry.dxf.font}"')
+                    else:
+                        names.append(f"{indent}{name}")
+            else:
+                names = [f"{indent}{entry.dxf.name}" for entry in table]
+            names.sort()
+            data.extend(names)
+
+    def user_vars(kind: str, indent="") -> Iterator[str]:
+        for i in range(5):
+            name = f"{kind}{i+1}"
+            if name in header:
+                yield f"{indent}{name}={header[name]}"
+
+    def append_header_var(name: str, indent=""):
+        data.append(
+            f"{indent}{name}: {header.get(name, '<undefined>').strip()}"
+        )
+
+    header = doc.header
+    loaded_dxf_version = doc.loaded_dxfversion
+    if loaded_dxf_version is None:
+        loaded_dxf_version = doc.dxfversion
+    data: List[str] = []
+    data.append(f'Filename: "{doc.filename}"')
+    data.append(f"Format: {fmt}")
+    if loaded_dxf_version != doc.dxfversion:
+        msg = (
+            f"Loaded content was upgraded from DXF Version {loaded_dxf_version}"
+        )
+        release = const.acad_release.get(loaded_dxf_version, "")
+        if release:
+            msg += f" ({release})"
+        data.append(msg)
+    data.append(f"Release: {doc.acad_release}")
+    data.append(f"DXF Version: {doc.dxfversion}")
+    if verbose:
+        data.append(
+            f"Maintenance Version: {header.get('$ACADMAINTVER', '<undefined>')}"
+        )
+    data.append(f"Codepage: {header.get('$DWGCODEPAGE', 'ANSI_1252')}")
+    data.append(f"Encoding: {doc.output_encoding}")
+
+    measurement = "Metric" if header.get("$MEASUREMENT", 0) else "Imperial"
+    if verbose:
+        data.append(f"Unit system: {measurement}")
+        data.append(f"Modelspace units: {unit_name(doc.units)}")
+        append_header_var("$LASTSAVEDBY")
+        append_header_var("$HANDSEED")
+        append_header_var("$FINGERPRINTGUID")
+        append_header_var("$VERSIONGUID")
+        data.extend(user_vars(kind="$USERI"))
+        data.extend(user_vars(kind="$USERR"))
+        for name, value in header.custom_vars:
+            data.append(f'Custom property "{name}": "{value}"')
+
+    ezdxf_metadata = doc.ezdxf_metadata()
+    if CREATED_BY_EZDXF in ezdxf_metadata:
+        data.append(f"Created by ezdxf: {ezdxf_metadata.get(CREATED_BY_EZDXF)}")
+    elif verbose:
+        data.append("File was not created by ezdxf >= 0.16.4")
+    if WRITTEN_BY_EZDXF in ezdxf_metadata:
+        data.append(f"Written by ezdxf: {ezdxf_metadata.get(WRITTEN_BY_EZDXF)}")
+    elif verbose:
+        data.append("File was not written by ezdxf >= 0.16.4")
+    if content:
+        data.append("Content stats:")
+        append_container(doc.layers, "LAYER")
+        append_container(doc.linetypes, "LTYPE")
+        append_container(doc.styles, "STYLE")
+        append_container(doc.dimstyles, "DIMSTYLE")
+        append_container(doc.appids, "APPID")
+        append_container(doc.ucs, "UCS")
+        append_container(doc.views, "VIEW")
+        append_container(doc.viewports, "VPORT")
+        append_container(doc.block_records, "BLOCK_RECORD")
+        if doc.dxfversion > DXF12:
+            append_container(list(doc.classes), "CLASS", container="section")  # type: ignore
+
+        data.append(f"Entities in modelspace: {len(doc.modelspace())}")
+        if verbose:
+            data.extend(count(doc.modelspace()))
+
+        data.append(f"Entities in OBJECTS section: {len(doc.objects)}")
+        if verbose:
+            data.extend(count(doc.objects))
+
+    return data
