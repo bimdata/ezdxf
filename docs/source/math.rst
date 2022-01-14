@@ -69,7 +69,9 @@ Bulge Related Functions
 
 .. autofunction:: convex_hull_2d
 
-.. autofunction:: intersection_line_line_2d(line1: Sequence[Vec2], line2: Sequence[Vec2], virtual=True, abs_tol=1e-10) -> Optional[Vec2]
+.. autofunction:: intersection_line_line_2d(line1: Tuple[Vec2, Vec2], line2: Tuple[Vec2, Vec2], virtual=True, abs_tol=1e-10) -> Optional[Vec2]
+
+.. autofunction:: intersect_polylines_2d(p1: Sequence[Vec2], p2: Sequence[Vec2], abs_tol=1e-10) -> List[Vec2]
 
 .. autofunction:: rytz_axis_construction(d1: Vec3, d2: Vec3) -> Tuple[Vec3, Vec3, float]
 
@@ -120,6 +122,10 @@ Example for a closed collinear shape, which creates 2 additional vertices and th
 
 .. autofunction:: intersection_ray_ray_3d(ray1: Tuple[Vec3, Vec3], ray2: Tuple[Vec3, Vec3], abs_tol=1e-10) -> Sequence[Vec3]
 
+.. autofunction:: intersection_line_line_3d(line1: Tuple[Vec3, Vec3], line2: Tuple[Vec3, Vec3], virtual=True, abs_tol=1e-10) -> Optional[Vec3]
+
+.. autofunction:: intersect_polylines_3d(p1: Sequence[Vec3], p2: Sequence[Vec3], abs_tol=1e-10) -> List[Vec3]
+
 .. autofunction:: estimate_tangents(points: List[Vec3], method: str = '5-points', normalize = True) -> List[Vec3]
 
 .. autofunction:: estimate_end_tangent_magnitude(points: List[Vec3], method: str = 'chord') -> List[Vec3]
@@ -144,13 +150,20 @@ Example for a closed collinear shape, which creates 2 additional vertices and th
 
 .. autofunction:: cubic_bezier_from_ellipse(ellipse: ConstructionEllipse, segments: int = 1) -> Iterable[Bezier4P]
 
+.. autofunction:: cubic_bezier_from_3p(p1: Vertex, p2: Vertex, p3: Vertex) -> Bezier4P
+
 .. autofunction:: cubic_bezier_interpolation(points: Iterable[Vertex]) -> List[Bezier4P]
 
 .. autofunction:: quadratic_to_cubic_bezier(bezier: Bezier3P) -> Bezier4P
 
+.. autofunction:: quadratic_bezier_from_3p(p1: Vertex, p2: Vertex, p3: Vertex) -> Bezier3P
+
 .. autofunction:: bezier_to_bspline(Iterable[Union[Bezier3P, Bezier4P]], segments int = 4) -> BSpline
 
 .. autofunction:: have_bezier_curves_g1_continuity(b1: AnyBezier, b2 AnyBezier, g1_tol: float = 1e-4) -> bool
+
+.. autofunction:: split_bezier(control_points: Sequence[AnyVec], t: float) -> Tuple[List[AnyVec], List[AnyVec]]:
+
 
 Transformation Classes
 ======================
@@ -512,6 +525,10 @@ BoundingBox
 
     .. automethod:: intersect(other: BoundingBox) -> bool
 
+    .. automethod:: overlap(other: BoundingBox) -> bool
+
+    .. automethod:: contains(other: BoundingBox) -> bool
+
     .. automethod:: extend
 
     .. automethod:: union(other: BoundingBox) -> BoundingBox
@@ -548,6 +565,10 @@ BoundingBox2d
     .. automethod:: all_inside
 
     .. automethod:: intersect(other: BoundingBox2d) -> bool
+
+    .. automethod:: overlap(other: BoundingBox2d) -> bool
+
+    .. automethod:: contains(other: BoundingBox2d) -> bool
 
     .. automethod:: extend
 
@@ -846,6 +867,8 @@ ConstructionPolyline
 
     .. automethod:: data(index: int) -> Tuple[float, float, Vec3]
 
+    .. automethod:: index_at
+
     .. automethod:: vertex_at(distance: float) -> Vec3
 
     .. automethod:: divide(count: int) -> Iterator[Vec3]
@@ -924,7 +947,7 @@ BSpline
 
     .. automethod:: point(t: float) -> Vec3
 
-    .. automethod:: points(t: float) -> List[Vec3]
+    .. automethod:: points(t: Iterable[float]) -> List[Vec3]
 
     .. automethod:: derivative(t: float, n: int=2) -> List[Vec3]
 
@@ -1017,7 +1040,18 @@ Bezier3P
 
     .. automethod:: tangent(t: float) -> Union[Vec3, Vec2]
 
+ApproxParamT
+------------
 
+.. autoclass:: ApproxParamT(curve, *, max_t: float = 1.0, segments: int = 100)
+
+    .. autoproperty:: max_t
+
+    .. autoproperty:: polyline
+
+    .. automethod:: param_t
+
+    .. automethod:: distance
 
 BezierSurface
 -------------

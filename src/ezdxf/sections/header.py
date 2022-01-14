@@ -47,6 +47,21 @@ $HANDSEED
 FF
 """
 
+# Additional variables may be stored as DICTIONARYVAR in the OBJECTS
+# section in the DICTIONARY "AcDbVariableDictionary" of the root dict.
+# - CANNOSCALE
+# - CENTEREXE
+# - CENTERLTYPEFILE
+# - CETRANSPARENCY
+# - CMLEADERSTYLE
+# - CTABLESTYLE
+# - CVIEWDETAILSTYLE
+# - CVIEWSECTIONSTYLE
+# - LAYEREVAL
+# - LAYERNOTIFY
+# - LIGHTINGUNITS
+# - MSLTSCALE
+
 
 class CustomVars:
     """Stores custom properties in the DXF header as $CUSTOMPROPERTYTAG and
@@ -297,6 +312,22 @@ class HeaderSection:
             del self.hdrvars[key]
         except KeyError:  # map exception
             raise const.DXFKeyError(str(key))
+
+    def reset_wcs(self):
+        """Reset the current UCS settings to the :ref:`WCS`."""
+        self["$UCSBASE"] = ""
+        self["$UCSNAME"] = ""
+        self["$UCSORG"] = (0, 0, 0)
+        self["$UCSXDIR"] = (1, 0, 0)
+        self["$UCSYDIR"] = (0, 1, 0)
+        self["$UCSORTHOREF"] = ""
+        self["$UCSORTHOVIEW"] = 0
+        self["$UCSORGTOP"] = (0, 0, 0)
+        self["$UCSORGBOTTOM"] = (0, 0, 0)
+        self["$UCSORGLEFT"] = (0, 0, 0)
+        self["$UCSORGRIGHT"] = (0, 0, 0)
+        self["$UCSORGFRONT"] = (0, 0, 0)
+        self["$UCSORGBACK"] = (0, 0, 0)
 
 
 def header_vars_by_priority(

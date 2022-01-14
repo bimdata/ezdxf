@@ -21,6 +21,7 @@ from ezdxf.math import (
 )
 from ezdxf.math import UCS, PassTroughUCS, xround, Z_AXIS
 from ezdxf.lldxf import const
+from ezdxf.enums import TextEntityAlignment
 from ezdxf._options import options
 from ezdxf.lldxf.const import DXFValueError, DXFUndefinedBlockError
 from ezdxf.tools import suppress_zeros
@@ -45,10 +46,12 @@ class TextBox(ConstructionBox):
         width: float = 0.0,
         height: float = 0.0,
         angle: float = 0.0,
-        gap: float = 0.0,
+        hgap: float = 0.0,  # horizontal gap - width
+        vgap: float = 0.0,  # vertical gap - height
     ):
-        height += 2 * gap
-        super().__init__(center, width, height, angle)
+        super().__init__(
+            center, width + 2.0 * hgap, height + 2.0 * vgap, angle
+        )
 
 
 PLUS_MINUS = "±"
@@ -496,10 +499,10 @@ class Measurement:
 
         # special setting for angular dimensions  (dimzin << 2) & 3
         # 0 = Displays all leading and trailing zeros
-        # 1 = Suppresses leading zeros in decimal dimensions (for example, 0.5000 becomes .5000)
-        # 2 = Suppresses trailing zeros in decimal dimensions (for example, 12.5000 becomes 12.5)
+        # 1 = Suppresses leading zeros (for example, 0.5000 becomes .5000)
+        # 2 = Suppresses trailing zeros (for example, 12.5000 becomes 12.5)
         # 3 = Suppresses leading and trailing zeros (for example, 0.5000 becomes .5)
-        self.angular_suppress_zeros: int = get("dimazin", 3)
+        self.angular_suppress_zeros: int = get("dimazin", 2)
 
         # decimal separator char, default is ",":
         self.decimal_separator: str = dim_style.get_decimal_separator()
@@ -538,6 +541,9 @@ class Measurement:
         self.text_vertical_position: float = get("dimtvp", 0.0)
 
         # Move text freely:
+        # 0 = Moves the dimension line with dimension text
+        # 1 = Adds a leader when dimension text is moved
+        # 2 = Allows text to be moved freely without a leader
         self.text_movement_rule: int = get("dimtmove", 2)
 
         self.has_leader: bool = (
@@ -583,10 +589,14 @@ class Measurement:
 
         # Units format for angular dimensions
         # 0 = Decimal degrees
-        # 1 = Degrees/minutes/seconds (not supported) same as 0
+        # 1 = Degrees/minutes/seconds
         # 2 = Grad
         # 3 = Radians
         self.angle_units: int = get("dimaunit", 0)
+
+        self.has_arc_length_prefix = False
+        if get("dimarcsym", 2) == 0:
+            self.has_arc_length_prefix = True
 
         # Text_outside is only True if really placed outside of default text
         # location
@@ -599,6 +609,9 @@ class Measurement:
 
         # True if dimension text doesn't fit between extension lines
         self.is_wide_text: bool = False
+
+        # Text rotation was corrected to make upside down text better readable
+        self.has_upside_down_correction: bool = False
 
     @property
     def text_is_inside(self):
@@ -812,7 +825,7 @@ class Geometry:
         # Therefore remove OCS elevation, the elevation is defined by the
         # DIMENSION 'text_midpoint' (group code 11) and do not set 'extrusion'
         # either!
-        entity.set_pos(self.ucs.to_ocs(Vec3(pos)).vec2, align="MIDDLE_CENTER")
+        entity.set_placement(self.ucs.to_ocs(Vec3(pos)).vec2, align=TextEntityAlignment.MIDDLE_CENTER)
 
     def add_mtext(
         self, text: str, pos: Vec2, rotation: float, dxfattribs: Dict[str, Any]
@@ -827,7 +840,7 @@ class Geometry:
 
     def add_defpoints(self, points: Iterable[Vec2]) -> None:
         attribs = {
-            "layer": "DEFPOINTS",
+            "layer": "Defpoints",
         }
         for point in points:
             # Despite the fact that the POINT entity has WCS coordinates,
@@ -1054,6 +1067,21 @@ class BaseDimensionRenderer:
     def init_measurement(self, color: int, scale: float) -> Measurement:
         return LengthMeasurement(self.dim_style, color, scale)
 
+    def init_text_box(self) -> TextBox:
+        measurement = self.measurement
+        return TextBox(
+            center=measurement.text_location,
+            width=self.total_text_width(),
+            height=measurement.text_height,
+            angle=measurement.text_rotation or 0.0,
+            # The currently used mono-spaced abstract font, returns a too large
+            # text width.
+            # Therefore the horizontal text gap is ignored at all - yet!
+            hgap=0.0,
+            # Arbitrary choice to reduce the too large vertical gap!
+            vgap=measurement.text_gap * 0.75,
+        )
+
     def get_required_defpoint(self, name: str) -> Vec2:
         return get_required_defpoint(self.dimension, name)
 
@@ -1263,6 +1291,28 @@ def order_leader_points(p1: Vec2, p2: Vec2, p3: Vec2) -> Tuple[Vec2, Vec2]:
         return p3, p2
     else:
         return p2, p3
+
+
+def get_center_leader_points(
+    target_point: Vec2, text_box: TextBox, leg_length: float
+) -> Tuple[Vec2, Vec2]:
+    """Returns the leader points of the "leg" for a vertical centered leader."""
+    c0, c1, c2, c3 = text_box.corners
+    #              c3-------c2
+    # left leg /---x  text  x---\ right leg
+    #         /    c0-------c1   \
+    left_center = c0.lerp(c3)
+    right_center = c1.lerp(c2)
+    connection_point = left_center
+    leg_vector = (c0 - c1).normalize(leg_length)
+    if target_point.distance(left_center) > target_point.distance(right_center):
+        connection_point = right_center
+        leg_vector = -leg_vector
+    # leader line: target_point -> leg_point -> connection_point
+    # The text gap between the text and the connection point is already included
+    # in the text_box corners!
+    # Do not order leader points!
+    return connection_point + leg_vector, connection_point
 
 
 def get_required_defpoint(dim: Dimension, name: str) -> Vec2:

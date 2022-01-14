@@ -113,7 +113,7 @@ Factory function         :meth:`Drawing.styles.new`
 
     .. attribute:: dxf.owner
 
-        Handle to owner (:class:`~ezdxf.sections.table.StyleTable`).
+        Handle to owner (:class:`~ezdxf.sections.table.TextstyleTable`).
 
     .. attribute:: dxf.name
 
@@ -180,6 +180,8 @@ Factory function         :meth:`Drawing.styles.new`
     .. automethod:: set_extended_font_data
 
     .. automethod:: discard_extended_font_data
+
+    .. automethod:: make_font
 
 
 .. _DXF Reference: http://help.autodesk.com/view/OARX/2018/ENU/?guid=GUID-EF68AF7C-13EF-45A1-8175-ED6CE66C8FC9

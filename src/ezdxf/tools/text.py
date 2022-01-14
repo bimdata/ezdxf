@@ -1,6 +1,8 @@
 #  Copyright (c) 2021, Manfred Moitzi
 #  License: MIT License
-#  All tools in this module have to be independent from DXF entities!
+"""
+Tools in this module should be as independent from DXF entities as possible!
+"""
 import enum
 from typing import (
     List,
@@ -16,38 +18,31 @@ import re
 import math
 
 from ezdxf.lldxf import validator, const
-from ezdxf.lldxf.const import (
+from ezdxf.enums import (
+    TextEntityAlignment,
+    TextHAlign,
     MTextParagraphAlignment,
     MTextLineAlignment,
     MTextStroke,
+    MAP_MTEXT_ALIGN_TO_FLAGS,
+)
+from ezdxf.lldxf.const import (
     LEFT,
     CENTER,
     RIGHT,
     BASELINE,
-    BOTTOM,
     MIDDLE,
     TOP,
+    MAX_STR_LEN,
 )
 from ezdxf.math import Vec3, Vec2, Vertex
 from ezdxf.colors import rgb2int, RGB, int2rgb
-from .fonts import FontMeasurements, AbstractFont, FontFace
+from .fonts import FontMeasurements, AbstractFont, FontFace, make_font
 
 if TYPE_CHECKING:
     from ezdxf.eztypes import Text, MText, DXFEntity, Tags
 
 X_MIDDLE = 4  # special case for overall alignment "MIDDLE"
-
-MTEXT_ALIGN_FLAGS = {
-    1: (LEFT, TOP),
-    2: (CENTER, TOP),
-    3: (RIGHT, TOP),
-    4: (LEFT, MIDDLE),
-    5: (CENTER, MIDDLE),
-    6: (RIGHT, MIDDLE),
-    7: (LEFT, BOTTOM),
-    8: (CENTER, BOTTOM),
-    9: (RIGHT, BOTTOM),
-}
 
 
 class TextLine:
@@ -67,19 +62,22 @@ class TextLine:
         self._stretch_x: float = 1.0
         self._stretch_y: float = 1.0
 
-    def stretch(self, alignment: str, p1: Vec3, p2: Vec3) -> None:
-        """Set stretch factors for "FIT" and "ALIGNED" alignments to fit the
+    def stretch(
+        self, alignment: TextEntityAlignment, p1: Vec3, p2: Vec3
+    ) -> None:
+        """Set stretch factors for FIT and ALIGNED alignments to fit the
         text between `p1` and `p2`, only the distance between these points is
         important. Other given `alignment` values are ignore.
 
         """
+        assert isinstance(alignment, TextEntityAlignment)
         sx: float = 1.0
         sy: float = 1.0
-        if alignment in ("FIT", "ALIGNED"):
+        if alignment in (TextEntityAlignment.FIT, TextEntityAlignment.ALIGNED):
             defined_length: float = (p2 - p1).magnitude
             if self._text_width > 1e-9:
                 sx = defined_length / self._text_width
-                if alignment == "ALIGNED":
+                if alignment == TextEntityAlignment.ALIGNED:
                     sy = sx
         self._stretch_x = sx
         self._stretch_y = sy
@@ -174,7 +172,7 @@ class TextLine:
         oblique: float = 0,
     ) -> List[Vec3]:
         """Transform any vertices from the text line located at the base
-        location at (0, 0) and alignment "LEFT".
+        location at (0, 0) and alignment LEFT.
 
         Args:
             vertices: iterable of vertices
@@ -259,17 +257,21 @@ def unified_alignment(entity: Union["Text", "MText"]) -> Tuple[int, int]:
     if dxftype in ("TEXT", "ATTRIB", "ATTDEF"):
         halign = entity.dxf.halign
         valign = entity.dxf.valign
-        if halign in (3, 5):  # ALIGNED=3, FIT=5
+        if halign in (TextHAlign.ALIGNED, TextHAlign.FIT):
             # For the alignments ALIGNED and FIT the text stretching has to be
             # handles separately.
             halign = CENTER
             valign = BASELINE
-        elif halign == 4:  # MIDDLE is different to MIDDLE/CENTER
+        elif (
+            halign == TextHAlign.MIDDLE
+        ):  # MIDDLE is different to MIDDLE/CENTER
             halign = CENTER
             valign = X_MIDDLE
         return halign, valign
     elif dxftype == "MTEXT":
-        return MTEXT_ALIGN_FLAGS.get(entity.dxf.attachment_point, (LEFT, TOP))
+        return MAP_MTEXT_ALIGN_TO_FLAGS.get(
+            entity.dxf.attachment_point, (LEFT, TOP)
+        )
     else:
         raise TypeError(f"invalid DXF {dxftype}")
 
@@ -1016,7 +1018,7 @@ class MTextContext:
         self.continue_stroke: bool = False
         self._aci = 7  # used if rgb is None
         self.rgb: Optional[RGB] = None  # overrules aci
-        self.align: MTextLineAlignment = MTextLineAlignment.BOTTOM
+        self.align = MTextLineAlignment.BOTTOM
         self.font_face: FontFace = FontFace()  # is immutable
         self.cap_height: float = 1.0
         self.width_factor: float = 1.0
@@ -1668,7 +1670,7 @@ def has_inline_formatting_codes(text: str) -> bool:
     )
 
 
-def is_upside_down_text_angle(angle: float, tol: float = 3.) -> bool:
+def is_upside_down_text_angle(angle: float, tol: float = 3.0) -> bool:
     """Returns ``True`` if the given text `angle` in degrees causes an upside
     down text in the :ref:`WCS`. The strict flip range is 90° < `angle` < 270°,
     the tolerance angle `tol` extends this range to: 90+tol < `angle` < 270-tol.
@@ -1679,11 +1681,11 @@ def is_upside_down_text_angle(angle: float, tol: float = 3.) -> bool:
         tol: tolerance range in which text flipping will be avoided
 
     """
-    angle %= 360.
-    return 90. + tol < angle < 270. - tol
+    angle %= 360.0
+    return 90.0 + tol < angle < 270.0 - tol
 
 
-def upright_text_angle(angle: float, tol: float = 3.) -> float:
+def upright_text_angle(angle: float, tol: float = 3.0) -> float:
     """Returns a readable (upright) text angle in the range `angle` <= 90+tol or
     `angle` >= 270-tol. The angle is normalized to [0, 360).
 
@@ -1693,5 +1695,109 @@ def upright_text_angle(angle: float, tol: float = 3.) -> float:
 
     """
     if is_upside_down_text_angle(angle, tol):
-        angle += 180.
-    return angle % 360.
+        angle += 180.0
+    return angle % 360.0
+
+
+def leading(cap_height: float, line_spacing: float = 1.0) -> float:
+    """Returns the distance from baseline to baseline.
+
+    Args:
+        cap_height: cap height of the line
+        line_spacing: line spacing factor as percentage of 3-on-5 spacing
+
+    """
+    # method "exact": 3-on-5 line spacing = 5/3 = 1.667
+    # method "at least" is not supported
+    return cap_height * 1.667 * line_spacing
+
+
+def estimate_mtext_extents(mtext: "MText") -> Tuple[float, float]:
+    """Estimate the width and height of a single column
+    :class:`~ezdxf.entities.MText` entity.
+
+    This function is faster than the :func:`~ezdxf.tools.text_size.mtext_size`
+    function, but the result is very inaccurate if inline codes are used or
+    line wrapping at the column border is involved!
+
+    This function uses the optional `Matplotlib` package if available.
+
+    Returns:
+        Tuple[width, height]
+
+    """
+
+    def _make_font():
+        cap_height: float = mtext.dxf.get_default("char_height")
+        doc = mtext.doc
+        if doc:
+            style = doc.styles.get(mtext.dxf.get_default("style"))
+            if style is not None:
+                return style.make_font(cap_height)  # type: ignore
+        return make_font(const.DEFAULT_TTF, cap_height=cap_height)
+
+    return estimate_mtext_content_extents(
+        content=mtext.text,
+        font=_make_font(),
+        column_width=mtext.dxf.get("width", 0.0),
+        line_spacing_factor=mtext.dxf.get_default("line_spacing_factor"),
+    )
+
+
+def estimate_mtext_content_extents(
+    content: str,
+    font: AbstractFont,
+    column_width: float = 0.0,
+    line_spacing_factor: float = 1.0,
+) -> Tuple[float, float]:
+    """Estimate the width and height of the :class:`~ezdxf.entities.MText`
+    content string. The result is very inaccurate if inline codes are used or
+    line wrapping at the column border is involved!
+    Column breaks ``\\N`` will be ignored.
+
+    This function uses the optional `Matplotlib` package if available.
+
+    Args:
+        content: the :class:`~ezdxf.entities.MText` content string
+        font: font abstraction based on :class:`ezdxf.tools.fonts.AbstractFont`
+        column_width: :attr:`MText.dxf.width` or 0.0 for an unrestricted column
+            width
+        line_spacing_factor: :attr:`MText.dxf.line_spacing_factor`
+
+    Returns:
+        Tuple[width, height]
+
+    """
+    max_width: float = 0.0
+    height: float = 0.0
+    cap_height: float = font.measurements.cap_height
+    has_column_width: bool = column_width > 0.0
+    lines: List[str] = fast_plain_mtext(content, split=True)  # type: ignore
+
+    if any(lines):  # has any non empty lines
+        line_count: int = 0
+        for line in lines:
+            line_width = font.text_width(line)
+            if has_column_width:
+                # naive line wrapping, does not care about line content
+                line_count += math.ceil(line_width / column_width)
+                line_width = min(line_width, column_width)
+            else:
+                line_count += 1
+            # Note: max_width can be smaller than the column_width, if all lines
+            # are shorter than column_width!
+            max_width = max(max_width, line_width)
+
+        spacing = leading(cap_height, line_spacing_factor) - cap_height
+        height = cap_height * line_count + spacing * (line_count - 1)
+
+    return max_width, height
+
+
+def safe_string(s: Optional[str], max_len: int = MAX_STR_LEN) -> str:
+    """Returns a string with line breaks ``\\n`` replaced by ``\\P`` and the
+    length limited to `max_len`.
+    """
+    if isinstance(s, str):
+        return escape_dxf_line_endings(s)[:max_len]
+    return ""

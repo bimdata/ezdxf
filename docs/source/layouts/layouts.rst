@@ -172,7 +172,25 @@ BaseLayout
 
     .. automethod:: add_angular_dim_cra
 
+    .. automethod:: add_angular_dim_arc
+
+    .. automethod:: add_arc_dim_3p
+
+    .. automethod:: add_arc_dim_cra
+
+    .. automethod:: add_arc_dim_arc
+
+    .. automethod:: add_ordinate_dim
+
+    .. automethod:: add_ordinate_x_dim
+
+    .. automethod:: add_ordinate_y_dim
+
     .. automethod:: add_leader
+
+    .. automethod:: add_multileader_mtext
+
+    .. automethod:: add_multileader_block
 
     .. automethod:: add_body
 
@@ -303,19 +321,19 @@ BlockLayout
     :class:`~ezdxf.entities.Insert` entities. Each reference can be placed, scaled and rotated individually and can
     have it's own set of DXF :class:`~ezdxf.entities.Attrib` entities attached.
 
-    .. attribute:: name
+    .. autoproperty:: name
 
-       name of the associated BLOCK and BLOCK_RECORD entities.
+    .. autoproperty:: block
 
-    .. autoattribute:: block
+    .. autoproperty:: endblk
 
-    .. autoattribute:: endblk
+    .. autoproperty:: dxf
 
-    .. autoattribute:: dxf
+    .. autoproperty:: can_explode
 
-    .. autoattribute:: can_explode
+    .. autoproperty:: scale_uniformly
 
-    .. autoattribute:: scale_uniformly
+    .. autoproperty:: base_point
 
     .. automethod:: __contains__
 

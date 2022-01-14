@@ -2,10 +2,20 @@
 #  License: MIT License
 from typing import Tuple, Union
 import math
-from ezdxf.lldxf import const
 
 RGB = Tuple[int, int, int]
 
+BYBLOCK = 0
+BYLAYER = 256
+BYOBJECT = 257
+RED = 1
+YELLOW = 2
+GREEN = 3
+CYAN = 4
+BLUE = 5
+MAGENTA = 6
+BLACK = 7
+WHITE = 7
 
 # Flags for raw color int values:
 # Take color from layer, ignore other bytes.
@@ -23,16 +33,28 @@ COLOR_TYPE_WINDOW_BG = 0xC8
 
 
 def decode_raw_color(value: int) -> Tuple[int, Union[int, RGB]]:
-    """Returns tuple(type, Union[aci, (r, g, b)]."""
+    """Decode :term:`raw color` value as tuple(type, Union[aci, (r, g, b)]), the
+    true color value is a (r, g, b) tuple.
+    """
+    data = decode_raw_color_int(value)
+    if data[0] == COLOR_TYPE_RGB:
+        return COLOR_TYPE_RGB, int2rgb(data[1])
+    return data
+
+
+def decode_raw_color_int(value: int) -> Tuple[int, int]:
+    """Decode :term:`raw color` value as tuple(type, int), the true color value
+    is a 24-bit int value.
+    """
     flags = (value >> 24) & 0xFF
     if flags == COLOR_TYPE_BY_BLOCK:
-        return COLOR_TYPE_BY_BLOCK, const.BYBLOCK
+        return COLOR_TYPE_BY_BLOCK, BYBLOCK
     elif flags == COLOR_TYPE_BY_LAYER:
-        return COLOR_TYPE_BY_LAYER, const.BYLAYER
+        return COLOR_TYPE_BY_LAYER, BYLAYER
     elif flags == COLOR_TYPE_ACI:
         return COLOR_TYPE_ACI, value & 0xFF
     elif flags == COLOR_TYPE_RGB:
-        return COLOR_TYPE_RGB, int2rgb(value)
+        return COLOR_TYPE_RGB, value & 0xFFFFFF
     elif flags == COLOR_TYPE_WINDOW_BG:
         return COLOR_TYPE_WINDOW_BG, 0
     else:
@@ -41,13 +63,17 @@ def decode_raw_color(value: int) -> Tuple[int, Union[int, RGB]]:
 
 BY_LAYER_RAW_VALUE = -1073741824  # -(-(0xc0 << 24) & 0xffffffff)
 BY_BLOCK_RAW_VALUE = -1056964608  # -(-(0xc1 << 24) & 0xffffffff)
+WINDOW_BG_RAW_VALUE = -939524096
 
 
 def encode_raw_color(value: Union[int, RGB]) -> int:
+    """Encode :term:`true color` value or :ref:`ACI` color value into a :term:
+    `raw color` value.
+    """
     if isinstance(value, int):
-        if value == const.BYBLOCK:
+        if value == BYBLOCK:
             return BY_BLOCK_RAW_VALUE
-        elif value == const.BYLAYER:
+        elif value == BYLAYER:
             return BY_LAYER_RAW_VALUE
         elif 0 < value < 256:
             return -(-(COLOR_TYPE_ACI << 24) & 0xFFFFFFFF) | value
@@ -55,6 +81,19 @@ def encode_raw_color(value: Union[int, RGB]) -> int:
             raise ValueError(f"Invalid color index: {value}")
     else:
         return -(-((COLOR_TYPE_RGB << 24) + rgb2int(value)) & 0xFFFFFFFF)
+
+
+TRANSPARENCY_BYBLOCK = 0x1000000
+OPAQUE = 0x20000FF
+TRANSPARENCY_10 = 0x20000E5
+TRANSPARENCY_20 = 0x20000CC
+TRANSPARENCY_30 = 0x20000B2
+TRANSPARENCY_40 = 0x2000099
+TRANSPARENCY_50 = 0x200007F
+TRANSPARENCY_60 = 0x2000066
+TRANSPARENCY_70 = 0x200004C
+TRANSPARENCY_80 = 0x2000032
+TRANSPARENCY_90 = 0x2000019
 
 
 def float2transparency(value: float) -> int:
@@ -80,8 +119,9 @@ def transparency2float(value: int) -> float:
             for opaque
 
     """
-    # 255 -> 0.
-    # 0 -> 1.
+    # Transparency value 0x020000TT 0 = fully transparent / 255 = opaque
+    # 255 -> 0.0
+    # 0 -> 1.0
     return 1.0 - float(int(value) & 0xFF) / 255.0
 
 

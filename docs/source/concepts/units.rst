@@ -102,6 +102,10 @@ BricsCAD set this property always to 0, which means unitless.
 
 The most common units are 6 for meters and 1 for inches.
 
+.. versionchanged:: 0.17.2
+
+    added an enumeration :class:`ezdxf.enums.InsertUnits`
+
 .. code-block:: python
 
 
@@ -149,8 +153,11 @@ In BricsCAD the base scaling of the linetypes is only depending from the
 $MEASUREMENT value, is not relevant if $INSUNITS is meter, centimeter,
 millimeter, ... and so on and the same is valid for hatch pattern.
 
-.. code-block:: python
+.. versionchanged:: 0.17.2
 
+    added an enumeration :class:`ezdxf.enums.Measurement`
+
+.. code-block:: python
 
     doc.header['$MEASUREMENT'] = 1
 
@@ -165,8 +172,11 @@ $LUNITS
 The header variable $LUNITS defines how CAD applications show linear values in
 the GUI and has no meaning for `ezdxf`:
 
-.. code-block:: python
+.. versionchanged:: 0.17.2
 
+    added an enumeration :class:`ezdxf.enums.LengthUnits`
+
+.. code-block:: python
 
     doc.header['$LUNITS'] = 2
 
@@ -185,6 +195,10 @@ The header variable $AUNITS defines how CAD applications show angular values in
 the GUI and has no meaning for `ezdxf`, DXF angles are always degrees in
 counter-clockwise orientation, unless stated explicit otherwise:
 
+.. versionchanged:: 0.17.2
+
+    added an enumeration :class:`ezdxf.enums.AngularUnits`
+
 .. code-block:: python
 
     doc.header['$AUNITS'] = 0
@@ -200,6 +214,10 @@ Helper Tools
 ------------
 
 .. autofunction:: conversion_factor
+
+.. autofunction:: unit_name
+
+.. autofunction:: angle_unit_name
 
 .. _github: https://github.com/mozman/ezdxf/issues
 .. _DXF reference: http://help.autodesk.com/view/OARX/2018/ENU/?guid=GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3

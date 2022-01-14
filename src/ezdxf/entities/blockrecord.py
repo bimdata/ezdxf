@@ -1,7 +1,8 @@
-# Copyright (c) 2019-2021, Manfred Moitzi
+# Copyright (c) 2019-2022, Manfred Moitzi
 # License: MIT License
 from typing import TYPE_CHECKING, Optional
 import logging
+from ezdxf.audit import AuditError
 from ezdxf.lldxf import validator
 from ezdxf.lldxf.attributes import (
     DXFAttr,
@@ -30,7 +31,8 @@ if TYPE_CHECKING:
         EntitySpace,
         BlockLayout,
         Block,
-        EndBlk
+        EndBlk,
+        Auditor,
     )
 
 __all__ = ["BlockRecord"]
@@ -124,7 +126,7 @@ class BlockRecord(DXFEntity):
     ) -> "DXFNamespace":
         dxf = super().load_dxf_attribs(processor)
         if processor:
-            processor.fast_load_dxfattribs(dxf, acdb_blockrec_group_codes, 2)
+            processor.simple_dxfattribs_loader(dxf, acdb_blockrec_group_codes)  # type: ignore
         return dxf
 
     def export_entity(self, tagwriter: "TagWriter") -> None:
@@ -213,6 +215,13 @@ class BlockRecord(DXFEntity):
         """
         return not self.is_any_layout
 
+    @property
+    def is_xref(self) -> bool:
+        """``True`` if represents an XREF (external reference) or XREF_OVERLAY."""
+        if self.block is not None:
+            return bool(self.block.dxf.flags & 12)
+        return False
+
     def add_entity(self, entity: "DXFGraphic") -> None:
         """Add an existing DXF entity to BLOCK_RECORD.
 
@@ -259,3 +268,31 @@ class BlockRecord(DXFEntity):
         """
         self.unlink_entity(entity)  # 1. unlink from entity space
         entity.destroy()
+
+    def audit(self, auditor: "Auditor") -> None:
+        """Validity check. (internal API)"""
+        if not self.is_alive:
+            return
+        super().audit(auditor)
+        entitydb = auditor.entitydb
+        rec_name = self.dxf.name
+        trash = []
+        for entity in self.entity_space:
+            if entity.is_alive:
+                check = entitydb.get(entity.dxf.handle)
+                if check is not entity:
+                    # Different entity stored in the database for this handle,
+                    # scenario #604:
+                    # - document has entities without handles (invalid for DXF R13+)
+                    # - $HANDSEED is not the next usable handle (dubious, causes error #1)
+                    # - entity gets an already used handle (loading error #1)
+                    # - entity overwrites existing entity or will be
+                    #   overwritten by an entity loaded afterwards (loading error #2)
+                    trash.append(entity)
+                    auditor.fixed_error(
+                        code=AuditError.REMOVED_ENTITY_FROM_BLOCK_RECORD,
+                        message=f"Removed invalid database entry {str(entity)}"
+                        f' from BLOCK_RECORD "{rec_name}".',
+                    )
+        for e in trash:
+            self.entity_space.remove(e)

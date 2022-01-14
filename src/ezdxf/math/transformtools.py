@@ -7,6 +7,7 @@ from ezdxf.math import (
     Vec2,
     X_AXIS,
     Y_AXIS,
+    Z_AXIS,
     Matrix44,
     sign,
     OCS,
@@ -23,6 +24,7 @@ __all__ = [
     "transform_extrusion",
     "transform_thickness_and_extrusion_without_ocs",
     "OCSTransform",
+    "WCSTransform",
 ]
 
 _FLIPPED_Z_AXIS = Vec3(0, 0, -1)
@@ -229,3 +231,43 @@ class OCSTransform:
             start * RADIANS, end * RADIANS
         )
         return start * DEG, end * DEG
+
+    def transform_scale_vector(self, vec: Vec3) -> Vec3:
+        ocs = self.old_ocs
+        ux, uy, uz = self.m.transform_directions((ocs.ux, ocs.uy, ocs.uz))
+        x_scale = ux.magnitude * vec.x
+        y_scale = uy.magnitude * vec.y
+        z_scale = uz.magnitude * vec.z
+        expected_uy = uz.cross(ux).normalize()
+        if not expected_uy.isclose(uy.normalize(), abs_tol=1e-12):
+            # new y-axis points into opposite direction:
+            y_scale = -y_scale
+        return Vec3(x_scale, y_scale, z_scale)
+
+
+class WCSTransform:
+    def __init__(self, m: Matrix44):
+        self.m = m
+        new_x = m.transform_direction(X_AXIS)
+        new_y = m.transform_direction(Y_AXIS)
+        new_z = m.transform_direction(Z_AXIS)
+        new_x_mag_squ = new_x.magnitude_square
+        self.has_uniform_xy_scaling = math.isclose(
+            new_x_mag_squ, new_y.magnitude_square
+        )
+        self.has_uniform_xyz_scaling = (
+            self.has_uniform_xy_scaling
+            and math.isclose(new_x_mag_squ, new_z.magnitude_square)
+        )
+        self.uniform_scale = self.transform_length(1.0)
+
+    def transform_length(self, value: float, axis: str = "x") -> float:
+        if axis == "x":
+            v = Vec3(value, 0, 0)
+        elif axis == "y":
+            v = Vec3(0, value, 0)
+        elif axis == "z":
+            v = Vec3(0, 0, value)
+        else:
+            raise ValueError(f"invalid axis '{axis}'")
+        return self.m.transform_direction(v).magnitude

@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2020 Manfred Moitzi
+# Copyright (c) 2019-2022 Manfred Moitzi
 # License: MIT License
 import pytest
 
@@ -296,11 +296,11 @@ def test_3dface_triangle_vertices():
     for index, vertex in enumerate([(0, 0), (1, 0), (1, 1), (1, 1)]):
         face[index] = vertex
     assert face.get_edges_visibility() == [True, True, True, True]
-    assert face.wcs_vertices() == [(0, 0), (1, 0), (1, 1), (1, 1)]
+    # changed in v0.17.2: do not return duplicated vertices at the end
+    assert face.wcs_vertices() == [(0, 0), (1, 0), (1, 1)]
     assert face.wcs_vertices(close=True) == [
         (0, 0),
         (1, 0),
-        (1, 1),
         (1, 1),
         (0, 0),
     ]
@@ -320,3 +320,69 @@ def test_do_not_write_elevation_group_code():
     solid.export_dxf(collector)
     # Elevation tag should be written:
     assert any(tag[0] == 38 for tag in collector.tags) is False
+
+
+MALFORMED_SOLID = """0
+SOLID
+5
+0
+62
+7
+330
+0
+6
+LT_EZDXF
+8
+LY_EZDXF
+100
+AcDbEntity
+100
+AcDbTrace
+10
+1.0
+20
+1.0
+30
+1.0
+11
+2.0
+21
+2.0
+31
+2.0
+100
+AcDbTrace
+12
+3.0
+22
+3.0
+32
+3.0
+13
+4.0
+23
+4.0
+33
+4.0
+"""
+
+
+@pytest.mark.parametrize(
+    "text,cls",
+    [
+        (MALFORMED_SOLID, Solid),
+        (MALFORMED_SOLID.replace("SOLID", "TRACE"), Trace),
+        (MALFORMED_SOLID.replace("SOLID", "3DFACE"), Face3d),
+    ],
+    ids=["SOLID", "TRACE", "3DFACE"],
+)
+def test_load_malformed_solid(text, cls):
+    entity = cls.from_text(text)
+    assert cls.DXFTYPE in text
+    assert entity.dxf.layer == "LY_EZDXF"
+    assert entity.dxf.linetype == "LT_EZDXF"
+    assert entity.dxf.color == 7
+    assert entity.dxf.vtx0.isclose((1, 1, 1))
+    assert entity.dxf.vtx1.isclose((2, 2, 2))
+    assert entity.dxf.vtx2.isclose((3, 3, 3))
+    assert entity.dxf.vtx3.isclose((4, 4, 4))

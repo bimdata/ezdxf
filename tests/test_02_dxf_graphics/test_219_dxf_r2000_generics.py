@@ -2,6 +2,7 @@
 # License: MIT License
 import pytest
 from ezdxf.layouts import VirtualLayout
+from ezdxf.enums import TextEntityAlignment
 
 
 @pytest.fixture
@@ -125,7 +126,7 @@ def test_create_text(layout):
 
 def test_text_set_alignment(layout):
     text = layout.add_text("text")
-    text.set_pos((2, 2), align="TOP_CENTER")
+    text.set_placement((2, 2), align=TextEntityAlignment.TOP_CENTER)
     assert 1 == text.dxf.halign
     assert 3 == text.dxf.valign
     assert (2, 2) == text.dxf.align_point
@@ -133,7 +134,7 @@ def test_text_set_alignment(layout):
 
 def test_text_set_fit_alignment(layout):
     text = layout.add_text("text")
-    text.set_pos((2, 2), (4, 2), align="FIT")
+    text.set_placement((2, 2), (4, 2), align=TextEntityAlignment.FIT)
     assert 5 == text.dxf.halign
     assert 0 == text.dxf.valign
     assert (2, 2) == text.dxf.insert
@@ -144,23 +145,23 @@ def test_text_get_alignment(layout):
     text = layout.add_text("text")
     text.dxf.halign = 1
     text.dxf.valign = 3
-    assert "TOP_CENTER" == text.get_align()
+    assert text.get_align_enum() == TextEntityAlignment.TOP_CENTER
 
 
 def test_text_get_pos_TOP_CENTER(layout):
     text = layout.add_text("text")
-    text.set_pos((2, 2), align="TOP_CENTER")
-    align, p1, p2 = text.get_pos()
-    assert "TOP_CENTER" == align
+    text.set_placement((2, 2), align=TextEntityAlignment.TOP_CENTER)
+    align, p1, p2 = text.get_placement()
+    assert align == TextEntityAlignment.TOP_CENTER
     assert p1 == (2, 2)
     assert p2 is None
 
 
 def test_text_get_pos_LEFT(layout):
     text = layout.add_text("text")
-    text.set_pos((2, 2))
-    align, p1, p2 = text.get_pos()
-    assert "LEFT" == align
+    text.set_placement((2, 2))
+    align, p1, p2 = text.get_placement()
+    assert align == TextEntityAlignment.LEFT
     assert p1 == (2, 2)
     assert p2 is None
 

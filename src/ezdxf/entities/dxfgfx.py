@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2021 Manfred Moitzi
+# Copyright (c) 2019-2022 Manfred Moitzi
 # License: MIT License
 from typing import TYPE_CHECKING, Optional, Tuple, Iterable, Dict, Any
 from ezdxf.entities import factory
@@ -24,6 +24,7 @@ from ezdxf.lldxf.const import (
     SUBCLASS_MARKER,
     DXFInvalidLineType,
     DXFStructureError,
+    TRANSPARENCY_BYBLOCK,
 )
 from ezdxf.math import OCS, Matrix44
 from ezdxf.proxygraphic import load_proxy_graphic, export_proxy_graphic
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
 __all__ = [
     "DXFGraphic",
     "acdb_entity",
+    "acdb_entity_group_codes",
     "SeqEnd",
     "add_entity",
     "replace_entity",
@@ -119,7 +121,14 @@ acdb_entity: DefSubclass = DefSubclass(
         # Color name as string. Color books are stored in .stb config files?
         "color_name": DXFAttr(430, dxfversion=DXF2004, optional=True),
         # Transparency value 0x020000TT 0 = fully transparent / 255 = opaque
-        "transparency": DXFAttr(440, dxfversion=DXF2004, optional=True),
+        # Special value 0x01000000 == ByBlock
+        # unset value means ByLayer
+        "transparency": DXFAttr(
+            440,
+            dxfversion=DXF2004,
+            optional=True,
+            validator=validator.is_transparency,
+        ),
         # Shadow mode:
         # 0 = Casts and receives shadows
         # 1 = Casts shadows
@@ -192,6 +201,7 @@ class DXFGraphic(DXFEntity):
 
         (internal API)
         """
+        # subclasses using simple_dxfattribs_loader() bypass this method!!!
         dxf = super().load_dxf_attribs(processor)
         if processor is None:
             return dxf
@@ -241,12 +251,15 @@ class DXFGraphic(DXFEntity):
     @property
     def transparency(self) -> float:
         """Get transparency as float value between 0 and 1, 0 is opaque and 1
-        is 100% transparent (invisible).
+        is 100% transparent (invisible). Transparency by block returns always 0.
         """
         if self.dxf.hasattr("transparency"):
-            return clr.transparency2float(self.dxf.get("transparency"))
-        else:
-            return 0.0
+            value = self.dxf.get("transparency")
+            if validator.is_transparency(value):
+                if value & TRANSPARENCY_BYBLOCK:  # just check flag state
+                    return 0.0
+                return clr.transparency2float(value)
+        return 0.0
 
     @transparency.setter
     def transparency(self, transparency: float) -> None:
@@ -254,6 +267,16 @@ class DXFGraphic(DXFEntity):
         is 100% transparent (invisible).
         """
         self.dxf.set("transparency", clr.float2transparency(transparency))
+
+    @property
+    def is_transparency_by_layer(self) -> bool:
+        """Returns ``True`` if entity inherits transparency from layer."""
+        return not self.dxf.hasattr("transparency")
+
+    @property
+    def is_transparency_by_block(self) -> bool:
+        """Returns ``True`` if entity inherits transparency from block."""
+        return self.dxf.get("transparency", 0) == TRANSPARENCY_BYBLOCK
 
     def graphic_properties(self) -> Dict:
         """Returns the important common properties layer, color, linetype,
@@ -449,6 +472,8 @@ class DXFGraphic(DXFEntity):
             auditor.check_entity_lineweight(self)
         if dxf.hasattr("extrusion"):
             auditor.check_extrusion_vector(self)
+        if dxf.hasattr("transparency"):
+            auditor.check_transparency(self)
 
     def transform(self, m: "Matrix44") -> "DXFGraphic":
         """Inplace transformation interface, returns `self`
@@ -627,6 +652,16 @@ class DXFGraphic(DXFEntity):
 @factory.register_entity
 class SeqEnd(DXFGraphic):
     DXFTYPE = "SEQEND"
+
+    def load_dxf_attribs(
+        self, processor: SubclassProcessor = None
+    ) -> "DXFNamespace":
+        """Loading interface. (internal API)"""
+        # bypass DXFGraphic, loading proxy graphic is skipped!
+        dxf = super(DXFGraphic, self).load_dxf_attribs(processor)
+        if processor:
+            processor.simple_dxfattribs_loader(dxf, acdb_entity_group_codes)  # type: ignore
+        return dxf
 
 
 def add_entity(entity: DXFGraphic, layout: "BaseLayout") -> None:

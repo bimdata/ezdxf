@@ -4,12 +4,13 @@ import logging
 import io
 import bisect
 import math
-from typing import TextIO, Iterable, List, Optional, Set, cast
+from typing import TextIO, Iterable, List, Optional, Set, cast, Sequence
 
 from .const import (
     DXFStructureError,
     DXFError,
     DXFValueError,
+    DXFTypeError,
     DXFAppDataError,
     DXFXDataError,
     APP_DATA_MARKER,
@@ -20,6 +21,7 @@ from .const import (
     VALID_DXF_LINEWEIGHT_VALUES,
     VALID_DXF_LINEWEIGHTS,
     LINEWEIGHT_BYLAYER,
+    TRANSPARENCY_BYBLOCK,
 )
 
 from .tagger import ascii_tags_loader
@@ -293,6 +295,13 @@ def is_valid_table_name(name: str) -> bool:
     return not bool(INVALID_LAYER_NAME_CHARACTERS.intersection(set(name)))
 
 
+def make_table_key(name: str) -> str:
+    """Make unified table entry key."""
+    if not isinstance(name, str):
+        raise DXFTypeError("name has to be a string.")
+    return name.lower()
+
+
 def is_valid_layer_name(name: str) -> bool:
     if is_adsk_special_layer(name):
         return True
@@ -344,6 +353,17 @@ def fix_lineweight(lineweight: int) -> int:
 
 def is_valid_aci_color(aci: int) -> bool:
     return 0 <= aci <= 257
+
+
+def is_valid_rgb(rgb) -> bool:
+    if not isinstance(rgb, Sequence):
+        return False
+    if len(rgb) != 3:
+        return False
+    for value in rgb:
+        if not isinstance(value, int) or value < 0 or value > 255:
+            return False
+    return True
 
 
 def is_in_integer_range(start: int, end: int):
@@ -452,3 +472,9 @@ def is_handle(handle) -> bool:
     except (ValueError, TypeError):
         return False
     return True
+
+
+def is_transparency(value) -> bool:
+    if isinstance(value, int):
+        return value == TRANSPARENCY_BYBLOCK or bool(value & 0x02000000)
+    return False

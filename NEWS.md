@@ -2,8 +2,96 @@
 News
 ====
 
-Version 0.17.1b3 - dev
-----------------------
+Version 0.18b0 - dev
+--------------------
+
+- Release notes: https://ezdxf.mozman.at/release-v0-18.html
+- NEW: angular dimension rendering support, new factory methods:
+  `add_angular_dim_2l()`, `add_angular_dim_3p()`, `add_angular_dim_cra()`, 
+  `add_angular_dim_arc()` 
+- NEW: arc length dimension rendering support, new factory methods: 
+  `add_arc_dim_3p()`, `add_arc_dim_cra()`, `add_arc_dim_arc()`
+- NEW: ordinate dimension rendering support, new factory methods: 
+  `add_ordinate_dim()`, `add_ordinate_x_dim()`, `add_ordinate_y_dim()`
+- NEW: function `ezdxf.tools.text.is_upside_down_text_angle()` in WCS
+- NEW: function `ezdxf.tools.text.upright_text_angle()` in WCS
+- NEW: helper class `ezdxf.math.ConstructionPolyline` to measure, interpolate and 
+  divide polylines and anything that can be approximated or flattened into 
+  vertices
+- NEW: approximation tool for parametrized curves: `ezdxf.math.ApproxParamT()`
+- NEW: `ezdxf.gfxattribs.GfxAttribs()` class, [docs](https://ezdxf.mozman.at/docs/tools/gfxattribs.html)
+- NEW: `TextEntityAlignment` enum replaces the string based alignment definition
+- NEW: method `Text.get_placement()`, replaces `get_pos()` 
+- NEW: method `Text.set_placement()`, replaces `set_pos()` 
+- NEW: method `Text.get_align_enum()`, replaces `get_align()`
+- NEW: method `Text.set_align_enum()`, replaces `set_align()`
+- NEW: command `ezdxf info FILE [FILE ...]`, show info and optional stats of DXF files
+- NEW: module `ezdxf.appsettings`, [docs](https://ezdxf.mozman.at/docs/appsettings.html)
+- CHANGE: `recover` module - recovered integer and float values are logged as severe errors
+
+Version 0.17.2 - 2022-01-06
+---------------------------
+
+- NEW: extended binary wheels support
+  - `manylinux2010_x86_64` for Python < 3.10 and `manylinux2014_x86_64` 
+    for Python >= 3.10 
+  - `musllinux_2010_x86_64` for Python < 3.10 and `musllinux_2014_x86_64` 
+    for Python >= 3.10
+  - `manylinux_2014_aarch64` for ARM64 based Linux
+  - `musllinux_2014_aarch64` for ARM64 based Linux
+  - `macosx_11_0_arm64` for Apple silicon
+  - `macosx_10_9_universal2` for Apple silicon & x86
+- NEW: Auditor fixes invalid transparency values
+- NEW: Auditor fixes invalid crease data in `MESH` entities
+- NEW: add `transparency` argument to `LayerTable.add()`
+- NEW: support for transparency `BYLAYER` and `BYBLOCK` for the `drawing` add-on
+- NEW: `Textstyle.make_font()` returns the ezdxf font abstraction
+- NEW: added `dxfattribs` argument to method `Drawing.set_modelspace_vport()`
+- NEW: `ezdxf.math.split_bezier()` function to split Bezier curves of any degree
+- NEW: `ezdxf.math.intersection_line_line_3d()`
+- NEW: `ezdxf.math.intersect_poylines_2d()`
+- NEW: `ezdxf.math.intersect_poylines_3d()`
+- NEW: `ezdxf.math.quadratic_bezier_from_3p()`
+- NEW: `ezdxf.math.cubic_bezier_from_3p()`
+- NEW: `BoundingBox.contains()`, check if a bounding box contains completely 
+  another bounding box 
+- NEW: `TextEntityAlignment` enum replaces the string based alignment definition
+- NEW: method `Text.get_placement()`, replaces `get_pos()` 
+- NEW: method `Text.set_placement()`, replaces `set_pos()` 
+- NEW: method `Text.get_align_enum()`, replaces `get_align()`
+- NEW: method `Text.set_align_enum()`, replaces `set_align()`
+- DEPRECATED: method `Text.get_pos()` will be removed in v1.0.0
+- DEPRECATED: method `Text.set_pos()` will be removed in v1.0.0
+- DEPRECATED: method `Text.get_align()` will be removed in v1.0.0
+- DEPRECATED: method `Text.set_align()` will be removed in v1.0.0
+- CHANGE: moved enum `MTextEntityAlignment` to `ezdxf.enums`
+- CHANGE: moved enum `MTextParagraphAlignment` to `ezdxf.enums`
+- CHANGE: moved enum `MTextFlowDirection` to `ezdxf.enums`
+- CHANGE: moved enum `MTextLineAlignment` to `ezdxf.enums`
+- CHANGE: moved enum `MTextStroke` to `ezdxf.enums`
+- CHANGE: moved enum `MTextLineSpacing` to `ezdxf.enums`
+- CHANGE: moved enum `MTextBackgroundColor` to `ezdxf.enums`
+- CHANGE: `Dimstyle.set_tolerance()`: argument `align` as enum `MTextLineAlignment`
+- CHANGE: `DimstyleOverride.set_tolerance()`: argument `align` as enum `MTextLineAlignment`
+- CHANGE: `MeshData.add_edge()` is changed to `MeshData.add_edge_crease()`, 
+  this fixes my misunderstanding of edge and crease data in the `MESH` entity.  
+- BUGFIX [#574](https://github.com/mozman/ezdxf/issues/574):
+  flattening issues in `Path()` and `ConstructionEllipse()` 
+- BUGFIX: `drawing` add-on shows block references in `ACAD_TABLE` at the 
+  correct location
+- BUGFIX [#589](https://github.com/mozman/ezdxf/issues/589):
+  `Polyface.virtual_entities()` yields correct triangle faces
+- BUGFIX: prevent invalid DXF export of the `MESH` entity  
+- PREVIEW: arc length dimension rendering support, new factory methods: 
+  `add_arc_dim_3p()`, `add_arc_dim_cra()`, `add_arc_dim_arc()`
+- PREVIEW: ordinate dimension rendering support, new factory methods: 
+  `add_ordinate_dim()`, `add_ordinate_x_dim()`, `add_ordinate_y_dim()`
+- PREVIEW: `ezdxf.gfxattribs.GfxAttribs()` class, [docs](https://ezdxf.mozman.at/docs/tools/gfxattribs.html)
+- PREVIEW: command `ezdxf info FILE [FILE ...]`, show info and optional stats of DXF files
+- PREVIEW: approximation tool for parametrized curves: `ezdxf.math.ApproxParamT()`
+
+Version 0.17.1 - 2021-11-14
+---------------------------
 
 - CHANGE: using [PySide6](https://pypi.org/project/PySide6/) as Qt binding 
   if installed, `PyQt5` is still supported as fallback
@@ -21,9 +109,9 @@ Version 0.17.1b3 - dev
     which created the virtual entity, otherwise ``None``
 - NEW: `ezdxf.tools.text_size` module to measure `TEXT` and `MTEXT` entity dimensions
 - CHANGE: `--ltype` arguments of the `draw` command  to `approximate` and `accurate`
-    to be in sync with the `drawing` add-on configuration.
+  to be in sync with the `drawing` add-on configuration.
 - CHANGE: `--ltype` arguments of the `view` command  to `approximate` and `accurate`
-    to be in sync with the `drawing` add-on configuration.
+  to be in sync with the `drawing` add-on configuration.
 - REMOVE `--scale` argument of the `view` command
 - REMOVE: `PolylinePath.PATH_TYPE`, use `PolylinePath.type` instead
 - REMOVE: `EdgePath.PATH_TYPE`, use `EdgePath.type` instead

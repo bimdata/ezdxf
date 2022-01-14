@@ -1,7 +1,6 @@
 # Copyright (c) 2011-2021, Manfred Moitzi
 # License: MIT License
 from typing import List
-from enum import IntEnum, IntFlag
 from dataclasses import dataclass
 
 DXF9 = "AC1004"
@@ -56,6 +55,7 @@ acad_release_to_dxf_version = {acad: dxf for dxf, acad in acad_release.items()}
 
 
 class DXFError(Exception):
+    """Base exception for all `ezdxf` exceptions. """
     pass
 
 
@@ -64,6 +64,10 @@ class InvalidGeoDataException(DXFError):
 
 
 class DXFStructureError(DXFError):
+    pass
+
+
+class DXFLoadError(DXFError):
     pass
 
 
@@ -77,13 +81,11 @@ class DXFXDataError(DXFStructureError):
 
 class DXFVersionError(DXFError):
     """Errors related to features not supported by the chosen DXF Version"""
-
     pass
 
 
 class DXFInternalEzdxfError(DXFError):
     """Indicates internal errors -  should be fixed by mozman"""
-
     pass
 
 
@@ -91,7 +93,6 @@ class DXFUnsupportedFeature(DXFError):
     """Indicates unsupported features for DXFEntities e.g. translation for
     ACIS data
     """
-
     pass
 
 
@@ -146,7 +147,6 @@ class DXFRenderError(DXFError):
     complex DXF entities by DXF primitives (LINE, TEXT, ...)
     e.g. for DIMENSION or LEADER entities.
     """
-
     pass
 
 
@@ -188,6 +188,10 @@ XDICT_HANDLE_CODE = 360
 REACTOR_HANDLE_CODE = 330
 OWNER_CODE = 330
 
+# https://help.autodesk.com/view/OARX/2018/ENU/?guid=GUID-2553CF98-44F6-4828-82DD-FE3BC7448113
+MAX_STR_LEN = 255  # DXF R12 without line endings
+EXT_MAX_STR_LEN = 2049  # DXF R2000+ without line endings
+
 # Special tag codes for internal purpose:
 # -1 to -5 id reserved by AutoCAD for internal use, but this tags will never be
 # saved to file.
@@ -195,6 +199,7 @@ OWNER_CODE = 330
 # normal tags before saved to file.
 COMPRESSED_TAGS = -10
 
+# All color related constants are located in colors.py
 BYBLOCK = 0
 BYLAYER = 256
 BYOBJECT = 257
@@ -207,19 +212,8 @@ MAGENTA = 6
 BLACK = 7
 WHITE = 7
 
-
-class ACI(IntEnum):
-    BYBLOCK = 0
-    BYLAYER = 256
-    BYOBJECT = 257
-    RED = 1
-    YELLOW = 2
-    GREEN = 3
-    CYAN = 4
-    BLUE = 5
-    MAGENTA = 6
-    BLACK = 7
-    WHITE = 7
+# All transparency related constants are located in colors.py
+TRANSPARENCY_BYBLOCK = 0x01000000
 
 
 LINEWEIGHT_BYLAYER = -1
@@ -338,32 +332,13 @@ BLK_REFERENCED = 64
 LWPOLYLINE_CLOSED = 1
 LWPOLYLINE_PLINEGEN = 128
 
-TEXT_ALIGN_FLAGS = {
-    "LEFT": (0, 0),
-    "CENTER": (1, 0),
-    "RIGHT": (2, 0),
-    "ALIGNED": (3, 0),
-    "MIDDLE": (4, 0),
-    "FIT": (5, 0),
-    "BOTTOM_LEFT": (0, 1),
-    "BOTTOM_CENTER": (1, 1),
-    "BOTTOM_RIGHT": (2, 1),
-    "MIDDLE_LEFT": (0, 2),
-    "MIDDLE_CENTER": (1, 2),
-    "MIDDLE_RIGHT": (2, 2),
-    "TOP_LEFT": (0, 3),
-    "TOP_CENTER": (1, 3),
-    "TOP_RIGHT": (2, 3),
-}
-TEXT_ALIGNMENT_BY_FLAGS = dict(
-    (flags, name) for name, flags in TEXT_ALIGN_FLAGS.items()
-)
+DEFAULT_TTF = "DejaVuSans.ttf"
 
+# TextHAlign enum
 LEFT = 0
 CENTER = 1
 RIGHT = 2
 ALIGNED = 3
-# MIDDLE = 4
 FIT = 5
 
 BASELINE = 0
@@ -392,6 +367,7 @@ SPECIAL_CHAR_ENCODING = {
 # of line.
 # Special codes and formatting is case insensitive: d=D, u=U
 
+# MTextEntityAlignment enum
 MTEXT_TOP_LEFT = 1
 MTEXT_TOP_CENTER = 2
 MTEXT_TOP_RIGHT = 3
@@ -402,71 +378,14 @@ MTEXT_BOTTOM_LEFT = 7
 MTEXT_BOTTOM_CENTER = 8
 MTEXT_BOTTOM_RIGHT = 9
 
-MTEXT_ALIGN_FLAGS = {
-    "TOP_LEFT": 1,
-    "TOP_CENTER": 2,
-    "TOP_RIGHT": 3,
-    "MIDDLE_LEFT": 4,
-    "MIDDLE_CENTER": 5,
-    "MIDDLE_RIGHT": 6,
-    "BOTTOM_LEFT": 7,
-    "BOTTOM_CENTER": 8,
-    "BOTTOM_RIGHT": 9,
-}
-
-
-class MTextEntityAlignment(IntEnum):
-    TOP_LEFT = MTEXT_TOP_LEFT
-    TOP_CENTER = MTEXT_TOP_CENTER
-    TOP_RIGHT = MTEXT_TOP_RIGHT
-    MIDDLE_LEFT = MTEXT_MIDDLE_LEFT
-    MIDDLE_CENTER = MTEXT_MIDDLE_CENTER
-    MIDDLE_RIGHT = MTEXT_MIDDLE_RIGHT
-    BOTTOM_LEFT = MTEXT_BOTTOM_LEFT
-    BOTTOM_CENTER = MTEXT_BOTTOM_CENTER
-    BOTTOM_RIGHT = MTEXT_BOTTOM_RIGHT
-
-
-class MTextParagraphAlignment(IntEnum):
-    DEFAULT = 0
-    LEFT = 1
-    RIGHT = 2
-    CENTER = 3
-    JUSTIFIED = 4
-    DISTRIBUTED = 5
-
-
+# MTextFlowDirection enum
 MTEXT_LEFT_TO_RIGHT = 1
 MTEXT_TOP_TO_BOTTOM = 3
 MTEXT_BY_STYLE = 5
 
-
-class MTextFlowDirection(IntEnum):
-    LEFT_TO_RIGHT = MTEXT_LEFT_TO_RIGHT
-    TOP_TO_BOTTOM = MTEXT_TOP_TO_BOTTOM
-    BY_STYLE = MTEXT_BY_STYLE
-
-
-class MTextLineAlignment(IntEnum):  # exclusive state
-    BOTTOM = 0
-    MIDDLE = 1
-    TOP = 2
-
-
-class MTextStroke(IntFlag):  # Combination of flags is possible
-    UNDERLINE = 1
-    STRIKE_THROUGH = 2
-    OVERLINE = 4
-
-
+# MTextLineSpacing enum
 MTEXT_AT_LEAST = 1
 MTEXT_EXACT = 2
-
-
-class MTextLineSpacing(IntEnum):
-    AT_LEAST = MTEXT_AT_LEAST
-    EXACT = MTEXT_EXACT
-
 
 MTEXT_COLOR_INDEX = {
     "red": RED,
@@ -478,25 +397,13 @@ MTEXT_COLOR_INDEX = {
     "white": WHITE,
 }
 
+# MTextBackgroundColor enum
 MTEXT_BG_OFF = 0
 MTEXT_BG_COLOR = 1
 MTEXT_BG_WINDOW_COLOR = 2
 MTEXT_BG_CANVAS_COLOR = 3
 MTEXT_TEXT_FRAME = 16
 
-
-class MTextBackgroundColor(IntEnum):
-    OFF = MTEXT_BG_OFF
-    COLOR = MTEXT_BG_COLOR
-    WINDOW = MTEXT_BG_WINDOW_COLOR
-    CANVAS = MTEXT_BG_CANVAS_COLOR
-
-
-MTEXT_INLINE_ALIGN = {
-    "BOTTOM": MTextLineAlignment.BOTTOM,
-    "MIDDLE": MTextLineAlignment.MIDDLE,
-    "TOP": MTextLineAlignment.TOP,
-}
 
 CLOSED_SPLINE = 1
 PERIODIC_SPLINE = 2
@@ -634,8 +541,9 @@ DIM_DIAMETER = 3
 DIM_RADIUS = 4
 DIM_ANGULAR_3P = 5
 DIM_ORDINATE = 6
+DIM_ARC = 8
 DIM_BLOCK_EXCLUSIVE = 32
-DIM_ORDINATE_TYPE = 64
+DIM_ORDINATE_TYPE = 64  # unset for x-type, set for y-type
 DIM_USER_LOCATION_OVERRIDE = 128
 
 DIMZIN_SUPPRESS_ZERO_FEET_AND_PRECISELY_ZERO_INCHES = 0
@@ -725,17 +633,7 @@ LAYOUT_NAMES = {
 }
 
 
-class SortEntities:
-    DISABLE = 0
-    SELECTION = 1  # 1 = Sorts for object selection
-    SNAP = 2  # 2 = Sorts for object snap
-    REDRAW = 4  # 4 = Sorts for redraws; obsolete
-    MSLIDE = 8  # 8 = Sorts for MSLIDE command slide creation; obsolete
-    REGEN = 16  # 16 = Sorts for REGEN commands
-    PLOT = 32  # 32 = Sorts for plotting
-    POSTSCRIPT = 64  # 64 = Sorts for PostScript output; obsolete
-
-
+# TODO: make enum
 DIMJUST = {
     "center": 0,
     "left": 1,
@@ -744,39 +642,13 @@ DIMJUST = {
     "above2": 4,
 }
 
+
+# TODO: make enum
 DIMTAD = {
     "above": 1,
     "center": 0,
     "below": 4,
 }
-
-
-class InsertUnits(IntEnum):
-    Unitless = 0
-    Inches = 1
-    Feet = 2
-    Miles = 3
-    Millimeters = 4
-    Centimeters = 5
-    Meters = 6
-    Kilometers = 7
-    Microinches = 8
-    Mils = 9
-    Yards = 10
-    Angstroms = 11
-    Nanometers = 12
-    Microns = 13
-    Decimeters = 14
-    Decameters = 15
-    Hectometers = 16
-    Gigameters = 17
-    AstronomicalUnits = 18
-    Lightyears = 19
-    Parsecs = 20
-    USSurveyFeet = 21
-    USSurveyInch = 22
-    USSurveyYard = 23
-    USSurveyMile = 24
 
 
 DEFAULT_ENCODING = "cp1252"

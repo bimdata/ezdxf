@@ -20,6 +20,7 @@ from ezdxf.colors import (
     transparency2float,
     float2transparency,
 )
+from ezdxf.enums import InsertUnits
 from ezdxf.lldxf import const
 from ezdxf.lldxf.validator import is_dxf_file, is_dxf_stream
 from ezdxf.filemanagement import readzip, new, read, readfile, decode_base64
@@ -45,8 +46,6 @@ from ezdxf.lldxf.const import (
     DXFTypeError,
     DXFBlockInUseError,
     InvalidGeoDataException,
-    InsertUnits,
-    ACI,
     DXF12,
     DXF2000,
     DXF2004,

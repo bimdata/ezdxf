@@ -1,7 +1,8 @@
-# Copyright (c) 2019-2021, Manfred Moitzi
+# Copyright (c) 2019-2022, Manfred Moitzi
 # License: MIT License
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable
 import logging
+from ezdxf.enums import MTextLineAlignment
 from ezdxf.lldxf.attributes import (
     DXFAttr,
     DXFAttributes,
@@ -89,7 +90,12 @@ acdb_dimstyle = DefSubclass(
         # 2 = Suppresses trailing zeros in decimal dimensions (for example, 12.5000 becomes 12.5)
         # 3 = Suppresses leading and trailing zeros (for example, 0.5000 becomes .5)
         "dimazin": DXFAttr(79, default=3, dxfversion=DXF2000),
-        "unknown1": DXFAttr(90, dxfversion=DXF2000, optional=True),
+
+        # dimarcsym: show arc symbol
+        # 0 = preceding text
+        # 1 = above text
+        # 2 = disable
+        "dimarcsym": DXFAttr(90, dxfversion=DXF2000, optional=True),
         "dimalt": DXFAttr(170, default=0),
         "dimaltd": DXFAttr(171, default=3),
         "dimtofl": DXFAttr(172, default=1),
@@ -225,7 +231,7 @@ EXPORT_MAP_R2007 = [
     "dimtad",
     "dimzin",
     "dimazin",
-    "unknown1",
+    "dimarcsym",
     "dimalt",
     "dimaltd",
     "dimtofl",
@@ -299,7 +305,7 @@ EXPORT_MAP_R2000 = [
     "dimtad",
     "dimzin",
     "dimazin",
-    "unknown1",
+    "dimarcsym",
     "dimalt",
     "dimaltd",
     "dimtofl",
@@ -405,6 +411,7 @@ class DimStyle(DXFEntity):
     ) -> "DXFNamespace":
         dxf = super().load_dxf_attribs(processor)
         if processor:
+            # group code 70 is used 2x, simple_dxfattribs_loader() can't be used!
             processor.fast_load_dxfattribs(dxf, acdb_dimstyle_group_codes, 2)
         return dxf
 
@@ -435,7 +442,7 @@ class DimStyle(DXFEntity):
         if style_handle and style_handle != "0":
             try:
                 self.dxf.dimtxsty = db[style_handle].dxf.name
-            except KeyError:
+            except (KeyError, AttributeError):
                 logger.info(f"Ignore undefined text style #{style_handle}.")
 
         for attrib_name in ("dimltype", "dimltex1", "dimltex2"):
@@ -443,7 +450,7 @@ class DimStyle(DXFEntity):
             if lt_handle and lt_handle != "0":
                 try:
                     name = db[lt_handle].dxf.name
-                except KeyError:
+                except (KeyError, AttributeError):
                     logger.info(f"Ignore undefined line type #{lt_handle}.")
                 else:
                     self.dxf.set(attrib_name, name)
@@ -777,7 +784,7 @@ class DimStyle(DXFEntity):
         upper: float,
         lower: float = None,
         hfactor: float = 1.0,
-        align: str = None,
+        align: MTextLineAlignment = None,
         dec: int = None,
         leading_zeros: bool = None,
         trailing_zeros: bool = None,
@@ -791,7 +798,7 @@ class DimStyle(DXFEntity):
             lower: lower tolerance value, if ``None`` same as upper
             hfactor: tolerance text height factor in relation to the dimension
                 text height
-            align: tolerance text alignment "TOP", "MIDDLE", "BOTTOM",
+            align: tolerance text alignment enum :class:`ezdxf.enums.MTextLineAlignment`
                 requires DXF R2000+
             dec: Sets the number of decimal places displayed,
                 requires DXF R2000+
@@ -799,6 +806,10 @@ class DimStyle(DXFEntity):
                 if ``False``, requires DXF R2000+
             trailing_zeros: suppress trailing zeros for decimal dimensions
                 if ``False``, requires DXF R2000+
+
+        .. versionchanged:: 0.17.2
+
+            argument `align` as enum :class:`ezdxf.enums.MTextLineAlignment`
 
         """
         # Exclusive tolerances mode, disable limits
@@ -823,7 +834,7 @@ class DimStyle(DXFEntity):
             self.dxf.dimtzin = dimtzin
 
         if align is not None:
-            self.dxf.dimtolj = const.MTEXT_INLINE_ALIGN[align.upper()]
+            self.dxf.dimtolj = int()
         if dec is not None:
             self.dxf.dimtdec = int(dec)
 
@@ -872,6 +883,17 @@ class DimStyle(DXFEntity):
         self.dxf.dimtolj = 0  # set bottom as default
         if dec is not None:
             self.dxf.dimtdec = int(dec)
+
+    def __referenced_blocks__(self) -> Iterable[str]:
+        """Support for "ReferencedBlocks" protocol. """
+        if self.doc:
+            blocks = self.doc.blocks
+            for attrib_name in ("dimblk", "dimblk1", "dimblk2", "dimldrblk"):
+                name = self.dxf.get(attrib_name, None)
+                if name:
+                    block = blocks.get(name, None)
+                    if block is not None:
+                        yield block.block_record.dxf.handle
 
 
 def get_block_name_by_handle(handle, doc: "Drawing", default="") -> str:

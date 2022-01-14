@@ -15,7 +15,7 @@ from ezdxf.lldxf.const import (
     DXFTableEntryError,
     DXFKeyError,
 )
-from ezdxf.lldxf import const
+from ezdxf.lldxf import const, validator
 from ezdxf.entities import (
     factory,
     entity_linker,
@@ -26,9 +26,9 @@ from ezdxf.entities import (
     Attrib,
 )
 from ezdxf.layouts.blocklayout import BlockLayout
+from ezdxf.math import Vertex, NULLVEC, Vec3
 from ezdxf.render.arrows import ARROWS
 from ezdxf.audit import Auditor, AuditError
-from .table import table_key
 import warnings
 import logging
 
@@ -271,7 +271,7 @@ class BlocksSection:
     def new(
         self,
         name: str,
-        base_point: Sequence[float] = (0, 0),
+        base_point: Vertex = NULLVEC,
         dxfattribs: dict = None,
     ) -> "BlockLayout":
         """Create and add a new :class:`~ezdxf.layouts.BlockLayout`, `name`
@@ -283,7 +283,7 @@ class BlocksSection:
         dxfattribs = dxfattribs or {}
         dxfattribs["owner"] = block_record.dxf.handle
         dxfattribs["name"] = name
-        dxfattribs["base_point"] = base_point
+        dxfattribs["base_point"] = Vec3(base_point)
         head = factory.create_db_entry("BLOCK", dxfattribs, self.doc)
         tail = factory.create_db_entry(
             "ENDBLK", {"owner": block_record.dxf.handle}, doc=self.doc
@@ -292,7 +292,7 @@ class BlocksSection:
         return self.add(block_record)
 
     def new_anonymous_block(
-        self, type_char: str = "U", base_point: Sequence[float] = (0, 0)
+        self, type_char: str = "U", base_point: Vertex = NULLVEC
     ) -> "BlockLayout":
         """Create and add a new anonymous :class:`~ezdxf.layouts.BlockLayout`,
         `type_char` is the BLOCK type, `base_point` is the insertion point of
@@ -386,7 +386,8 @@ class BlocksSection:
         """
         assert self.doc is not None
         active_references = set(
-            table_key(entity.dxf.name) for entity in self.doc.query("INSERT")
+            validator.make_table_key(entity.dxf.name)
+            for entity in self.doc.query("INSERT")
         )
 
         def is_safe(name: str) -> bool:
@@ -396,7 +397,7 @@ class BlocksSection:
 
         trash = set()
         for block in self:
-            name = table_key(block.name)
+            name = validator.make_table_key(block.name)
             if not block.is_any_layout and is_safe(name):
                 trash.add(name)
 
@@ -434,7 +435,7 @@ class BlocksSection:
                     auditor.fixed_error(
                         code=AuditError.REMOVED_INVALID_GRAPHIC_ENTITY,
                         message=f"Removed invalid DXF entity {str(entity)} from"
-                                f" BLOCK '{block_record.dxf.name}'.",
+                        f" BLOCK '{block_record.dxf.name}'.",
                     )
                     auditor.trash(entity)
                 elif isinstance(entity, Attrib):
@@ -443,7 +444,6 @@ class BlocksSection:
                     auditor.fixed_error(
                         code=AuditError.REMOVED_STANDALONE_ATTRIB_ENTITY,
                         message=f"Removed standalone {str(entity)} entity from"
-                                f" BLOCK '{block_record.dxf.name}'.",
+                        f" BLOCK '{block_record.dxf.name}'.",
                     )
                     auditor.trash(entity)
-

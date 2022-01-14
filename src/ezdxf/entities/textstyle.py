@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2021, Manfred Moitzi
+# Copyright (c) 2019-2022, Manfred Moitzi
 # License: MIT License
 from typing import TYPE_CHECKING, Tuple
 import logging
@@ -19,6 +19,7 @@ logger = logging.getLogger("ezdxf")
 
 if TYPE_CHECKING:
     from ezdxf.eztypes import TagWriter, DXFNamespace
+    from ezdxf.tools.fonts import AbstractFont
 
 __all__ = ["Textstyle"]
 
@@ -96,7 +97,7 @@ class Textstyle(DXFEntity):
     ) -> "DXFNamespace":
         dxf = super().load_dxf_attribs(processor)
         if processor:
-            processor.fast_load_dxfattribs(dxf, acdb_style_group_codes, 2)
+            processor.simple_dxfattribs_loader(dxf, acdb_style_group_codes)  # type: ignore
         return dxf
 
     def export_entity(self, tagwriter: "TagWriter") -> None:
@@ -202,3 +203,39 @@ class Textstyle(DXFEntity):
     @is_vertical_stacked.setter
     def is_vertical_stacked(self, state) -> None:
         self.set_flag_state(const.VERTICAL_STACKED, state, "flags")
+
+    def make_font(
+        self, cap_height: float = None, width_factor: float = None
+    ) -> "AbstractFont":
+        """Returns a font abstraction :class:`~ezdxf.tools.fonts.AbstractFont`
+        for this text style. Returns a font for a cap height of 1, if the
+        text style has auto height (:attr:`Textstyle.dxf.height` is 0) and
+        the given `cap_height` is ``None`` or 0.
+        Uses the :attr:`Textstyle.dxf.width` attribute if the given `width_factor`
+        is ``None`` or 0, the default value is 1.
+        The attribute :attr:`Textstyle.dxf.big_font` is ignored.
+        """
+        from ezdxf import options
+        from ezdxf.tools import fonts
+
+        ttf = ""
+        if options.use_matplotlib and self.has_extended_font_data:
+            family, italic, bold = self.get_extended_font_data()
+            if family:
+                text_style = "italic" if italic else "normal"
+                text_weight = "bold" if bold else "normal"
+                font_face = fonts.FontFace(
+                    family=family, style=text_style, weight=text_weight
+                )
+                ttf = fonts.find_ttf_path(font_face)
+        else:
+            ttf = self.dxf.get("font", const.DEFAULT_TTF)
+        if ttf == "":
+            ttf = const.DEFAULT_TTF
+        if cap_height is None or cap_height == 0.0:
+            cap_height = self.dxf.height
+        if cap_height == 0.0:
+            cap_height = 1.0
+        if width_factor is None or width_factor == 0.0:
+            width_factor = self.dxf.width
+        return fonts.make_font(ttf, cap_height, width_factor)  # type: ignore

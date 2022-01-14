@@ -1,14 +1,14 @@
 # Copyright (c) 2011-2021, Manfred Moitzi
 # License: MIT License
-from typing import TYPE_CHECKING, Iterable, List
+from typing import TYPE_CHECKING, Iterable, List, Sequence
 import logging
 from ezdxf.lldxf.const import DXFStructureError, DXF12
 from .table import (
     Table,
     ViewportTable,
-    StyleTable,
+    TextstyleTable,
     LayerTable,
-    LineTypeTable,
+    LinetypeTable,
     AppIDTable,
     ViewTable,
     BlockRecordTable,
@@ -22,7 +22,6 @@ if TYPE_CHECKING:
         Drawing,
         DXFEntity,
         DXFTagStorage,
-        DimStyle,
     )
 
 logger = logging.getLogger("ezdxf")
@@ -39,38 +38,38 @@ TABLENAMES = {
     "BLOCK_RECORD": "block_records",
 }
 
-TABLESMAP = {
-    "LAYER": LayerTable,
-    "LTYPE": LineTypeTable,
-    "STYLE": StyleTable,
-    "DIMSTYLE": DimStyleTable,
-    "VPORT": ViewportTable,
-    "VIEW": ViewTable,
-    "UCS": UCSTable,
-    "APPID": AppIDTable,
-    "BLOCK_RECORD": BlockRecordTable,
-}
-
 
 class TablesSection:
     def __init__(self, doc: "Drawing", entities: List["DXFEntity"] = None):
         assert doc is not None
         self.doc = doc
-        # In the end all tables are not None and using "Optional" is awful!
-        self.layers: LayerTable = None  # type: ignore
-        self.linetypes: LineTypeTable = None  # type: ignore
-        self.appids: AppIDTable = None  # type: ignore
-        self.dimstyles: DimStyleTable = None  # type: ignore
-        self.styles: StyleTable = None  # type: ignore
-        self.ucs: UCSTable = None  # type: ignore
-        self.views: ViewTable = None  # type: ignore
-        self.viewports: ViewportTable = None  # type: ignore
-        self.block_records: BlockRecordTable = None  # type: ignore
+        # not loaded tables: table.doc is None
+        self.layers = LayerTable()
+        self.linetypes = LinetypeTable()
+        self.appids = AppIDTable()
+        self.dimstyles = DimStyleTable()
+        self.styles = TextstyleTable()
+        self.ucs = UCSTable()
+        self.views = ViewTable()
+        self.viewports = ViewportTable()
+        self.block_records = BlockRecordTable()
 
         if entities is not None:
             self._load(entities)
-        self._create_missing_tables()
-        # An this time all tables are not None!
+        self._reset_not_loaded_tables()
+
+    def tables(self) -> Sequence[Table]:
+        return (
+            self.layers,
+            self.linetypes,
+            self.appids,
+            self.dimstyles,
+            self.styles,
+            self.ucs,
+            self.views,
+            self.viewports,
+            self.block_records,
+        )
 
     def _load(self, entities: List["DXFEntity"]) -> None:
         section_head: "DXFTagStorage" = entities[0]  # type: ignore
@@ -89,9 +88,7 @@ class TablesSection:
                 if len(table_records):
                     # TABLE entity without preceding ENDTAB entity, should we care?
                     logger.debug(
-                        'Ignore missing ENDTAB entity in table "{}".'.format(
-                            table_name
-                        )
+                        f'Ignore missing ENDTAB entity in table "{table_name}".'
                     )
                     self._load_table(table_name, table_records)  # type: ignore
                 table_name = entity.dxf.name
@@ -122,28 +119,17 @@ class TablesSection:
             table_entities: iterable of table records
 
         """
-        table_class = TABLESMAP[name]
-        new_table = table_class(self.doc, table_entities)
-        setattr(self, TABLENAMES[name], new_table)
+        table = getattr(self, TABLENAMES[name])
+        if isinstance(table, Table):
+            table.load(self.doc, iter(table_entities))
 
-    def _create_missing_tables(self) -> None:
-        for record_name, table_name in TABLENAMES.items():
-            if getattr(self, table_name) is None:
-                self._create_new_table(record_name, table_name)
-
-    def _create_new_table(self, record_name: str, table_name: str) -> None:
-        """
-        Setup new empty table.
-
-        Args:
-            record_name: table name e.g. VPORT
-            table_name: TableSection attribute name e.g. viewports
-
-        """
-        handle = self.doc.entitydb.next_handle()
-        table_class = TABLESMAP[record_name]
-        table = table_class.new_table(record_name, handle, self.doc)
-        setattr(self, table_name, table)
+    def _reset_not_loaded_tables(self) -> None:
+        entitydb = self.doc.entitydb
+        for table in self.tables():
+            if table.doc is None:
+                handle = entitydb.next_handle()
+                table.reset(self.doc, handle)
+                entitydb.add(table.head)
 
     def export_dxf(self, tagwriter: "TagWriter") -> None:
         tagwriter.write_str("  0\nSECTION\n  2\nTABLES\n")
@@ -163,7 +149,6 @@ class TablesSection:
     def create_table_handles(self):
         # DXF R12: TABLE does not require a handle and owner tag
         # DXF R2000+: TABLE requires a handle and an owner tag
-        for name in TABLENAMES.values():
-            table = getattr(self, name.lower())
+        for table in self.tables():
             handle = self.doc.entitydb.next_handle()
             table.set_handle(handle)

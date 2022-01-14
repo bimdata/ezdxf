@@ -1,5 +1,6 @@
 .. _tutorials:
 
+
 Tutorials
 =========
 
@@ -27,5 +28,8 @@ Tutorials
     radius_dimension
     diameter_dimension
     angular_dimension
+    arc_dimension
+    ordinate_dimension
     geo
     custom_data
+    mleader

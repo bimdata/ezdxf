@@ -20,6 +20,7 @@ from ezdxf.lldxf.attributes import (
     XType,
     RETURN_DEFAULT,
     group_code_mapping,
+    merge_group_code_mappings,
 )
 from ezdxf.lldxf.const import (
     DXF12,
@@ -47,7 +48,12 @@ from ezdxf.entities import factory
 from ezdxf.query import EntityQuery
 from ezdxf.audit import AuditError
 from .dxfentity import base_class, SubclassProcessor
-from .dxfgfx import DXFGraphic, acdb_entity, elevation_to_z_axis
+from .dxfgfx import (
+    DXFGraphic,
+    acdb_entity,
+    elevation_to_z_axis,
+    acdb_entity_group_codes,
+)
 from .subentity import LinkedEntities
 from .attrib import Attrib
 
@@ -60,6 +66,7 @@ if TYPE_CHECKING:
         BlockLayout,
         BaseLayout,
         Auditor,
+        BlockRecord,
     )
 
 __all__ = ["Insert"]
@@ -134,6 +141,10 @@ acdb_block_reference = DefSubclass(
     },
 )
 acdb_block_reference_group_codes = group_code_mapping(acdb_block_reference)
+merged_insert_group_codes = merge_group_code_mappings(
+    acdb_entity_group_codes, acdb_block_reference_group_codes  # type: ignore
+)
+
 NON_ORTHO_MSG = (
     "INSERT entity can not represent a non-orthogonal target "
     "coordinate system."
@@ -171,13 +182,11 @@ class Insert(LinkedEntities):
     def load_dxf_attribs(
         self, processor: SubclassProcessor = None
     ) -> "DXFNamespace":
-        dxf = super().load_dxf_attribs(processor)
+        """Loading interface. (internal API)"""
+        # bypass DXFGraphic, loading proxy graphic is skipped!
+        dxf = super(DXFGraphic, self).load_dxf_attribs(processor)
         if processor:
-            # Always use the 2nd subclass, could be AcDbBlockReference or
-            # AcDbMInsertBlock:
-            processor.fast_load_dxfattribs(
-                dxf, acdb_block_reference_group_codes, 2, recover=True
-            )
+            processor.simple_dxfattribs_loader(dxf, merged_insert_group_codes)
             if processor.r12:
                 # Transform elevation attribute from R11 to z-axis values:
                 elevation_to_z_axis(dxf, ("insert",))
@@ -246,21 +255,18 @@ class Insert(LinkedEntities):
         self.dxf.zscale = factor
         return self
 
-    def is_xref(self) -> bool:
-        """Return ``True`` if XREF or XREF_OVERLAY."""
-        assert self.doc is not None, "Requires a document object"
-        block_layout = self.doc.blocks.get(self.dxf.name)
-        if (
-            block_layout is not None and block_layout.block.dxf.flags & 12  # type: ignore
-        ):  # XREF(4) & XREF_OVERLAY(8)
-            return True
-        return False
-
     def block(self) -> Optional["BlockLayout"]:
         """Returns associated :class:`~ezdxf.layouts.BlockLayout`."""
-        if self.doc is None:
-            return None
-        return self.doc.blocks.get(self.dxf.name)
+        if self.doc:
+            return self.doc.blocks.get(self.dxf.name)
+        return None
+
+    def is_xref(self) -> bool:
+        """Return ``True`` if XREF or XREF_OVERLAY."""
+        block = self.block()
+        if block is not None:
+            return block.block_record.is_xref
+        return False
 
     def place(
         self,
@@ -385,15 +391,15 @@ class Insert(LinkedEntities):
         tag: str,
         text: str,
         insert: "Vertex" = (0, 0),
-        dxfattribs: dict = None,
+        dxfattribs=None,
     ) -> "Attrib":
         """Attach an :class:`Attrib` entity to the block reference.
 
         Example for appending an attribute to an INSERT entity with none
         standard alignment::
 
-            e.add_attrib('EXAMPLETAG', 'example text').set_pos(
-                (3, 7), align='MIDDLE_CENTER'
+            e.add_attrib('EXAMPLETAG', 'example text').set_placement(
+                (3, 7), align=TextEntityAlignment.MIDDLE_CENTER
             )
 
         Args:
@@ -403,7 +409,7 @@ class Insert(LinkedEntities):
             dxfattribs: additional DXF attributes for the ATTRIB entity
 
         """
-        dxfattribs = dxfattribs or {}
+        dxfattribs = dict(dxfattribs or {})
         dxfattribs["tag"] = tag
         dxfattribs["text"] = text
         dxfattribs["insert"] = insert
@@ -723,15 +729,16 @@ class Insert(LinkedEntities):
             return tag, text, location
 
         def autofill() -> None:
-            for attdef in blockdef.attdefs():  # type: ignore
+            for attdef in block_layout.attdefs():  # type: ignore
                 dxfattribs = attdef.dxfattribs(drop={"prompt", "handle"})
                 tag, text, location = unpack(dxfattribs)
                 attrib = self.add_attrib(tag, text, location, dxfattribs)
                 attrib.transform(m)
 
-        m = self.matrix44()
-        blockdef = self.block()
-        autofill()
+        block_layout = self.block()
+        if block_layout is not None:
+            m = self.matrix44()
+            autofill()
         return self
 
     def audit(self, auditor: "Auditor") -> None:
@@ -739,10 +746,24 @@ class Insert(LinkedEntities):
         super().audit(auditor)
         doc = auditor.doc
         if doc and doc.blocks:
-            if self.dxf.name not in doc.blocks:
+            name = self.dxf.name
+            if name is None:
+                auditor.fixed_error(
+                    code=AuditError.UNDEFINED_BLOCK_NAME,
+                    message=f"Deleted entity {str(self)} without a BLOCK name",
+                )
+                auditor.trash(self)
+            elif name not in doc.blocks:
                 auditor.fixed_error(
                     code=AuditError.UNDEFINED_BLOCK,
                     message=f"Deleted entity {str(self)} without required BLOCK"
                     f" definition.",
                 )
                 auditor.trash(self)
+
+    def __referenced_blocks__(self) -> Iterable[str]:
+        """Support for the "ReferencedBlocks" protocol."""
+        block = self.block()
+        if block is not None:
+            return (block.block_record_handle,)
+        return tuple()
