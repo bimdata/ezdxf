@@ -1,6 +1,8 @@
 # Copyright (c) 2011-2021, Manfred Moitzi
 # License: MIT License
+from typing import List
 from enum import IntEnum, IntFlag
+from dataclasses import dataclass
 
 DXF9 = "AC1004"
 DXF10 = "AC1006"
@@ -144,11 +146,12 @@ class DXFRenderError(DXFError):
     complex DXF entities by DXF primitives (LINE, TEXT, ...)
     e.g. for DIMENSION or LEADER entities.
     """
+
     pass
 
 
 class DXFMissingDefinitionPoint(DXFRenderError):
-    """Missing required definition points in the DIMENSION entity. """
+    """Missing required definition points in the DIMENSION entity."""
 
 
 MANAGED_SECTIONS = {
@@ -505,7 +508,9 @@ LINEAR_SPLINE = 16
 HATCH_TYPE_USER_DEFINED = 0
 HATCH_TYPE_PREDEFINED = 1
 HATCH_TYPE_CUSTOM = 2
+HATCH_PATTERN_TYPE = ["user-defined", "predefined", "custom"]
 
+ISLAND_DETECTION = ["nested", "outermost", "ignore"]
 HATCH_STYLE_NORMAL = 0
 HATCH_STYLE_NESTED = 0
 HATCH_STYLE_OUTERMOST = 1
@@ -517,6 +522,47 @@ BOUNDARY_PATH_POLYLINE = 2
 BOUNDARY_PATH_DERIVED = 4
 BOUNDARY_PATH_TEXTBOX = 8
 BOUNDARY_PATH_OUTERMOST = 16
+
+
+def boundary_path_flag_names(flags: int) -> List[str]:
+    if flags == 0:
+        return ["default"]
+    types: List[str] = []
+    if flags & BOUNDARY_PATH_EXTERNAL:
+        types.append("external")
+    if flags & BOUNDARY_PATH_POLYLINE:
+        types.append("polyline")
+    if flags & BOUNDARY_PATH_DERIVED:
+        types.append("derived")
+    if flags & BOUNDARY_PATH_TEXTBOX:
+        types.append("textbox")
+    if flags & BOUNDARY_PATH_OUTERMOST:
+        types.append("outermost")
+    return types
+
+
+@dataclass(frozen=True)
+class BoundaryPathState:
+    external: bool = False
+    derived: bool = False
+    textbox: bool = False
+    outermost: bool = False
+
+    @staticmethod
+    def from_flags(flag: int) -> "BoundaryPathState":
+        return BoundaryPathState(
+            external=bool(flag & BOUNDARY_PATH_EXTERNAL),
+            derived=bool(flag & BOUNDARY_PATH_DERIVED),
+            textbox=bool(flag & BOUNDARY_PATH_TEXTBOX),
+            outermost=bool(flag & BOUNDARY_PATH_OUTERMOST),
+        )
+
+    @property
+    def default(self) -> bool:
+        return not (
+            self.external or self.derived or self.outermost or self.textbox
+        )
+
 
 GRADIENT_TYPES = frozenset(
     [

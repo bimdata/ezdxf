@@ -6,6 +6,7 @@ from typing import (
     Optional,
     Iterator,
     no_type_check,
+    Any,
 )
 from collections import abc
 
@@ -39,12 +40,13 @@ G1_TOL = 1e-4
 
 
 class Path(abc.Sequence):
-    __slots__ = ("_start", "_commands", "_has_sub_paths")
+    __slots__ = ("_start", "_commands", "_has_sub_paths", "_user_data")
 
     def __init__(self, start: Vertex = NULLVEC):
         self._start = Vec3(start)
         self._has_sub_paths = False
         self._commands: List[PathElement] = []
+        self._user_data: Any = None  # should be immutable data!
 
     def __len__(self) -> int:
         return len(self._commands)
@@ -61,9 +63,23 @@ class Path(abc.Sequence):
         copy._has_sub_paths = self._has_sub_paths
         # immutable data
         copy._commands = list(self._commands)
+        # copy by reference: user data should be immutable data!
+        copy._user_data = self._user_data
         return copy
 
     clone = __copy__
+
+    @property
+    def user_data(self) -> Any:
+        """Attach arbitrary user data to a :class:`Path` object.
+        The user data is copied by reference, no deep copy is applied
+        therefore a mutable state is shared between copies.
+        """
+        return self._user_data
+
+    @user_data.setter
+    def user_data(self, data: Any):
+        self._user_data = data
 
     @property
     def start(self) -> Vec3:
@@ -214,7 +230,7 @@ class Path(abc.Sequence):
         if not commands:
             return Path(self.start)
         path = Path(start=self.end)
-
+        path._user_data = self._user_data
         # localize variables:
         _, line_to, curve3_to, curve4_to, move_to = Command
         commands = self._commands
@@ -351,7 +367,7 @@ class Path(abc.Sequence):
 
         """
         new_path = self.__class__(m.transform(self.start))
-
+        new_path._user_data = self._user_data
         # localize variables:
         _, line_to, curve3_to, curve4_to, move_to = Command
 
@@ -371,7 +387,6 @@ class Path(abc.Sequence):
                 new_path.move_to(m.transform(cmd.end))
             else:
                 raise ValueError(f"Invalid command: {cmd.type}")
-
         return new_path
 
     def to_wcs(self, ocs: OCS, elevation: float):
@@ -390,11 +405,14 @@ class Path(abc.Sequence):
 
         """
         path = self.__class__(start=self.start)
+        path._user_data = self._user_data
         move_to = Command.MOVE_TO
         for cmd in self._commands:
+
             if cmd.type == move_to:
                 yield path
                 path = self.__class__(start=cmd.end)
+                path._user_data = self._user_data
             else:
                 path._commands.append(cmd)  # immutable data!
         yield path

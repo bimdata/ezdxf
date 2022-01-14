@@ -93,6 +93,48 @@ def test_curve4_to():
     assert path.end == (1, 2, 3)
 
 
+def test_user_data_is_none_by_default():
+    assert Path().user_data is None
+
+
+def test_set_and_get_user_data():
+    path = Path()
+    path.user_data = [1, 2, 3]
+    assert path.user_data == [1, 2, 3]
+
+
+def test_path_clones_share_user_data():
+    path = Path()
+    data = [1, 2, 3]
+    path.user_data = data
+    assert path.clone().user_data is data
+
+
+def test_reversed_path_preserves_user_data():
+    path = Path()
+    path.user_data = "data"
+    path.line_to((1, 2, 3))
+    assert path.reversed().user_data == "data"
+
+
+def test_transformed_path_preserves_user_data():
+    path = Path()
+    path.user_data = "data"
+    path.line_to((1, 2, 3))
+    assert path.transform(Matrix44()).user_data == "data"
+
+
+def test_sub_paths_inherit_parent_user_data():
+    path = Path()
+    path.user_data = "data"
+    path.line_to((1, 2, 3))
+    path.move_to((7, 8, 9))
+    path.line_to((7, 8, 9))
+    assert path.has_sub_paths is True
+    for p in path.sub_paths():
+        assert p.user_data == "data"
+
+
 class TestAllLinesToCurveConverter:
     def test_create_a_curve3_command(self):
         path = Path()

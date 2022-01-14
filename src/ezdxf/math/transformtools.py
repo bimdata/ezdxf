@@ -7,12 +7,10 @@ from ezdxf.math import (
     Vec2,
     X_AXIS,
     Y_AXIS,
-    Z_AXIS,
     Matrix44,
     sign,
     OCS,
-    arc_angle_span_deg,
-    ellipse_param_span,
+    arc_angle_span_rad,
 )
 
 if TYPE_CHECKING:
@@ -29,6 +27,8 @@ __all__ = [
 
 _FLIPPED_Z_AXIS = Vec3(0, 0, -1)
 _PLACEHOLDER_OCS = OCS()
+DEG = 180.0 / math.pi  # radians to degrees
+RADIANS = math.pi / 180.0  # degrees to radians
 
 
 class TransformError(Exception):
@@ -193,7 +193,7 @@ class OCSTransform:
 
     def transform_deg_angle(self, angle: float) -> float:
         """Returns angle (in degrees) from old OCS transformed into new OCS."""
-        return math.degrees(self.transform_angle(math.radians(angle)))
+        return self.transform_angle(angle * RADIANS) * DEG
 
     def transform_ccw_arc_angles(
         self, start: float, end: float
@@ -201,18 +201,18 @@ class OCSTransform:
         """Returns arc start- and end angle (in radians) from old OCS
         transformed into new OCS in counter-clockwise orientation.
         """
-        old_angle_span = ellipse_param_span(start, end)  # always >= 0
+        old_angle_span = arc_angle_span_rad(start, end)  # always >= 0
         new_start = self.transform_angle(start)
         new_end = self.transform_angle(end)
         if math.isclose(old_angle_span, math.pi):  # semicircle
             old_angle_span = 1.0  # arbitrary angle span
             check = self.transform_angle(start + old_angle_span)
-            new_angle_span = ellipse_param_span(new_start, check)
+            new_angle_span = arc_angle_span_rad(new_start, check)
         elif math.isclose(old_angle_span, math.tau):
             # preserve full circle span
             return new_start, new_start + math.tau
         else:
-            new_angle_span = ellipse_param_span(new_start, new_end)
+            new_angle_span = arc_angle_span_rad(new_start, new_end)
 
         if math.isclose(old_angle_span, new_angle_span):
             return new_start, new_end
@@ -226,6 +226,6 @@ class OCSTransform:
         into new OCS in counter-clockwise orientation.
         """
         start, end = self.transform_ccw_arc_angles(
-            math.radians(start), math.radians(end)
+            start * RADIANS, end * RADIANS
         )
-        return math.degrees(start), math.degrees(end)
+        return start * DEG, end * DEG
