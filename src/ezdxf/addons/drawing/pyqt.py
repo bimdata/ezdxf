@@ -273,17 +273,13 @@ class PyQtBackend(Backend):
         )
         self._set_item_data(item)
 
-    @lru_cache(maxsize=256)  # fonts.Font is a named tuple
-    def get_qfont(self, font: fonts.FontFace) -> qg.QFont:
-        qfont = self._text_renderer.default_font
-        if font:
-            family = font.family
-            italic = "italic" in font.style.lower()
-            weight = _map_weight(font.weight)
-            qfont = qg.QFont(family, weight=weight, italic=italic)
-            # INFO: setting the stretch value makes results worse!
-            # qfont.setStretch(_map_stretch(font.stretch))
-        return qfont
+    def get_qfont(self, font: Optional[fonts.FontFace]) -> qg.QFont:
+        if font is None:
+            return self._text_renderer.default_font
+        font_properties = _get_qfont(font)
+        if font_properties is None:
+            return self._text_renderer.default_font
+        return font_properties
 
     def get_font_measurements(
         self, cap_height: float, font: fonts.FontFace = None
@@ -321,6 +317,19 @@ class PyQtBackend(Backend):
                 self._get_pen(properties),
                 self._no_fill,
             )
+
+
+@lru_cache(maxsize=256)  # fonts.Font is a named tuple
+def _get_qfont(font: fonts.FontFace) -> Optional[qg.QFont]:
+    qfont = None
+    if font:
+        family = font.family
+        italic = "italic" in font.style.lower()
+        weight = _map_weight(font.weight)
+        qfont = qg.QFont(family, weight=weight, italic=italic)
+        # INFO: setting the stretch value makes results worse!
+        # qfont.setStretch(_map_stretch(font.stretch))
+    return qfont
 
 
 class _CosmeticPath(qw.QGraphicsPathItem):

@@ -29,6 +29,21 @@ class TestBoundingBox:
         assert bbox.is_empty is False
         assert bbox.has_data is True
 
+    @pytest.mark.parametrize("v", [
+        [],
+        [(0, 0, 0)],
+        [(1, 0, 0), (2, 0, 0)],
+        [(1, 1, 0), (2, 2, 0)],
+        [(1, 1, 1), (1, 1, 1)],
+    ])
+    def test_is_empty(self, v):
+        """Volume is 0."""
+        assert BoundingBox(v).is_empty is True
+
+    def test_not_is_empty(self):
+        """Volume is not 0."""
+        assert BoundingBox([(0, 0, 0), (-1, -1, -1)]).is_empty is False
+
     def test_init_with_with_empty_list(self):
         assert BoundingBox([]).is_empty is True
 
@@ -64,71 +79,81 @@ class TestBoundingBox:
         assert bbox1.any_inside(empty) is False
         assert empty.any_inside(bbox1) is False
 
+    def test_has_overlap_accepts_2d_bounding_box(self):
+        bbox1 = BoundingBox([(0, 0, 0), (10, 10, 10)])
+        bbox2 = BoundingBox2d([(1, 1), (9, 9)])  # z-axis are 0
+        assert bbox1.has_overlap(bbox2) is True
+
+    def test_has_intersection_accepts_2d_bounding_box(self):
+        bbox1 = BoundingBox([(-1, -1, -1), (10, 10, 10)])
+        bbox2 = BoundingBox2d([(1, 1), (9, 9)])  # z-axis are 0
+        assert bbox1.has_intersection(bbox2) is True
+
     def test_do_intersect_and_overlap(self):
         bbox1 = BoundingBox([(0, 0, 0), (10, 10, 10)])
         bbox2 = BoundingBox([(1, 1, 1), (9, 9, 9)])
         bbox3 = BoundingBox([(-1, -1, -1), (1.001, 1.001, 1.001)])
         for a, b in permutations([bbox1, bbox2, bbox3], 2):
-            assert a.intersect(b) is True
-            assert a.overlap(b) is True
+            assert a.has_intersection(b) is True
+            assert a.has_overlap(b) is True
 
     def test_do_not_intersect_or_overlap(self):
         bbox1 = BoundingBox([(0, 0, 0), (3, 3, 3)])
         bbox2 = BoundingBox([(4, 4, 4), (9, 9, 9)])
         bbox3 = BoundingBox([(-2, -2, -2), (-1, -1, -1)])
         for a, b in permutations([bbox1, bbox2, bbox3], 2):
-            assert a.intersect(b) is False
-            assert a.overlap(b) is False
+            assert a.has_intersection(b) is False
+            assert a.has_overlap(b) is False
 
     def test_do_not_intersect_or_overlap_empty(self):
         bbox = BoundingBox([(0, 0, 0), (3, 3, 3)])
         empty = BoundingBox()
-        assert bbox.intersect(empty) is False
-        assert bbox.overlap(empty) is False
-        assert empty.intersect(bbox) is False
-        assert empty.overlap(bbox) is False
-        assert empty.intersect(empty) is False
-        assert empty.overlap(empty) is False
+        assert bbox.has_intersection(empty) is False
+        assert bbox.has_overlap(empty) is False
+        assert empty.has_intersection(bbox) is False
+        assert empty.has_overlap(bbox) is False
+        assert empty.has_intersection(empty) is False
+        assert empty.has_overlap(empty) is False
 
     def test_crossing_2d_boxes(self):
         # bboxes do overlap, but do not contain corner points of the other bbox
         bbox1 = BoundingBox2d([(0, 1), (3, 2)])
         bbox2 = BoundingBox2d([(1, 0), (2, 3)])
-        assert bbox1.intersect(bbox2) is True
-        assert bbox1.overlap(bbox2) is True
+        assert bbox1.has_intersection(bbox2) is True
+        assert bbox1.has_overlap(bbox2) is True
 
     def test_crossing_3d_boxes(self):
         # bboxes do overlap, but do not contain corner points of the other bbox
         bbox1 = BoundingBox([(0, 1, 0), (3, 2, 1)])
         bbox2 = BoundingBox([(1, 0, 0), (2, 3, 1)])
-        assert bbox1.intersect(bbox2) is True
-        assert bbox1.overlap(bbox2) is True
+        assert bbox1.has_intersection(bbox2) is True
+        assert bbox1.has_overlap(bbox2) is True
 
     def test_touching_2d_boxes(self):
         bbox1 = BoundingBox2d([(0, 0), (1, 1)])
         bbox2 = BoundingBox2d([(1, 1), (2, 2)])
         bbox3 = BoundingBox2d([(-1, -1), (0, 0)])
-        assert bbox1.intersect(bbox2) is False
-        assert bbox1.overlap(bbox2) is True
-        assert bbox2.intersect(bbox1) is False
-        assert bbox2.overlap(bbox1) is True
-        assert bbox1.intersect(bbox3) is False
-        assert bbox1.overlap(bbox3) is True
-        assert bbox3.intersect(bbox1) is False
-        assert bbox3.overlap(bbox1) is True
+        assert bbox1.has_intersection(bbox2) is False
+        assert bbox1.has_overlap(bbox2) is True
+        assert bbox2.has_intersection(bbox1) is False
+        assert bbox2.has_overlap(bbox1) is True
+        assert bbox1.has_intersection(bbox3) is False
+        assert bbox1.has_overlap(bbox3) is True
+        assert bbox3.has_intersection(bbox1) is False
+        assert bbox3.has_overlap(bbox1) is True
 
     def test_touching_3d_boxes(self):
         bbox1 = BoundingBox([(0, 0, 0), (1, 1, 1)])
         bbox2 = BoundingBox([(1, 1, 1), (2, 2, 2)])
         bbox3 = BoundingBox([(-1, -1, -1), (0, 0, 0)])
-        assert bbox1.intersect(bbox2) is False
-        assert bbox1.overlap(bbox2) is True
-        assert bbox2.intersect(bbox1) is False
-        assert bbox2.overlap(bbox1) is True
-        assert bbox1.intersect(bbox3) is False
-        assert bbox1.overlap(bbox3) is True
-        assert bbox3.intersect(bbox1) is False
-        assert bbox3.overlap(bbox1) is True
+        assert bbox1.has_intersection(bbox2) is False
+        assert bbox1.has_overlap(bbox2) is True
+        assert bbox2.has_intersection(bbox1) is False
+        assert bbox2.has_overlap(bbox1) is True
+        assert bbox1.has_intersection(bbox3) is False
+        assert bbox1.has_overlap(bbox3) is True
+        assert bbox3.has_intersection(bbox1) is False
+        assert bbox3.has_overlap(bbox1) is True
 
     def test_extend(self):
         bbox = BoundingBox([(0, 0, 0), (10, 10, 10)])
@@ -186,6 +211,7 @@ class TestBoundingBox:
 
     def test_union_empty_bounding_boxes(self):
         bbox = BoundingBox().union(BoundingBox())
+        assert bbox.has_data is False
         assert bbox.is_empty is True
 
     def test_rect_vertices_for_empty_bbox_raises_value_error(self):
@@ -226,6 +252,22 @@ class TestBoundingBox:
         assert box_b.contains(box_a) is False
         assert box_a.contains(box_c) is False
 
+    def test_growing_empty_bounding_box_does_nothing(self):
+        box = BoundingBox()
+        box.grow(1)
+        assert box.has_data is False
+
+    def test_grow_bounding_box(self):
+        box = BoundingBox([(0, 0, 0), (1, 1, 1)])
+        box.grow(1)
+        assert box.extmin.isclose((-1, -1, -1))
+        assert box.extmax.isclose((2, 2, 2))
+
+    def test_shrinking_to_zero_or_below_raises_exception(self):
+        box = BoundingBox([(0, 0, 0), (1, 1, 1)])
+        with pytest.raises(ValueError):
+            box.grow(-0.5)
+
 
 class TestBoundingBox2d:
     def test_init(self):
@@ -246,6 +288,21 @@ class TestBoundingBox2d:
         bbox.extend([(0, 0), (10, 10)])
         assert bbox.size == (10, 10)
         assert bbox.has_data is True
+
+    @pytest.mark.parametrize("v", [
+        [],
+        [(0, 0)],
+        [(1, 0), (2, 0)],
+        [(0, 1), (0, 2)],
+        [(1, 1), (1, 1)],
+    ])
+    def test_is_empty(self, v):
+        """Area is 0."""
+        assert BoundingBox2d(v).is_empty is True
+
+    def test_not_is_empty(self):
+        """Area is not 0."""
+        assert BoundingBox2d([(0, 0), (-1, -1)]).is_empty is False
 
     def test_inside(self):
         bbox = BoundingBox2d([(0, 0), (10, 10)])
@@ -315,3 +372,148 @@ class TestBoundingBox2d:
         assert box_b.contains(box_a) is True, "xy-plane is included"
         box_c = BoundingBox([(0, 0, 1), (10, 10, 10)])
         assert box_c.contains(box_a) is False, "xy-plane is not included"
+
+    def test_grow_bounding_box(self):
+        box = BoundingBox2d([(0, 0), (1, 1)])
+        box.grow(1)
+        assert box.extmin.isclose((-1, -1))
+        assert box.extmax.isclose((2, 2))
+
+    def test_has_overlap_accepts_3d_bounding_box(self):
+        bbox1 = BoundingBox([(0, 0, 10), (10, 10, 10)])  # z-axis are ignored
+        bbox2 = BoundingBox2d([(1, 1), (9, 9)])
+        assert bbox2.has_overlap(bbox1) is True
+
+    def test_has_intersection_accepts_3d_bounding_box(self):
+        bbox1 = BoundingBox([(0, 0, 10), (10, 10, 10)])  # z-axis are ignored
+        bbox2 = BoundingBox2d([(1, 1), (9, 9)])
+        assert bbox2.has_intersection(bbox1) is True
+
+
+class Test2DIntersection:
+    def test_accept_3d_box(self):
+        b1 = BoundingBox2d([(1, 1), (9, 9)])
+        b2 = BoundingBox([(0, 0, 10), (10, 10, 10)])  # z-axis are ignored
+        b = b1.intersection(b2)
+        assert b.size.isclose((8, 8))
+
+    def test_empty_box_intersection(self):
+        b = BoundingBox2d().intersection(BoundingBox2d())
+        assert b.is_empty is True
+
+    def test_no_intersection(self):
+        b1 = BoundingBox2d([(0, 0), (1, 1)])
+        b2 = BoundingBox2d([(2, 2), (3, 3)])
+        b = b1.intersection(b2)
+        assert b.is_empty is True
+
+    def test_touches_at_one_corner(self):
+        b1 = BoundingBox2d([(0, 0), (1, 1)])
+        b2 = BoundingBox2d([(1, 1), (2, 2)])
+        b = b1.intersection(b2)
+        assert b.is_empty is True
+
+    def test_half_intersection(self):
+        b1 = BoundingBox2d([(0, 0), (2, 2)])
+        b2 = BoundingBox2d([(1, 1), (3, 3)])
+        b = b1.intersection(b2)
+        assert b.size.isclose((1, 1))
+        assert b.extmin.isclose((1, 1))
+        assert b.extmax.isclose((2, 2))
+
+    @pytest.mark.parametrize("v1, v2", [
+        ([(0, 0), (2, 2)], [(1, 1), (3, 3)]),
+        ([(-1, -1), (1, 1)], [(0, 0), (2, 2)]),
+        ([(-2, -2), (0, 0)], [(-3, -3), (-1, -1)]),
+    ])
+    def test_multiple_intersections(self, v1, v2):
+        b1 = BoundingBox2d(v1)
+        b2 = BoundingBox2d(v2)
+        b = b1.intersection(b2)
+        assert b.size.isclose((1, 1))
+
+    def test_full_intersection(self):
+        b1 = BoundingBox2d([(0, 0), (2, 2)])
+        b = b1.intersection(b1)
+        assert b.size.isclose((2, 2))
+        assert b.extmin.isclose((0, 0))
+        assert b.extmax.isclose((2, 2))
+
+    def test_smaller_inside_bigger_intersection(self):
+        b1 = BoundingBox2d([(0, 0), (3, 3)])
+        b2 = BoundingBox2d([(1, 1), (2, 2)])
+        b = b1.intersection(b2)
+        assert b.size.isclose((1, 1))
+        assert b.extmin.isclose((1, 1))
+        assert b.extmax.isclose((2, 2))
+
+    def test_intersection_box_without_an_area_is_empty(self):
+        b1 = BoundingBox2d([(0, 0), (0, 3)])  # has no area
+        b2 = BoundingBox2d([(-1, 1), (1, 1)])  # has no area
+
+        b = b1.intersection(b2)
+        assert b.is_empty is True  # intersection has no area
+
+
+class Test3DIntersection:
+    def test_accept_3d_box(self):
+        b1 = BoundingBox([(0, 0, -1), (10, 10, 10)])
+        b2 = BoundingBox2d([(1, 1), (9, 9)])  # z-axis is 0
+        b = b1.intersection(b2)
+        assert b.is_empty is True  # has no volume!
+
+    def test_empty_box_intersection(self):
+        b = BoundingBox().intersection(BoundingBox())
+        assert b.is_empty is True
+
+    def test_no_intersection(self):
+        b1 = BoundingBox([(0, 0, 0), (1, 1, 1)])
+        b2 = BoundingBox([(2, 2, 2), (3, 3, 3)])
+        b = b1.intersection(b2)
+        assert b.is_empty is True
+
+    def test_touches_at_one_corner(self):
+        b1 = BoundingBox([(0, 0, 0), (1, 1, 1)])
+        b2 = BoundingBox([(1, 1, 1), (2, 2, 2)])
+        b = b1.intersection(b2)
+        assert b.is_empty is True
+
+    def test_half_intersection(self):
+        b1 = BoundingBox([(0, 0, 0), (2, 2, 2)])
+        b2 = BoundingBox([(1, 1, 1), (3, 3, 3)])
+        b = b1.intersection(b2)
+        assert b.size.isclose((1, 1, 1))
+        assert b.extmin.isclose((1, 1, 1))
+        assert b.extmax.isclose((2, 2, 2))
+
+    @pytest.mark.parametrize("v1, v2", [
+        ([(0, 0, 0), (2, 2, 2)], [(1, 1, 1), (3, 3, 3)]),
+        ([(-1, -1, -1), (1, 1, 1)], [(0, 0, 0), (2, 2, 2)]),
+        ([(-2, -2, -2), (0, 0, 0)], [(-3, -3, -3), (-1, -1, -1)]),
+    ])
+    def test_multiple_intersections(self, v1, v2):
+        b1 = BoundingBox(v1)
+        b2 = BoundingBox(v2)
+        b = b1.intersection(b2)
+        assert b.size.isclose((1, 1, 1))
+
+    def test_full_intersection(self):
+        b1 = BoundingBox([(0, 0, 0), (2, 2, 2)])
+        b = b1.intersection(b1)
+        assert b.size.isclose((2, 2, 2))
+        assert b.extmin.isclose((0, 0, 0))
+        assert b.extmax.isclose((2, 2, 2))
+
+    def test_smaller_inside_bigger_intersection(self):
+        b1 = BoundingBox([(0, 0, 0), (3, 3, 3)])
+        b2 = BoundingBox([(1, 1, 1), (2, 2, 2)])
+        b = b1.intersection(b2)
+        assert b.size.isclose((1, 1, 1))
+        assert b.extmin.isclose((1, 1, 1))
+        assert b.extmax.isclose((2, 2, 2))
+
+    def test_intersection_box_without_a_volume_is_empty(self):
+        b1 = BoundingBox2d([(0, 0, 0), (0, 3, 0)])  # has no volume
+        b2 = BoundingBox2d([(-1, 1, 0), (1, 1, 0)])  # has no volume
+        b = b1.intersection(b2)
+        assert b.is_empty is True  # intersection has no volume

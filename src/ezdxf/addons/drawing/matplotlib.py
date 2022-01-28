@@ -219,21 +219,14 @@ class MatplotlibBackend(Backend):
             )
         )
 
-    @lru_cache(maxsize=256)  # fonts.Font is a named tuple
-    def get_font_properties(self, font: fonts.FontFace) -> FontProperties:
-        font_properties = self._text_renderer.default_font
-        if font:
-            # Font-definitions are created by the matplotlib FontManger(),
-            # but stored as json file and could be altered by an user:
-            try:
-                font_properties = FontProperties(
-                    family=font.family,
-                    style=font.style,
-                    stretch=font.stretch,
-                    weight=font.weight,
-                )
-            except ValueError:
-                pass
+    def get_font_properties(
+        self, font: Optional[fonts.FontFace]
+    ) -> FontProperties:
+        if font is None:
+            return self._text_renderer.default_font
+        font_properties = _get_font_properties(font)
+        if font_properties is None:
+            return self._text_renderer.default_font
         return font_properties
 
     def get_font_measurements(
@@ -303,6 +296,23 @@ def _transform_path(path: Path, transform: Matrix44) -> Path:
         [Vec3(x, y) for x, y in path.vertices]
     )
     return Path([(v.x, v.y) for v in vertices], path.codes)
+
+
+@lru_cache(maxsize=256)  # fonts.Font is a named tuple
+def _get_font_properties(font: fonts.FontFace) -> Optional[FontProperties]:
+    # Font-definitions are created by the matplotlib FontManger(),
+    # but stored as json file and could be altered by an user:
+    font_properties = None
+    try:
+        font_properties = FontProperties(
+            family=font.family,
+            style=font.style,
+            stretch=font.stretch,
+            weight=font.weight,
+        )
+    except ValueError:
+        pass
+    return font_properties
 
 
 class TextRenderer:
