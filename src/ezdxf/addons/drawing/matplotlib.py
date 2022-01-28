@@ -82,14 +82,10 @@ class MatplotlibBackend(Backend):
     def configure(self, config: Configuration) -> None:
         if config.min_lineweight is None:
             # If not set by user, use ~1 pixel
-            config = config.with_changes(
-                min_lineweight=72 / self.ax.get_figure().dpi
-            )
+            config = config.with_changes(min_lineweight=72 / self.ax.get_figure().dpi)
         super().configure(config)
         if config.line_policy == LinePolicy.SOLID:
-            self._line_renderer = InternalLineRenderer(
-                config, self.ax, solid_only=True
-            )
+            self._line_renderer = InternalLineRenderer(config, self.ax, solid_only=True)
         elif config.line_policy == LinePolicy.APPROXIMATE:
             self._line_renderer = InternalLineRenderer(
                 config, self.ax, solid_only=False
@@ -179,16 +175,14 @@ class MatplotlibBackend(Backend):
         )
         self.ax.add_patch(patch)
 
-    def draw_filled_polygon(
-        self, points: Iterable[Vec3], properties: Properties
-    ):
-        self.ax.fill(
-            *zip(*((p.x, p.y) for p in points)),
-            color=properties.color,
-            linewidth=0,
-            zorder=self._get_z(),
-            gid=properties.output_id,
-        )
+    def draw_filled_polygon(self, points: Iterable[Vec3], properties: Properties):
+        if hasattr(properties, "output_id"):
+            self.ax.fill(
+                *zip(*((p.x, p.y) for p in points)),
+                color=properties.color,
+                linewidth=0,
+                zorder=self._get_z(),
+            )
 
     def draw_text(
         self,
@@ -204,9 +198,7 @@ class MatplotlibBackend(Backend):
         text = prepare_string_for_rendering(text, self.current_entity.dxftype())
         transformed_path = _transform_path(
             self._text_renderer.get_text_path(text, font_properties),
-            Matrix44.scale(
-                self._text_renderer.get_scale(cap_height, font_properties)
-            )
+            Matrix44.scale(self._text_renderer.get_scale(cap_height, font_properties))
             @ transform,
         )
         self.ax.add_patch(
@@ -219,9 +211,7 @@ class MatplotlibBackend(Backend):
             )
         )
 
-    def get_font_properties(
-        self, font: Optional[fonts.FontFace]
-    ) -> FontProperties:
+    def get_font_properties(self, font: Optional[fonts.FontFace]) -> FontProperties:
         if font is None:
             return self._text_renderer.default_font
         font_properties = _get_font_properties(font)
@@ -241,9 +231,7 @@ class MatplotlibBackend(Backend):
     ) -> float:
         if not text.strip():
             return 0
-        dxftype = (
-            self.current_entity.dxftype() if self.current_entity else "TEXT"
-        )
+        dxftype = self.current_entity.dxftype() if self.current_entity else "TEXT"
         text = prepare_string_for_rendering(text, dxftype)
         font_properties = self.get_font_properties(font)
         path = self._text_renderer.get_text_path(text, font_properties)
@@ -263,9 +251,7 @@ class MatplotlibBackend(Backend):
             data_width, data_height = maxx - minx, maxy - miny
             if not math.isclose(data_width, 0):
                 width, height = plt.figaspect(data_height / data_width)
-                self.ax.get_figure().set_size_inches(
-                    width, height, forward=True
-                )
+                self.ax.get_figure().set_size_inches(width, height, forward=True)
         plt.rcParams["lines.scale_dashes"] = self._scale_dashes_backup
 
     def _get_filling(self, properties: Properties):
@@ -277,9 +263,7 @@ class MatplotlibBackend(Backend):
             if self.config.hatch_policy == HatchPolicy.SHOW_OUTLINE:
                 fill = False
                 hatch = False
-            elif (
-                self.config.hatch_policy == HatchPolicy.SHOW_APPROXIMATE_PATTERN
-            ):
+            elif self.config.hatch_policy == HatchPolicy.SHOW_APPROXIMATE_PATTERN:
                 # Use predefined hatch pattern by name matching:
                 fill = False
                 hatch = HATCH_NAME_MAPPING.get(name, r"\\\\")
@@ -292,9 +276,7 @@ class MatplotlibBackend(Backend):
 
 
 def _transform_path(path: Path, transform: Matrix44) -> Path:
-    vertices = transform.transform_vertices(
-        [Vec3(x, y) for x, y in path.vertices]
-    )
+    vertices = transform.transform_vertices([Vec3(x, y) for x, y in path.vertices])
     return Path([(v.x, v.y) for v in vertices], path.codes)
 
 
@@ -322,9 +304,7 @@ class TextRenderer:
 
         # Each font has its own text path cache
         # key is hash(FontProperties)
-        self._text_path_cache: Dict[int, Dict[str, TextPath]] = defaultdict(
-            dict
-        )
+        self._text_path_cache: Dict[int, Dict[str, TextPath]] = defaultdict(dict)
 
         # Each font has its own font measurements cache
         # key is hash(FontProperties)
@@ -337,9 +317,7 @@ class TextRenderer:
     def clear_cache(self):
         self._text_path_cache.clear()
 
-    def get_scale(
-        self, desired_cap_height: float, font: FontProperties
-    ) -> float:
+    def get_scale(self, desired_cap_height: float, font: FontProperties) -> float:
         return desired_cap_height / self.get_font_measurements(font).cap_height
 
     def get_font_measurements(self, font: FontProperties) -> FontMeasurements:
@@ -476,9 +454,7 @@ def qsave(
         # facecolor sets the figure color
         # (semi-)transparent axes colors do not produce transparent outputs
         # but (semi-)transparent figure colors do.
-        fig.savefig(
-            filename, dpi=dpi, facecolor=ax.get_facecolor(), transparent=True
-        )
+        fig.savefig(filename, dpi=dpi, facecolor=ax.get_facecolor(), transparent=True)
         plt.close(fig)
     finally:
         matplotlib.use(old_backend)
@@ -521,9 +497,7 @@ class InternalLineRenderer(MatplotlibLineRenderer):
                 (start.x, end.x),
                 (start.y, end.y),
                 linewidth=self.lineweight(properties),
-                linestyle="solid"
-                if self._solid_only
-                else self.linetype(properties),
+                linestyle="solid" if self._solid_only else self.linetype(properties),
                 color=properties.color,
                 zorder=z,
                 gid=properties.output_id,
@@ -539,9 +513,7 @@ class InternalLineRenderer(MatplotlibLineRenderer):
         vertices, codes = _get_path_patch_data(path)
         patch = PathPatch(
             Path(vertices, codes),
-            linewidth="solid"
-            if self._solid_only
-            else self.lineweight(properties),
+            linewidth="solid" if self._solid_only else self.lineweight(properties),
             linestyle=self.linetype(properties),
             fill=False,
             color=properties.color,
@@ -635,9 +607,7 @@ class EzdxfLineRenderer(MatplotlibLineRenderer):
         else:
             renderer = EzdxfLineTypeRenderer(pattern)
             segments = renderer.line_segments(
-                path.flattening(
-                    self._config.max_flattening_distance, segments=16
-                )
+                path.flattening(self._config.max_flattening_distance, segments=16)
             )
             lines = LineCollection(
                 [((s.x, s.y), (e.x, e.y)) for s, e in segments],
