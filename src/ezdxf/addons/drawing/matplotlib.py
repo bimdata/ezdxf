@@ -182,6 +182,7 @@ class MatplotlibBackend(Backend):
                 color=properties.color,
                 linewidth=0,
                 zorder=self._get_z(),
+                gid=properties.output_id,
             )
 
     def draw_text(
