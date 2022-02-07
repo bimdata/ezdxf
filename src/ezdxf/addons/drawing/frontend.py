@@ -204,7 +204,11 @@ class Frontend:
             properties = self.ctx.resolve_all(entity)
             self.override_properties(entity, properties)
             if properties.is_visible:
-                self.draw_entity(entity, properties)
+                try:
+                    self.draw_entity(entity, properties)
+                except ValueError as error:
+                    self.log_message(error)
+
             else:
                 self.skip_entity(entity, "invisible")
 
