@@ -162,8 +162,13 @@ Example for a closed collinear shape, which creates 2 additional vertices and th
 
 .. autofunction:: have_bezier_curves_g1_continuity(b1: AnyBezier, b2 AnyBezier, g1_tol: float = 1e-4) -> bool
 
-.. autofunction:: split_bezier(control_points: Sequence[AnyVec], t: float) -> Tuple[List[AnyVec], List[AnyVec]]:
+.. autofunction:: split_bezier(control_points: Sequence[AnyVec], t: float) -> Tuple[List[AnyVec], List[AnyVec]]
 
+.. autofunction:: spherical_envelope(points: Sequence[Vertex]) -> Tuple[Vec3, float]
+
+.. autofunction:: dbscan(points: List[AnyVec], *, radius: float, min_points: int = 4, rtree: RTree = None, max_node_size: int = 5) -> List[List[AnyVec]]
+
+.. autofunction:: k_means(points: List[AnyVec], k: int, max_iter: int = 10) -> List[List[AnyVec]]
 
 Transformation Classes
 ======================
@@ -523,9 +528,9 @@ BoundingBox
 
     .. automethod:: all_inside
 
-    .. automethod:: intersect(other: BoundingBox) -> bool
+    .. automethod:: has_intersection(other: BoundingBox) -> bool
 
-    .. automethod:: overlap(other: BoundingBox) -> bool
+    .. automethod:: has_overlap(other: BoundingBox) -> bool
 
     .. automethod:: contains(other: BoundingBox) -> bool
 
@@ -533,9 +538,13 @@ BoundingBox
 
     .. automethod:: union(other: BoundingBox) -> BoundingBox
 
+    .. automethod:: intersection(other: BoundingBox) -> BoundingBox
+
     .. automethod:: rect_vertices() -> Tuple[Vec2, ...]
 
     .. automethod:: cube_vertices() -> Tuple[Vec3, ...]
+
+    .. automethod:: grow
 
 BoundingBox2d
 -------------
@@ -564,9 +573,9 @@ BoundingBox2d
 
     .. automethod:: all_inside
 
-    .. automethod:: intersect(other: BoundingBox2d) -> bool
+    .. automethod:: has_intersection(other: BoundingBox2d) -> bool
 
-    .. automethod:: overlap(other: BoundingBox2d) -> bool
+    .. automethod:: has_overlap(other: BoundingBox2d) -> bool
 
     .. automethod:: contains(other: BoundingBox2d) -> bool
 
@@ -574,7 +583,32 @@ BoundingBox2d
 
     .. automethod:: union(other: BoundingBox2d) -> BoundingBox2d
 
+    .. automethod:: intersection(other: BoundingBox2d) -> BoundingBox2d
+
     .. automethod:: rect_vertices() -> Tuple[Vec2, ...]
+
+RTree
+-----
+
+.. autoclass:: RTree(points: Iterable[AnyVec], max_node_size: int = 5)
+
+    .. automethod:: __len__
+
+    .. automethod:: __iter__() -> Iterator[AnyVec]
+
+    .. automethod:: contains(AnyVec) -> bool
+
+    .. automethod:: nearest_neighbor(target: AnyVec) -> Tuple[AnyVec, float]
+
+    .. automethod:: points_in_sphere(center: AnyVec, radius: float) -> Iterator[AnyVec]
+
+    .. automethod:: points_in_bbox(bbox: BoundingBox) -> Iterator[AnyVec]
+
+    .. automethod:: avg_leaf_size
+
+    .. automethod:: avg_spherical_envelope_radius
+
+    .. automethod:: avg_nn_distance
 
 
 ConstructionRay

@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2021, Manfred Moitzi
+# Copyright (c) 2020-2022, Manfred Moitzi
 # License: MIT License
 from typing import Sequence, List, Iterable, TYPE_CHECKING, Tuple, Optional
 from enum import IntEnum
@@ -22,6 +22,7 @@ __all__ = [
     "BarycentricCoordinates",
     "linear_vertex_spacing",
     "has_matrix_3d_stretching",
+    "spherical_envelope",
 ]
 
 
@@ -384,3 +385,19 @@ def has_matrix_3d_stretching(m: Matrix44) -> bool:
     return not math.isclose(
         ux_mag_sqr, uy.magnitude_square
     ) or not math.isclose(ux_mag_sqr, uz.magnitude_square)
+
+
+def spherical_envelope(points: Sequence["Vertex"]) -> Tuple[Vec3, float]:
+    """Calculate the spherical envelope for the given points.  Returns the
+    centroid (a.k.a. geometric center) and the radius of the enclosing sphere.
+
+    .. note::
+
+        The result does not represent the minimal bounding sphere!
+
+    .. versionadded:: 0.18
+
+    """
+    centroid = Vec3.sum(points) / len(points)
+    radius = max(centroid.distance(p) for p in points)
+    return centroid, radius

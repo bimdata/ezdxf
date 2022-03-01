@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2021, Matthew Broadway
+# Copyright (c) 2020-2022, Matthew Broadway
 # License: MIT License
 import math
 from typing import (
@@ -12,7 +12,7 @@ from typing import (
     Set,
     Optional,
 )
-
+import logging
 from ezdxf.addons.drawing.config import (
     Configuration,
     ProxyGraphicPolicy,
@@ -71,7 +71,10 @@ __all__ = ["Frontend"]
 
 # typedef
 TDispatchTable = Dict[str, Callable[[DXFGraphic, Properties], None]]
-POST_ISSUE_MSG = "Please post sample DXF file at https://github.com/mozman/ezdxf/issues."
+POST_ISSUE_MSG = (
+    "Please post sample DXF file at https://github.com/mozman/ezdxf/issues."
+)
+logger = logging.getLogger("ezdxf")
 
 
 class Frontend:
@@ -141,7 +144,7 @@ class Frontend:
         return dispatch_table
 
     def log_message(self, message: str):
-        print(message)
+        logger.info(message)
 
     def skip_entity(self, entity: DXFEntity, msg: str) -> None:
         self.log_message(f'skipped entity {str(entity)}. Reason: "{msg}"')
@@ -371,12 +374,22 @@ class Frontend:
         self, entity: DXFGraphic, properties: Properties
     ) -> None:
         if isinstance(entity, Face3d):
-            points = entity.wcs_vertices(close=True)
+            dxf = entity.dxf
+            try:
+                # this implementation supports all features of example file:
+                # examples_dxf/3dface.dxf without changing the behavior of
+                # Face3d.wcs_vertices() which removes the last vertex if
+                # duplicated.
+                points = [dxf.vtx0, dxf.vtx1, dxf.vtx2, dxf.vtx3, dxf.vtx0]
+            except AttributeError:
+                # all 4 vertices are required, otherwise the entity is invalid
+                # for AutoCAD
+                self.skip_entity(entity, "missing required vertex attribute")
+                return
             edge_visibility = entity.get_edges_visibility()
             if all(edge_visibility):
                 self.out.draw_path(from_vertices(points), properties)
             else:
-                assert len(points) - 1 == len(edge_visibility)
                 for a, b, visible in zip(points, points[1:], edge_visibility):
                     if visible:
                         self.out.draw_line(a, b, properties)
@@ -605,7 +618,6 @@ class Frontend:
     def draw_composite_entity(
         self, entity: DXFGraphic, properties: Properties
     ) -> None:
-
         def draw_insert(insert: Insert):
             self.draw_entities(insert.attribs)
             # draw_entities() includes the visibility check:

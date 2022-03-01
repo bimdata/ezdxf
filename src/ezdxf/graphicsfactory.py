@@ -1,5 +1,4 @@
-# Copyright (c) 2013-2021, Manfred Moitzi
-# Copyright (c) 2013-2021, Manfred Moitzi
+# Copyright (c) 2013-2022, Manfred Moitzi
 # License: MIT License
 from typing import TYPE_CHECKING, Iterable, Sequence, Dict, Tuple, cast, Type
 import math
@@ -280,18 +279,31 @@ class CreatorInterface:
         """
         return self._add_quadrilateral("3DFACE", points, dxfattribs)  # type: ignore
 
-    def add_text(self, text: str, dxfattribs=None) -> "Text":
+    def add_text(
+        self,
+        text: str,
+        *,
+        height: float = None,
+        rotation: float = None,
+        dxfattribs=None,
+    ) -> "Text":
         """
         Add a :class:`~ezdxf.entities.Text` entity, see also
         :class:`~ezdxf.entities.Textstyle`.
 
         Args:
             text: content string
+            height: text height in drawing units
+            rotation: text rotation in degrees
             dxfattribs: additional DXF attributes
 
         """
         dxfattribs = dict(dxfattribs or {})
         dxfattribs["text"] = str(text)
+        if height is not None:
+            dxfattribs["height"] = float(height)
+        if rotation is not None:
+            dxfattribs["rotation"] = float(rotation)
         dxfattribs.setdefault("insert", Vec3())
         return self.new_entity("TEXT", dxfattribs)  # type: ignore
 
@@ -381,6 +393,9 @@ class CreatorInterface:
         tag: str,
         insert: "Vertex" = (0, 0),
         text: str = "",
+        *,
+        height: float = None,
+        rotation: float = None,
         dxfattribs=None,
     ) -> "AttDef":
         """
@@ -396,6 +411,8 @@ class CreatorInterface:
             tag: tag name as string
             insert: insert location as 2D/3D point in :ref:`WCS`
             text: tag value as string
+            height: text height in drawing units
+            rotation: text rotation in degrees
             dxfattribs: additional DXF attributes
 
         """
@@ -403,6 +420,10 @@ class CreatorInterface:
         dxfattribs["tag"] = str(tag)
         dxfattribs["insert"] = Vec3(insert)
         dxfattribs["text"] = str(text)
+        if height is not None:
+            dxfattribs["height"] = float(height)
+        if rotation is not None:
+            dxfattribs["rotation"] = float(rotation)
         return self.new_entity("ATTDEF", dxfattribs)  # type: ignore
 
     def add_polyline2d(
@@ -1290,13 +1311,6 @@ class CreatorInterface:
             dxfattribs: additional DXF attributes
 
         """
-
-        def to_vector(units_per_pixel, angle_in_rad):
-            x = math.cos(angle_in_rad) * units_per_pixel
-            y = math.sin(angle_in_rad) * units_per_pixel
-            # supports only images in the xy-plane:
-            return Vec3(round(x, 6), round(y, 6), 0)
-
         if self.dxfversion < DXF2000:
             raise DXFVersionError("IMAGE requires DXF R2000")
         dxfattribs = dict(dxfattribs or {})
@@ -1308,8 +1322,8 @@ class CreatorInterface:
         y_angle_rad = x_angle_rad + (math.pi / 2.0)
 
         dxfattribs["insert"] = Vec3(insert)
-        dxfattribs["u_pixel"] = to_vector(x_units_per_pixel, x_angle_rad)
-        dxfattribs["v_pixel"] = to_vector(y_units_per_pixel, y_angle_rad)
+        dxfattribs["u_pixel"] = Vec3.from_angle(x_angle_rad, x_units_per_pixel)
+        dxfattribs["v_pixel"] = Vec3.from_angle(y_angle_rad, y_units_per_pixel)
         dxfattribs["image_def"] = image_def  # is not a real DXF attrib
         return self.new_entity("IMAGE", dxfattribs)  # type: ignore
 

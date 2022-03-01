@@ -51,8 +51,8 @@ class _Point(qw.QAbstractGraphicsShapeItem):
 
 
 # The key used to store the dxf entity corresponding to each graphics element
-CorrespondingDXFEntity = qc.Qt.UserRole + 0
-CorrespondingDXFParentStack = qc.Qt.UserRole + 1
+CorrespondingDXFEntity = qc.Qt.UserRole + 0  # type: ignore
+CorrespondingDXFParentStack = qc.Qt.UserRole + 1  # type: ignore
 
 
 class PyQtBackend(Backend):
@@ -150,13 +150,13 @@ class PyQtBackend(Backend):
                         qt_pattern = self._get_qt_pattern(filling.pattern)
                         self._pattern_cache[key] = qt_pattern
                 elif self.config.hatch_policy == HatchPolicy.SHOW_SOLID:
-                    qt_pattern = qc.Qt.SolidPattern
+                    qt_pattern = qc.Qt.SolidPattern  # type: ignore
                 elif self.config.hatch_policy == HatchPolicy.SHOW_OUTLINE:
                     return self._no_fill
                 else:
                     raise ValueError(self.config.hatch_policy)
             else:
-                qt_pattern = qc.Qt.SolidPattern
+                qt_pattern = qc.Qt.SolidPattern  # type: ignore
 
             return qg.QBrush(self._get_color(properties.color), qt_pattern)  # type: ignore
         else:
@@ -179,7 +179,7 @@ class PyQtBackend(Backend):
             qt_pattern = qc.Qt.FDiagPattern
         elif pattern.has_angle(45) and pattern.has_angle(135):
             qt_pattern = qc.Qt.DiagCrossPattern
-        return qt_pattern
+        return qt_pattern  # type: ignore
 
     def _set_item_data(self, item: qw.QGraphicsItem) -> None:
         parent_stack = tuple(e for e, props in self.entity_stack[:-1])
@@ -273,17 +273,13 @@ class PyQtBackend(Backend):
         )
         self._set_item_data(item)
 
-    @lru_cache(maxsize=256)  # fonts.Font is a named tuple
-    def get_qfont(self, font: fonts.FontFace) -> qg.QFont:
-        qfont = self._text_renderer.default_font
-        if font:
-            family = font.family
-            italic = "italic" in font.style.lower()
-            weight = _map_weight(font.weight)
-            qfont = qg.QFont(family, weight=weight, italic=italic)
-            # INFO: setting the stretch value makes results worse!
-            # qfont.setStretch(_map_stretch(font.stretch))
-        return qfont
+    def get_qfont(self, font: Optional[fonts.FontFace]) -> qg.QFont:
+        if font is None:
+            return self._text_renderer.default_font
+        font_properties = _get_qfont(font)
+        if font_properties is None:
+            return self._text_renderer.default_font
+        return font_properties
 
     def get_font_measurements(
         self, cap_height: float, font: fonts.FontFace = None
@@ -321,6 +317,19 @@ class PyQtBackend(Backend):
                 self._get_pen(properties),
                 self._no_fill,
             )
+
+
+@lru_cache(maxsize=256)  # fonts.Font is a named tuple
+def _get_qfont(font: fonts.FontFace) -> Optional[qg.QFont]:
+    qfont = None
+    if font:
+        family = font.family
+        italic = "italic" in font.style.lower()
+        weight = _map_weight(font.weight)
+        qfont = qg.QFont(family, weight=weight, italic=italic)
+        # INFO: setting the stretch value makes results worse!
+        # qfont.setStretch(_map_stretch(font.stretch))
+    return qfont
 
 
 class _CosmeticPath(qw.QGraphicsPathItem):
