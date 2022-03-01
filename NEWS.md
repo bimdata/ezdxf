@@ -2,7 +2,7 @@
 News
 ====
 
-Version 0.18b0 - dev
+Version 0.18b1 - dev
 --------------------
 
 - Release notes: https://ezdxf.mozman.at/release-v0-18.html
@@ -13,6 +13,7 @@ Version 0.18b0 - dev
   `add_arc_dim_3p()`, `add_arc_dim_cra()`, `add_arc_dim_arc()`
 - NEW: ordinate dimension rendering support, new factory methods: 
   `add_ordinate_dim()`, `add_ordinate_x_dim()`, `add_ordinate_y_dim()`
+- NEW: extended query functionality for the `EntityQuery` class
 - NEW: function `ezdxf.tools.text.is_upside_down_text_angle()` in WCS
 - NEW: function `ezdxf.tools.text.upright_text_angle()` in WCS
 - NEW: helper class `ezdxf.math.ConstructionPolyline` to measure, interpolate and 
@@ -32,14 +33,22 @@ Version 0.18b0 - dev
 - NEW: method `Text.set_placement()`, replaces `set_pos()` 
 - NEW: method `Text.get_align_enum()`, replaces `get_align()`
 - NEW: method `Text.set_align_enum()`, replaces `set_align()`
+- NEW: virtual DXF attribute `MText.dxf.text`, adds compatibility to other text 
+  based entities: `TEXT, ATTRIB, ATTDEF`
 - NEW: command `ezdxf info FILE [FILE ...]`, show info and optional stats of DXF files
 - NEW: module `ezdxf.appsettings`, [docs](https://ezdxf.mozman.at/docs/appsettings.html)
 - NEW: module `ezdxf.addons.binpacking`, a simple solution for the bin-packing problem 
   in 2D and 3D, [docs](https://ezdxf.mozman.at/docs/addons/binpacking.html)
 - NEW: arguments `height` and `rotation`for factory methods `add_text()` and `add_attdef()`
+- NEW: argument `size_inches` in function `ezdxf.addons.drawing.matplotlib.qsave()`
 - CHANGE: keyword only argument `dxfattribs` for factory methods `add_text()` and `add_attdef()`
 - CHANGE: `recover` module - recovered integer and float values are logged as severe errors
-- BUGFIX: add missing caret decoding to `fast_plain_mtext()` [#620](https://github.com/mozman/ezdxf/issues/620)
+- CHANGE: method `Path.all_lines_to_curve3` replaced by function `path.lines_to_curve3()`
+- CHANGE: method `Path.all_lines_to_curve4` replaced by function `path.lines_to_curve4()`
+- BUGFIX [#640](https://github.com/mozman/ezdxf/issues/640): 
+  DXF loader ignore data beyond `EOF` tag 
+- BUGFIX [#620](https://github.com/mozman/ezdxf/issues/620): 
+  add missing caret decoding to `fast_plain_mtext()` 
 
 Version 0.17.2 - 2022-01-06
 ---------------------------

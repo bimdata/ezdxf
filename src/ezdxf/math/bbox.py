@@ -25,6 +25,12 @@ class AbstractBoundingBox:
                 # No or invalid data creates an empty BoundingBox
                 pass
 
+    def copy(self):
+        box = self.__class__()
+        box.extmin = self.extmin
+        box.extmax = self.extmax
+        return box
+
     def __str__(self) -> str:
         return f"[{self.extmin}, {self.extmax}]"
 
@@ -64,9 +70,7 @@ class AbstractBoundingBox:
         ...
 
     @abc.abstractmethod
-    def intersection(
-        self, other: "AbstractBoundingBox"
-    ) -> "AbstractBoundingBox":
+    def intersection(self, other: "AbstractBoundingBox") -> "AbstractBoundingBox":
         ...
 
     def contains(self, other: "AbstractBoundingBox") -> bool:
@@ -175,6 +179,9 @@ class BoundingBox(AbstractBoundingBox):
         vertices: iterable of ``(x, y, z)`` tuples or :class:`Vec3` objects
 
     """
+
+    __slots__ = ("extmin", "extmax")
+
     @property
     def is_empty(self) -> bool:
         """Returns ``True`` if the bounding box is empty. The bounding box has a
@@ -185,9 +192,7 @@ class BoundingBox(AbstractBoundingBox):
             return sx * sy * sz == 0.0
         return True
 
-    def extends_detector(
-        self, vertices: Iterable["Vertex"]
-    ) -> Tuple[Vec3, Vec3]:
+    def extends_detector(self, vertices: Iterable["Vertex"]) -> Tuple[Vec3, Vec3]:
         return extends3d(vertices)
 
     def inside(self, vertex: "Vertex") -> bool:
@@ -200,9 +205,7 @@ class BoundingBox(AbstractBoundingBox):
         x, y, z = Vec3(vertex).xyz
         xmin, ymin, zmin = self.extmin.xyz
         xmax, ymax, zmax = self.extmax.xyz
-        return (
-            (xmin <= x <= xmax) and (ymin <= y <= ymax) and (zmin <= z <= zmax)
-        )
+        return (xmin <= x <= xmax) and (ymin <= y <= ymax) and (zmin <= z <= zmax)
 
     def has_intersection(self, other: "AbstractBoundingBox") -> bool:
         """Returns ``True`` if this bounding box intersects with `other` but does
@@ -345,6 +348,9 @@ class BoundingBox2d(AbstractBoundingBox):
         vertices: iterable of ``(x, y[, z])`` tuples or :class:`Vec3` objects
 
     """
+
+    __slots__ = ("extmin", "extmax")
+
     @property
     def is_empty(self) -> bool:
         """Returns ``True`` if the bounding box is empty. The bounding box has a
@@ -355,9 +361,7 @@ class BoundingBox2d(AbstractBoundingBox):
             return sx * sy == 0.0
         return True
 
-    def extends_detector(
-        self, vertices: Iterable["Vertex"]
-    ) -> Tuple[Vec2, Vec2]:
+    def extends_detector(self, vertices: Iterable["Vertex"]) -> Tuple[Vec2, Vec2]:
         return extends2d(vertices)
 
     def inside(self, vertex: "Vertex") -> bool:

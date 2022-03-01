@@ -472,6 +472,7 @@ def safe_tag_loader(
     # Apply repair filter:
     tags = repair.tag_reorder_layer(tags)  # type: ignore
     tags = repair.filter_invalid_point_codes(tags)  # type: ignore
+    tags = repair.filter_invalid_handles(tags)  # type: ignore
     return byte_tag_compiler(tags, encoding, messages=messages, errors=errors)
 
 
@@ -524,9 +525,10 @@ def bytes_loader(stream: BinaryIO) -> Iterable[DXFTag]:
         DXFStructureError: Found invalid group code.
 
     """
+    eof = False
     line = 1
     readline = stream.readline
-    while True:
+    while not eof:
         code = readline()
         # ByteIO(): empty strings indicates EOF - does not raise an exception
         if code:
@@ -546,8 +548,11 @@ def bytes_loader(stream: BinaryIO) -> Iterable[DXFTag]:
         value = readline()
         # ByteIO(): empty strings indicates EOF
         if value:
+            value = value.rstrip(b"\r\n")
+            if code == 0 and value == b"EOF":
+                eof = True
             if code != 999:
-                yield DXFTag(code, value.rstrip(b"\r\n"))
+                yield DXFTag(code, value)
             line += 2
         else:
             return
