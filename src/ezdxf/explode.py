@@ -87,9 +87,7 @@ def explode_block_reference(
         raise DXFStructureError("Target layout is None.")
 
     if block_ref.doc is None:
-        raise DXFStructureError(
-            "Block reference has to be assigned to a DXF document."
-        )
+        raise DXFStructureError("Block reference has to be assigned to a DXF document.")
 
     def _explode_single_block_ref(block_ref):
         for entity in virtual_block_reference_entities(block_ref):
@@ -154,9 +152,7 @@ def attrib_to_text(attrib: "Attrib") -> "Text":
 
 def virtual_block_reference_entities(
     block_ref: "Insert",
-    skipped_entity_callback: Optional[
-        Callable[["DXFGraphic", str], None]
-    ] = None,
+    skipped_entity_callback: Optional[Callable[["DXFGraphic", str], None]] = None,
 ) -> Iterable["DXFGraphic"]:
     """Yields 'virtual' parts of block reference `block_ref`. This method is meant
     to examine the the block reference entities without the need to explode the
@@ -185,9 +181,7 @@ def virtual_block_reference_entities(
     assert block_ref.dxftype() == "INSERT"
     from ezdxf.entities import Ellipse
 
-    skipped_entity_callback = (
-        skipped_entity_callback or default_logging_callback
-    )
+    skipped_entity_callback = skipped_entity_callback or default_logging_callback
 
     def disassemble(layout) -> Iterable["DXFGraphic"]:
         for entity in layout:
@@ -224,18 +218,17 @@ def virtual_block_reference_entities(
                 elif dxftype in {"LWPOLYLINE", "POLYLINE"}:  # has arcs
                     yield from transform(entity.virtual_entities())
                 else:
-                    skipped_entity_callback(
-                        entity, "unsupported non-uniform scaling"
-                    )
+                    skipped_entity_callback(entity, "unsupported non-uniform scaling")
             except InsertTransformationError:
                 # INSERT entity can not represented in the target coordinate
                 # system defined by transformation matrix `m`.
                 # Yield transformed sub-entities of the INSERT entity:
                 yield from transform(
-                    virtual_block_reference_entities(
-                        entity, skipped_entity_callback
-                    )
+                    virtual_block_reference_entities(entity, skipped_entity_callback)
                 )
+            except ZeroDivisionError:
+                skipped_entity_callback(entity, "impossible to normalize")
+
             else:
                 yield entity
 
@@ -275,15 +268,11 @@ def explode_entity(
         raise DXFTypeError(f"Can not explode entity {dxftype}.")
 
     if entity.doc is None:
-        raise DXFStructureError(
-            f"{dxftype} has to be assigned to a DXF document."
-        )
+        raise DXFStructureError(f"{dxftype} has to be assigned to a DXF document.")
 
     entitydb = entity.doc.entitydb
     if entitydb is None:
-        raise DXFStructureError(
-            f"Exploding {dxftype} requires an entity database."
-        )
+        raise DXFStructureError(f"Exploding {dxftype} requires an entity database.")
 
     if target_layout is None:
         target_layout = entity.get_layout()
