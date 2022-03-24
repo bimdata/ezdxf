@@ -257,29 +257,29 @@ class Frontend:
         self.out.exit_entity(entity)
 
     def draw_line_entity(self, entity: DXFGraphic, properties: Properties) -> None:
-        # d, dxftype = entity.dxf, entity.dxftype()
-        # if dxftype == "LINE":
-        #     self.out.draw_line(d.start, d.end, properties)
+        d, dxftype = entity.dxf, entity.dxftype()
+        if dxftype == "LINE":
+            self.out.draw_line(d.start, d.end, properties)
 
-        # elif dxftype in ("XLINE", "RAY"):
-        #     start = d.start
-        #     delta = d.unit_vector * self.config.infinite_line_length
-        #     if dxftype == "XLINE":
-        #         self.out.draw_line(start - delta / 2, start + delta / 2, properties)
-        #     elif dxftype == "RAY":
-        #         self.out.draw_line(start, start + delta, properties)
-        # else:
-        #     raise TypeError(dxftype)
-        self.skip_entity(entity, "BIMData - Disable text conversion")
+        elif dxftype in ("XLINE", "RAY"):
+            start = d.start
+            delta = d.unit_vector * self.config.infinite_line_length
+            if dxftype == "XLINE":
+                self.out.draw_line(start - delta / 2, start + delta / 2, properties)
+            elif dxftype == "RAY":
+                self.out.draw_line(start, start + delta, properties)
+        else:
+            raise TypeError(dxftype)
 
     def draw_text_entity(self, entity: DXFGraphic, properties: Properties) -> None:
-        # Draw embedded MTEXT entity as virtual MTEXT entity:
-        if isinstance(entity, BaseAttrib) and entity.has_embedded_mtext_entity:
-            self.draw_mtext_entity(entity.virtual_mtext_entity(), properties)
-        elif is_spatial_text(Vec3(entity.dxf.extrusion)):
-            self.draw_text_entity_3d(entity, properties)
-        else:
-            self.draw_text_entity_2d(entity, properties)
+        # # Draw embedded MTEXT entity as virtual MTEXT entity:
+        # if isinstance(entity, BaseAttrib) and entity.has_embedded_mtext_entity:
+        #     self.draw_mtext_entity(entity.virtual_mtext_entity(), properties)
+        # elif is_spatial_text(Vec3(entity.dxf.extrusion)):
+        #     self.draw_text_entity_3d(entity, properties)
+        # else:
+        #     self.draw_text_entity_2d(entity, properties)
+        self.skip_entity(entity, "BIMData - Disable text conversion")
 
     def draw_text_entity_2d(self, entity: DXFGraphic, properties: Properties) -> None:
         if isinstance(entity, Text):
