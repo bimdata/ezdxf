@@ -127,12 +127,15 @@ class Frontend:
             "MESH": self.draw_mesh_entity,
             "VIEWPORT": self.draw_viewport_entity,
             "WIPEOUT": self.draw_wipeout_entity,
-            "MTEXT": self.draw_mtext_entity,
+            # "MTEXT": self.draw_mtext_entity,
+            "TEXT": self.skip_text_entities,
+            "MTEXT": self.skip_text_entities,
             "OLE2FRAME": self.draw_ole2frame_entity,
         }
         for dxftype in ("LINE", "XLINE", "RAY"):
             dispatch_table[dxftype] = self.draw_line_entity
-        for dxftype in ("TEXT", "ATTRIB", "ATTDEF"):
+        # for dxftype in ("TEXT", "ATTRIB", "ATTDEF"):
+        for dxftype in ("ATTRIB", "ATTDEF"):
             dispatch_table[dxftype] = self.draw_text_entity
         for dxftype in ("CIRCLE", "ARC", "ELLIPSE", "SPLINE"):
             dispatch_table[dxftype] = self.draw_curve_entity
@@ -271,15 +274,17 @@ class Frontend:
         else:
             raise TypeError(dxftype)
 
-    def draw_text_entity(self, entity: DXFGraphic, properties: Properties) -> None:
-        # # Draw embedded MTEXT entity as virtual MTEXT entity:
-        # if isinstance(entity, BaseAttrib) and entity.has_embedded_mtext_entity:
-        #     self.draw_mtext_entity(entity.virtual_mtext_entity(), properties)
-        # elif is_spatial_text(Vec3(entity.dxf.extrusion)):
-        #     self.draw_text_entity_3d(entity, properties)
-        # else:
-        #     self.draw_text_entity_2d(entity, properties)
+    def skip_text_entities(self, entity: DXFGraphic, properties: Properties):
         self.skip_entity(entity, "BIMData - Disable text conversion")
+
+    def draw_text_entity(self, entity: DXFGraphic, properties: Properties) -> None:
+        # Draw embedded MTEXT entity as virtual MTEXT entity:
+        if isinstance(entity, BaseAttrib) and entity.has_embedded_mtext_entity:
+            self.draw_mtext_entity(entity.virtual_mtext_entity(), properties)
+        elif is_spatial_text(Vec3(entity.dxf.extrusion)):
+            self.draw_text_entity_3d(entity, properties)
+        else:
+            self.draw_text_entity_2d(entity, properties)
 
     def draw_text_entity_2d(self, entity: DXFGraphic, properties: Properties) -> None:
         if isinstance(entity, Text):
@@ -299,15 +304,14 @@ class Frontend:
         self.skip_entity(entity, "3D text not supported")
 
     def draw_mtext_entity(self, entity: DXFGraphic, properties: Properties) -> None:
-        # mtext = cast(MText, entity)
-        # if is_spatial_text(Vec3(mtext.dxf.extrusion)):
-        #     self.skip_entity(mtext, "3D MTEXT not supported")
-        #     return
-        # if mtext.has_columns or has_inline_formatting_codes(mtext.text):
-        #     self.draw_complex_mtext(mtext, properties)
-        # else:
-        #     self.draw_simple_mtext(mtext, properties)
-        self.skip_entity(entity, "BIMData - Disable text conversion")
+        mtext = cast(MText, entity)
+        if is_spatial_text(Vec3(mtext.dxf.extrusion)):
+            self.skip_entity(mtext, "3D MTEXT not supported")
+            return
+        if mtext.has_columns or has_inline_formatting_codes(mtext.text):
+            self.draw_complex_mtext(mtext, properties)
+        else:
+            self.draw_simple_mtext(mtext, properties)
 
     def draw_simple_mtext(self, mtext: MText, properties: Properties) -> None:
         """Draw the content of a MTEXT entity without inline formatting codes."""
