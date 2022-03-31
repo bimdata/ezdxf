@@ -128,15 +128,14 @@ class Frontend:
             "VIEWPORT": self.draw_viewport_entity,
             "WIPEOUT": self.draw_wipeout_entity,
             # "MTEXT": self.draw_mtext_entity,
-            "TEXT": self.skip_text_entities,
             "MTEXT": self.skip_text_entities,
             "OLE2FRAME": self.draw_ole2frame_entity,
         }
         for dxftype in ("LINE", "XLINE", "RAY"):
             dispatch_table[dxftype] = self.draw_line_entity
-        # for dxftype in ("TEXT", "ATTRIB", "ATTDEF"):
-        for dxftype in ("ATTRIB", "ATTDEF"):
-            dispatch_table[dxftype] = self.draw_text_entity
+        for dxftype in ("TEXT", "ATTRIB", "ATTDEF"):
+            # dispatch_table[dxftype] = self.draw_text_entity
+            dispatch_table[dxftype] = self.skip_text_entities
         for dxftype in ("CIRCLE", "ARC", "ELLIPSE", "SPLINE"):
             dispatch_table[dxftype] = self.draw_curve_entity
         for dxftype in ("3DFACE", "SOLID", "TRACE"):
