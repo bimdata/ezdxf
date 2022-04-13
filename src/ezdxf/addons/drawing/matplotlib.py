@@ -405,6 +405,7 @@ def qsave(
     config: Configuration = None,
     filter_func: FilterFunc = None,
     size_inches: Optional[Tuple[float, float]] = None,
+    margins=True,
 ) -> None:
     """Quick and simplified render export by matplotlib.
 
@@ -468,6 +469,8 @@ def qsave(
     try:
         fig: plt.Figure = plt.figure(dpi=dpi)
         ax: plt.Axes = fig.add_axes((0, 0, 1, 1))
+        if not margins:
+            ax.margins(0)
         ctx = RenderContext(layout.doc)
         layout_properties = LayoutProperties.from_layout(layout)
         if bg is not None:
