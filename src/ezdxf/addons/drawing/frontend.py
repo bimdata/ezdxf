@@ -210,7 +210,7 @@ class Frontend:
             if properties.is_visible:
                 try:
                     self.draw_entity(entity, properties)
-                except (ValueError, AssertionError) as error:
+                except (ValueError, AssertionError, RecursionError) as error:
                     # AssertionError for avoid error with invalid with
                     self.log_message(error)
 
