@@ -261,7 +261,10 @@ class Frontend:
     def draw_line_entity(self, entity: DXFGraphic, properties: Properties) -> None:
         d, dxftype = entity.dxf, entity.dxftype()
         if dxftype == "LINE":
-            self.out.draw_line(d.start, d.end, properties)
+            if d.start.round(10) != d.end.round(10):
+                self.out.draw_line(d.start, d.end, properties)
+            else:
+                self.skip_entity(entity, "invalid line's coordinates")
 
         elif dxftype in ("XLINE", "RAY"):
             start = d.start
