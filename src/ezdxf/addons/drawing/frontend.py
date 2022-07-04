@@ -119,6 +119,8 @@ class Frontend:
             "ACAD_PROXY_ENTITY",
         }
 
+        self.linear_precision = None
+
     def _build_dispatch_table(self) -> TDispatchTable:
         dispatch_table: TDispatchTable = {
             "POINT": self.draw_point_entity,
@@ -174,6 +176,8 @@ class Frontend:
             self.ctx.current_layout_properties = layout_properties
         else:
             self.ctx.set_current_layout(layout)
+
+        self.linear_precision = layout.doc.header.get("$LUPREC")  # Bimdata use
         self.parent_stack = []
         handle_mapping = list(layout.get_redraw_order())
         if handle_mapping:
@@ -261,7 +265,8 @@ class Frontend:
     def draw_line_entity(self, entity: DXFGraphic, properties: Properties) -> None:
         d, dxftype = entity.dxf, entity.dxftype()
         if dxftype == "LINE":
-            if d.start.round(10) != d.end.round(10):
+            line_prec = self.linear_precision if self.linear_precision else 10
+            if d.start.round(line_prec) != d.end.round(line_prec):
                 self.out.draw_line(d.start, d.end, properties)
             else:
                 self.skip_entity(entity, "invalid line's coordinates")
