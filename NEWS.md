@@ -2,8 +2,8 @@
 News
 ====
 
-Version 0.18b1 - dev
---------------------
+Version 0.18 - 2022-07-29
+-------------------------
 
 - Release notes: https://ezdxf.mozman.at/release-v0-18.html
 - NEW: angular dimension rendering support, new factory methods:
@@ -41,14 +41,35 @@ Version 0.18b1 - dev
   in 2D and 3D, [docs](https://ezdxf.mozman.at/docs/addons/binpacking.html)
 - NEW: arguments `height` and `rotation`for factory methods `add_text()` and `add_attdef()`
 - NEW: argument `size_inches` in function `ezdxf.addons.drawing.matplotlib.qsave()`
+- NEW: DXF/DWG converter function `ezdxf.addons.odafc.convert()`
+- NEW: support for layer attribute override in VIEWPORT entities
+- NEW: mesh exchange add-on `ezdxf.addons.meshex`: STL, OFF, and OBJ mesh loader 
+  and STL, OFF, OBJ, PLY, OpenSCAD and IFC4 mesh exporter, [docs](https://ezdxf.mozman.at/docs/addons/meshex.html)
+- NEW: `ezdxf.addons.openscad` add-on as interface to [OpenSCAD](https://openscad.org), 
+  [docs](https://ezdxf.mozman.at/docs/addons/openscad.html) 
+- NEW: `acis` module, a toolbox to handle ACIS data, [docs](https://ezdxf.mozman.at/docs/tools/acis.html)
+- NEW: factory function `add_helix()` to create new `HELIX` entities
+- NEW: precise bounding box calculation for Bezier curves
+- NEW: module `ezdxf.math.trianglation` for polygon triangulation with hole support
+- NEW: spatial search tree `ezdxf.math.rtree.RTree` 
+- NEW: module `ezdxf.math.clustering` for DBSCAN and K-means clustering 
 - CHANGE: keyword only argument `dxfattribs` for factory methods `add_text()` and `add_attdef()`
 - CHANGE: `recover` module - recovered integer and float values are logged as severe errors
 - CHANGE: method `Path.all_lines_to_curve3` replaced by function `path.lines_to_curve3()`
 - CHANGE: method `Path.all_lines_to_curve4` replaced by function `path.lines_to_curve4()`
+- CHANGE: replaced arguments `flatten` and `segments` by argument `fast` of tool
+  function `Path.bbox()` 
+- CHANGE: replaced argument `flatten` by argument `fast` in the `ezdxf.bbox` module
+- CHANGE: restructure of the `ezdxf.math` sub-package
+- BUGFIX [#663](https://github.com/mozman/ezdxf/issues/663): 
+  improve handling of large coordinates in `Bezier4P` and `Bezier3P` classes
+- BUGFIX [#655](https://github.com/mozman/ezdxf/issues/655): 
+  fixed invalid flattening of 3D ARC entities 
 - BUGFIX [#640](https://github.com/mozman/ezdxf/issues/640): 
   DXF loader ignore data beyond `EOF` tag 
 - BUGFIX [#620](https://github.com/mozman/ezdxf/issues/620): 
   add missing caret decoding to `fast_plain_mtext()` 
+- BUGFIX: `3DSOLID` export for DXF R2004 has no subclass `AcDb3dSolid`
 
 Version 0.17.2 - 2022-01-06
 ---------------------------
@@ -60,8 +81,8 @@ Version 0.17.2 - 2022-01-06
     for Python >= 3.10
   - `manylinux_2014_aarch64` for ARM64 based Linux
   - `musllinux_2014_aarch64` for ARM64 based Linux
-  - `macosx_11_0_arm64` for Apple silicon
-  - `macosx_10_9_universal2` for Apple silicon & x86
+  - `macosx_11_0_arm64` for Apple Silicon
+  - `macosx_10_9_universal2` for Apple Silicon & x86
 - NEW: Auditor fixes invalid transparency values
 - NEW: Auditor fixes invalid crease data in `MESH` entities
 - NEW: add `transparency` argument to `LayerTable.add()`
@@ -1302,7 +1323,7 @@ Version 0.7.4 - 2016-03-13
 * CHANGE: renamed factory method <layout>.add_3Dface() to add_3dface()
 * REMOVED: logging and debugging options
 * BUGFIX: fixed attribute definition for align_point in DXF entity ATTRIB (AC1015 and newer)
-* Cleanup DXF template files AC1015 - AC1027, file size goes down from >60kb to ~20kb
+* Cleanup DXF template files AC1015 - AC1027, file size goes down from >60kb to ~2
 
 Version 0.7.3 - 2016-03-06
 --------------------------

@@ -1,32 +1,3 @@
-
-.. module:: ezdxf.query
-
-.. seealso::
-
-    For usage of the query features see the tutorial: :ref:`tut_getting_data`
-
-.. _entity query string:
-
-Entity Query String
-===================
-
-.. code-block::
-
-    QueryString := EntityQuery ("[" AttribQuery "]" "i"?)*
-
-The query string is the combination of two queries, first the required entity
-query and second the optional attribute query, enclosed in square brackets,
-append ``'i'`` after the closing square bracket to ignore case for strings.
-
-Entity Query
-------------
-
-The entity query is a whitespace separated list of DXF entity names or the special
-name ``'*'``. Where ``'*'`` means all DXF entities, exclude some entity types by
-appending their names with a preceding ``!`` (e.g. all entities except
-LINE = ``'* !LINE'``). All DXF names have to be uppercase.
-
-Attribute Query
 ---------------
 
 The *optional* attribute query is a boolean expression, supported operators are:
@@ -115,19 +86,19 @@ EntityQuery Class
 
     .. automethod:: __xor__
 
-    .. automethod:: __iter__() -> Iterator[DXFEntity]
+    .. automethod:: __iter__
 
     .. automethod:: purge
 
-    .. automethod:: extend(entities: Iterable[DXFEntity], query: str = "*") -> EntityQuery
+    .. automethod:: extend
 
     .. automethod:: remove
 
     .. automethod:: query
 
-    .. automethod:: groupby(dxfattrib: str = "", key: Callable[[DXFEntity], Hashable] = None) -> Dict[Hashable, List[DXFEntity]]
+    .. automethod:: groupby
 
-    .. automethod:: filter(func: Callable[[DXFEntity], bool]) -> EntityQuery
+    .. automethod:: filter
 
     .. automethod:: union
 
@@ -389,8 +360,6 @@ The ``^`` operator or :meth:`EntityQuery.symmetric_difference` returns a new
 The new() Function
 ------------------
 
-.. autofunction:: ezdxf.query.new(entities: Iterable['DXFEntity'] = None, query: str = '*') -> EntityQuery
+.. autofunction:: ezdxf.query.new
 
 .. _Python Sequence: http://docs.python.org/3/library/collections.abc.html#collections.abc.Sequence
-
-

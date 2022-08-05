@@ -1,15 +1,21 @@
-# Copyright (c) 2010-2021, Manfred Moitzi
+# Copyright (c) 2010-2022, Manfred Moitzi
 # License: MIT License
-from typing import TYPE_CHECKING, Iterable, List, Union, Tuple
+from __future__ import annotations
+from typing import Iterable, List, Tuple, Sequence
 
 from functools import partial
 import math
 import warnings
-from ezdxf.math import Vec3, Vec2, Matrix44, X_AXIS, Y_AXIS, arc_angle_span_rad
+from ezdxf.math import (
+    Vec3,
+    Vec2,
+    UVec,
+    Matrix44,
+    X_AXIS,
+    Y_AXIS,
+    arc_angle_span_rad,
+)
 from decimal import Decimal
-
-if TYPE_CHECKING:
-    from ezdxf.eztypes import Vertex
 
 TOLERANCE = 1e-10
 RADIANS_90 = math.pi / 2.0
@@ -22,6 +28,7 @@ __all__ = [
     "closest_point",
     "convex_hull_2d",
     "distance_point_line_2d",
+    "is_convex_polygon_2d",
     "is_point_on_line_2d",
     "is_point_in_polygon_2d",
     "is_point_left_of_line",
@@ -40,7 +47,7 @@ __all__ = [
 ]
 
 
-def is_close_points(p1: "Vertex", p2: "Vertex", abs_tol=TOLERANCE) -> bool:
+def is_close_points(p1: UVec, p2: UVec, abs_tol=TOLERANCE) -> bool:
     """Deprecated function will be removed in v0.18! Use Vec(p1).isclose(p2)."""
     warnings.warn(
         "Deprecated function will be removed in v0.18! "
@@ -83,7 +90,7 @@ def sign(f: float) -> float:
 
 def reflect_angle_x_deg(a: float) -> float:
     """Returns reflected angle of `a` in x-direction in degrees.
-    Angles are counter clockwise orientated and +x-axis is at 0 degrees.
+    Angles are counter-clockwise orientated and +x-axis is at 0 degrees.
 
     Args:
         a: angle to reflect in degrees
@@ -94,7 +101,7 @@ def reflect_angle_x_deg(a: float) -> float:
 
 def reflect_angle_y_deg(a: float) -> float:
     """Returns reflected angle of `a` in y-direction in degrees.
-    Angles are counter clockwise orientated and +y-axis is at 90 degrees.
+    Angles are counter-clockwise orientated and +y-axis is at 90 degrees.
 
     Args:
         a: angle to reflect in degrees
@@ -111,7 +118,7 @@ def decdeg2dms(value: float) -> Tuple[float, float, float]:
 
 
 def ellipse_param_span(start_param: float, end_param: float) -> float:
-    """Returns the counter clockwise params span of an elliptic arc from start-
+    """Returns the counter-clockwise params span of an elliptic arc from start-
     to end param.
 
     Returns the param span in the range [0, 2π], 2π is a full ellipse.
@@ -127,8 +134,8 @@ def ellipse_param_span(start_param: float, end_param: float) -> float:
     return arc_angle_span_rad(float(start_param), float(end_param))
 
 
-def closest_point(base: "Vertex", points: Iterable["Vertex"]) -> "Vec3":
-    """Returns closest point to `base`.
+def closest_point(base: UVec, points: Iterable[UVec]) -> "Vec3":
+    """Returns the closest point to `base`.
 
     Args:
         base: base point as :class:`Vec3` compatible object
@@ -147,7 +154,7 @@ def closest_point(base: "Vertex", points: Iterable["Vertex"]) -> "Vec3":
     return found
 
 
-def convex_hull_2d(points: Iterable["Vertex"]) -> List[Vec2]:
+def convex_hull_2d(points: Iterable[UVec]) -> List[Vec2]:
     """Returns 2D convex hull for `points` as list of :class:`Vec2`.
     Returns a closed polyline, first vertex == last vertex.
 
@@ -176,7 +183,7 @@ def convex_hull_2d(points: Iterable["Vertex"]) -> List[Vec2]:
         hull[k] = vertices[i]
         k += 1
     t: int = k + 1
-    for i in range(n-2, -1, -1):
+    for i in range(n - 2, -1, -1):
         while k >= t and cross(hull[k - 2], hull[k - 1], vertices[i]) <= 0.0:
             k -= 1
         hull[k] = vertices[i]
@@ -213,7 +220,7 @@ def is_point_on_line_2d(
         end: line definition point as :class:`Vec2`
         ray: if ``True`` point has to be on the infinite ray, if ``False``
             point has to be on the line segment
-        abs_tol: tolerance for on line test
+        abs_tol: tolerance for on the line test
 
     """
     point_x, point_y = point
@@ -297,14 +304,17 @@ def distance_point_line_2d(point: Vec2, start: Vec2, end: Vec2) -> float:
     return math.fabs((start - point).det(end - point)) / (end - start).magnitude
 
 
+# Candidate for a faster Cython implementation:
+# is also used for testing 3D ray and line intersection with polygon
 def is_point_in_polygon_2d(
-    point: Union[Vec2, Vec3], polygon: Iterable[Vec2], abs_tol=TOLERANCE
+    point: Vec2, polygon: Sequence[Vec2], abs_tol=TOLERANCE
 ) -> int:
-    """Test if `point` is inside `polygon`.
+    """Test if `point` is inside `polygon`. Returns ``-1`` (for outside) if the
+    polygon is degenerated, no exception will be raised.
 
     Args:
         point: 2D point to test as :class:`Vec2`
-        polygon: iterable of 2D points as :class:`Vec2`
+        polygon: sequence of 2D points as :class:`Vec2`
         abs_tol: tolerance for distance check
 
     Returns:
@@ -313,18 +323,18 @@ def is_point_in_polygon_2d(
     """
     # Source: http://www.faqs.org/faqs/graphics/algorithms-faq/
     # Subject 2.03: How do I find if a point lies within a polygon?
-    polygon = list(polygon)  # shallow copy, because list will be modified
-    if not polygon[0].isclose(polygon[-1]):
-        polygon.append(polygon[0])
-    if len(polygon) < 4:  # 3+1 because first point == last point
-        raise ValueError("At least 3 polygon points required.")
+    if not polygon:  # empty polygon
+        return -1
+
+    if polygon[0].isclose(polygon[-1]):  # open polygon is required
+        polygon = polygon[:-1]
+    if len(polygon) < 3:
+        return -1
     x = point.x
     y = point.y
-    # ignore z-axis of Vec3()
     inside = False
-    for i in range(len(polygon) - 1):
-        x1, y1 = polygon[i]
-        x2, y2 = polygon[i + 1]
+    x1, y1 = polygon[-1]
+    for x2, y2 in polygon:
         # is point on polygon boundary line:
         # is point in x-range of line
         a, b = (x2, x1) if x2 < x1 else (x1, x2)
@@ -339,6 +349,8 @@ def is_point_in_polygon_2d(
             x < (x2 - x1) * (y - y1) / (y2 - y1) + x1
         ):
             inside = not inside
+        x1 = x2
+        y1 = y2
     if inside:
         return 1
     else:
@@ -354,15 +366,15 @@ def circle_radius_3p(a: Vec3, b: Vec3, c: Vec3) -> float:
     return upper / lower
 
 
-def area(vertices: Iterable["Vertex"]) -> float:
+def area(vertices: Iterable[UVec]) -> float:
     """Returns the area of a polygon, returns the projected area in the
-    xy-plane for 3D vertices.
+    xy-plane for any vertices (z-axis will be ignored).
     """
-    _vertices = Vec3.list(vertices)
+    _vertices = Vec2.list(vertices)
     if len(_vertices) < 3:
-        raise ValueError("At least 3 vertices required.")
+        return 0.0
 
-    # Close polygon:
+    # close polygon:
     if not _vertices[0].isclose(_vertices[-1]):
         _vertices.append(_vertices[0])
 
@@ -371,7 +383,7 @@ def area(vertices: Iterable["Vertex"]) -> float:
             (p1.x * p2.y - p1.y * p2.x)
             for p1, p2 in zip(_vertices, _vertices[1:])
         )
-        / 2
+        * 0.5
     )
 
 
@@ -386,3 +398,41 @@ def has_matrix_2d_stretching(m: Matrix44) -> bool:
     ux = m.transform_direction(X_AXIS)
     uy = m.transform_direction(Y_AXIS)
     return not math.isclose(ux.magnitude_square, uy.magnitude_square)
+
+
+def is_convex_polygon_2d(
+    polygon: List[Vec2], *, strict=False, epsilon=1e-6
+) -> bool:
+    """Returns ``True`` if the 2D `polygon` is convex. This function works with
+    open and closed polygons and clockwise or counter-clockwise vertex
+    orientation.
+    Coincident vertices will always be skipped and if argument `strict`
+    is ``True``, polygons with collinear vertices are not considered as
+    convex.
+
+    This solution works only for simple non-self-intersecting polygons!
+
+    """
+    if len(polygon) < 3:
+        return False
+
+    signs: List[int] = []
+    prev = polygon[-1]
+    prev_prev = polygon[-2]
+    for vertex in polygon:
+        if vertex.isclose(prev):  # skip coincident vertices
+            continue
+
+        det = (prev - vertex).det(prev_prev - prev)
+        if abs(det) >= epsilon:
+            signs.append(-1 if det < 0.0 else +1)
+        elif strict:  # collinear vertices
+            return False
+        prev_prev = prev
+        prev = vertex
+
+    if signs:
+        # Do all determinants have the same sign?
+        m = signs[0]
+        return all(m == s for s in signs)
+    return False

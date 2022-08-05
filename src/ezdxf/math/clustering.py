@@ -8,8 +8,8 @@ import operator
 from collections import defaultdict
 from functools import reduce
 
-from ezdxf.math import AnyVec, RTree, Vec3, spherical_envelope
-
+from ezdxf.math import AnyVec, Vec3, spherical_envelope
+from ezdxf.math.rtree import RTree
 
 __all__ = [
     "dbscan",
@@ -28,22 +28,17 @@ def dbscan(
     max_node_size: int = 5,
 ) -> List[List[AnyVec]]:
     """DBSCAN clustering.
-
     https://en.wikipedia.org/wiki/DBSCAN
-
     Args:
         points: list of points to cluster
         radius: radius of the dense regions
         min_points: minimum number of points that needs to be within the
             `radius` for a point to be a core point (must be >= 2)
-        rtree: optional RTree
+        rtree: optional :class:`~ezdxf.math.rtree.RTree`
         max_node_size: max node size for internally created RTree
-
     Returns:
         list of clusters, each cluster is a list of points
-
     .. versionadded:: 0.18
-
     """
     if min_points < 2:
         raise ValueError("min_points must be >= 2")
@@ -73,19 +68,14 @@ def k_means(
     points: List[AnyVec], k: int, max_iter: int = 10
 ) -> List[List[AnyVec]]:
     """K-means clustering.
-
     https://en.wikipedia.org/wiki/K-means_clustering
-
     Args:
         points: list of points to cluster
         k: number of clusters
         max_iter: max iterations
-
     Returns:
         list of clusters, each cluster is a list of points
-
     .. versionadded:: 0.18
-
     """
 
     def classify(centroids: Iterable[AnyVec]):

@@ -11,6 +11,7 @@ from ezdxf.lldxf.attributes import (
 from ezdxf.lldxf.const import (
     SUBCLASS_MARKER,
     DXF2000,
+    DXF2004,
     DXFTypeError,
     DXF2013,
     DXFStructureError,
@@ -70,8 +71,6 @@ acdb_modeler_geometry_group_codes = group_code_mapping(acdb_modeler_geometry)
 # 310
 # 414349532042696E61727946696C6...
 
-ACIS_DATA = Union[List[str], List[bytes]]
-
 
 @register_entity
 class Body(DXFGraphic):
@@ -83,37 +82,50 @@ class Body(DXFGraphic):
 
     def __init__(self):
         super().__init__()
-        self._acis_data: ACIS_DATA = []
+        self._sat: List[str] = []
+        self._sab: bytes = b""
+        self._update = False
 
     @property
-    def acis_data(self) -> ACIS_DATA:
-        """Get ACIS text data as list of strings for DXF R2000 to DXF R2010 and
-        binary encoded ACIS data for DXF R2013 and later as list of bytes.
-
-        """
-        if self.doc is not None and self.has_binary_data:
-            return self.doc.acdsdata.get_acis_data(self.dxf.handle)
-        else:
-            return self._acis_data
-
-    @acis_data.setter
-    def acis_data(self, lines: Iterable[str]):
-        """Set ACIS data as list of strings for DXF R2000 to DXF R2010. In case
-        of DXF R2013 and later, setting ACIS data as binary data is not
-        supported.
-
+    def acis_data(self) -> Union[bytes, List[str]]:
+        """Returns :term:`SAT` data  for DXF R2000 up to R2010 and :term:`SAB`
+        data for DXF R2013 and later
         """
         if self.has_binary_data:
-            raise DXFTypeError(
-                "Setting ACIS data not supported for DXF R2013 and later."
-            )
-        else:
-            self._acis_data = list(lines)
+            return self.sab
+        return self.sat
+
+    @property
+    def sat(self) -> List[str]:
+        """Get/Set :term:`SAT` data as list of strings. """
+        return self._sat
+
+    @sat.setter
+    def sat(self, data: List[str]) -> None:
+        """Set :term:`SAT` data as list of strings. """
+        self._sat = data
+
+    @property
+    def sab(self) -> bytes:
+        """Get/Set :term:`SAB` data as bytes. """
+        if (  # load SAB data on demand
+            self.doc is not None
+            and self.has_binary_data
+            and len(self._sab) == 0
+        ):
+            self._sab = self.doc.acdsdata.get_acis_data(self.dxf.handle)
+        return self._sab
+
+    @sab.setter
+    def sab(self, data: bytes) -> None:
+        """Set :term:`SAB` data as bytes. """
+        self._update = True
+        self._sab = data
 
     @property
     def has_binary_data(self):
-        """Returns ``True`` if ACIS data is of type ``List[bytes]``, ``False``
-        if data is of type ``List[str]``.
+        """Returns ``True`` if the entity contains :term:`SAB` data and
+        ``False`` if the entity contains :term:`SAT` data.
         """
         if self.doc:
             return self.doc.dxfversion >= DXF2013
@@ -134,56 +146,55 @@ class Body(DXFGraphic):
                 dxf, acdb_modeler_geometry_group_codes, 2, log=False
             )
             if not self.has_binary_data:
-                self.load_acis_data(processor.subclasses[2])
+                self.load_sat_data(processor.subclasses[2])
         return dxf
 
-    def load_acis_data(self, tags: Tags):
+    def load_sat_data(self, tags: Tags):
         """Loading interface. (internal API)"""
         text_lines = tags2textlines(tag for tag in tags if tag.code in (1, 3))
-        self.acis_data = crypt.decode(text_lines)  # type: ignore
+        self._sat = list(crypt.decode(text_lines))
 
     def export_entity(self, tagwriter: "TagWriter") -> None:
         """Export entity specific data as DXF tags. (internal API)"""
         super().export_entity(tagwriter)
         tagwriter.write_tag2(SUBCLASS_MARKER, acdb_modeler_geometry.name)
         if tagwriter.dxfversion >= DXF2013:
-            # ACIS data stored in the ACDSDATA section as binary encoded
-            # information.
+            # ACIS data is stored in the ACDSDATA section as SAB
+            if self.doc and self._update:
+                # write back changed SAB data into AcDsDataSection or create
+                # a new ACIS record:
+                self.doc.acdsdata.set_acis_data(self.dxf.handle, self.sab)
             if self.dxf.hasattr("version"):
                 tagwriter.write_tag2(70, self.dxf.version)
             self.dxf.export_dxf_attribs(tagwriter, ["flags", "uid"])
         else:
-            # DXF R2000 - R2013 stores ACIS data as text in entity
+            # DXF R2000 - R2010 stores the ACIS data as SAT in the entity
             self.dxf.export_dxf_attribs(tagwriter, "version")
-            self.export_acis_data(tagwriter)
+            self.export_sat_data(tagwriter)
 
-    def export_acis_data(self, tagwriter: "TagWriter") -> None:
+    def export_sat_data(self, tagwriter: "TagWriter") -> None:
         """Export ACIS data as DXF tags. (internal API)"""
 
         def cleanup(lines):
             for line in lines:
                 yield line.rstrip().replace("\n", "")
 
-        tags = Tags(textlines2tags(crypt.encode(cleanup(self.acis_data))))
+        tags = Tags(textlines2tags(crypt.encode(cleanup(self.sat))))
         tagwriter.write_tags(tags)
 
-    def set_text(self, text: str, sep: str = "\n") -> None:
-        """Set ACIS data from one string."""
-        self.acis_data = text.split(sep)
-
     def tostring(self) -> str:
-        """Returns ACIS data as one string for DXF R2000 to R2010."""
+        """Returns ACIS :term:`SAT` data as a single string if the entity has
+        SAT data.
+        """
         if self.has_binary_data:
             return ""
         else:
-            return "\n".join(self.acis_data)  # type: ignore
+            return "\n".join(self.sat)
 
-    def tobytes(self) -> bytes:
-        """Returns ACIS data as joined bytes for DXF R2013 and later."""
+    def destroy(self) -> None:
         if self.has_binary_data:
-            return b"".join(self.acis_data)  # type: ignore
-        else:
-            return b""
+            self.doc.acdsdata.del_acis_data(self.dxf.handle)  # type: ignore
+        super().destroy()
 
 
 def tags2textlines(tags: Iterable) -> Iterable[str]:
@@ -255,8 +266,9 @@ class Solid3d(Body):
         super().export_entity(tagwriter)
         # AcDbEntity export is done by parent class
         # AcDbModelerGeometry export is done by parent class
-        tagwriter.write_tag2(SUBCLASS_MARKER, acdb_3dsolid.name)
-        self.dxf.export_dxf_attribs(tagwriter, "history_handle")
+        if tagwriter.dxfversion > DXF2004:
+            tagwriter.write_tag2(SUBCLASS_MARKER, acdb_3dsolid.name)
+            self.dxf.export_dxf_attribs(tagwriter, "history_handle")
 
 
 def load_matrix(subclass: "Tags", code: int) -> Matrix44:
