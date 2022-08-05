@@ -1,8 +1,17 @@
-#  Copyright (c) 2021, Manfred Moitzi
+#  Copyright (c) 2021-2022, Manfred Moitzi
 #  License: MIT License
+from __future__ import annotations
 from typing import Iterable, Union, List, Sequence, Tuple, TypeVar
 import math
-from ezdxf.math import BSpline, Bezier4P, Bezier3P, Vertex, Vec3, AnyVec
+from ezdxf.math import (
+    BSpline,
+    Bezier4P,
+    Bezier3P,
+    UVec,
+    Vec3,
+    AnyVec,
+    BoundingBox,
+)
 
 __all__ = [
     "bezier_to_bspline",
@@ -13,6 +22,8 @@ __all__ = [
     "split_bezier",
     "quadratic_bezier_from_3p",
     "cubic_bezier_from_3p",
+    "cubic_bezier_bbox",
+    "quadratic_bezier_bbox",
 ]
 
 
@@ -25,7 +36,7 @@ def quadratic_to_cubic_bezier(curve: Bezier3P) -> Bezier4P:
     """Convert quadratic Bèzier curves (:class:`ezdxf.math.Bezier3P`) into
     cubic Bèzier curves (:class:`ezdxf.math.Bezier4P`).
 
-    .. versionadded: 0.16
+    .. versionadded:: 0.16
 
     """
     start, control, end = curve.control_points
@@ -42,7 +53,7 @@ def bezier_to_bspline(curves: Iterable[AnyBezier]) -> BSpline:
     previous curve. G1 continuity or better at the connection points of the
     Bézier curves is required to get best results.
 
-    .. versionadded: 0.16
+    .. versionadded:: 0.16
 
     """
 
@@ -75,7 +86,7 @@ def have_bezier_curves_g1_continuity(
 ) -> bool:
     """Return ``True`` if the given adjacent bezier curves have G1 continuity.
 
-    .. versionadded: 0.16
+    .. versionadded:: 0.16
 
     """
     b1_pnts = tuple(b1.control_points)
@@ -143,7 +154,7 @@ def split_bezier(
     return left, right
 
 
-def quadratic_bezier_from_3p(p1: Vertex, p2: Vertex, p3: Vertex) -> Bezier3P:
+def quadratic_bezier_from_3p(p1: UVec, p2: UVec, p3: UVec) -> Bezier3P:
     """Returns a quadratic Bèzier curve :class:`Bezier3P` from three points.
     The curve starts at `p1`, goes through `p2` and ends at `p3`.
     (source: `pomax-2`_)
@@ -153,6 +164,7 @@ def quadratic_bezier_from_3p(p1: Vertex, p2: Vertex, p3: Vertex) -> Bezier3P:
     .. _pomax-2: https://pomax.github.io/bezierinfo/#pointcurves
 
     """
+
     def u_func(t: float) -> float:
         mt = 1.0 - t
         mt2 = mt * mt
@@ -176,7 +188,7 @@ def quadratic_bezier_from_3p(p1: Vertex, p2: Vertex, p3: Vertex) -> Bezier3P:
     return Bezier3P([s, a, e])
 
 
-def cubic_bezier_from_3p(p1: Vertex, p2: Vertex, p3: Vertex) -> Bezier4P:
+def cubic_bezier_from_3p(p1: UVec, p2: UVec, p3: UVec) -> Bezier4P:
     """Returns a cubic Bèzier curve :class:`Bezier4P` from three points.
     The curve starts at `p1`, goes through `p2` and ends at `p3`.
     (source: `pomax-2`_)
@@ -186,3 +198,49 @@ def cubic_bezier_from_3p(p1: Vertex, p2: Vertex, p3: Vertex) -> Bezier4P:
     """
     qbez = quadratic_bezier_from_3p(p1, p2, p3)
     return quadratic_to_cubic_bezier(qbez)
+
+
+def cubic_bezier_bbox(curve: Bezier4P, *, abs_tol=1e-12) -> BoundingBox:
+    """Returns the :class:`~ezdxf.math.BoundingBox` of a cubic Bézier curve
+    of type :class:`~ezdxf.math.Bezier4P`.
+
+    .. versionadded:: 0.18
+
+    """
+    cp = curve.control_points
+    points: List[Vec3] = [cp[0], cp[3]]
+    for p1, p2, p3, p4 in zip(*cp):
+        a = 3.0 * (-p1 + 3.0 * p2 - 3.0 * p3 + p4)
+        b = 6.0 * (p1 - 2.0 * p2 + p3)
+        c = 3.0 * (p2 - p1)
+        if abs(a) < abs_tol:
+            if abs(b) < abs_tol:
+                t = -c  # or skip this case?
+            else:
+                t = -c / b
+            if 0.0 < t < 1.0:
+                points.append((curve.point(t)))
+            continue
+
+        try:
+            sqrt_bb4ac = math.sqrt(b * b - 4.0 * a * c)
+        except ValueError:  # domain error
+            continue
+        aa = 2.0 * a
+        t = (-b + sqrt_bb4ac) / aa
+        if 0.0 < t < 1.0:
+            points.append(curve.point(t))
+        t = (-b - sqrt_bb4ac) / aa
+        if 0.0 < t < 1.0:
+            points.append(curve.point(t))
+    return BoundingBox(points)
+
+
+def quadratic_bezier_bbox(curve: Bezier3P, *, abs_tol=1e-12) -> BoundingBox:
+    """Returns the :class:`~ezdxf.math.BoundingBox` of a quadratic Bézier curve
+    of type :class:`~ezdxf.math.Bezier3P`.
+
+    .. versionadded:: 0.18
+
+    """
+    return cubic_bezier_bbox(quadratic_to_cubic_bezier(curve), abs_tol=abs_tol)

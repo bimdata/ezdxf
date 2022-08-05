@@ -80,13 +80,18 @@ Data Query
     query
     groupby
 
-Math Utilities
---------------
+Math
+----
 
 .. toctree::
-    :maxdepth: 1
+    :maxdepth: 2
 
-    math
+    math/core
+    math/clipping
+    math/clustering
+    math/linalg
+    math/rtree
+    math/triangulation
 
 Construction
 ------------
@@ -98,6 +103,7 @@ Construction
     disassemble
     bbox
     upright
+    reorder
 
 Custom Data
 -----------
@@ -119,6 +125,7 @@ Tools
     tools/text
     tools/text_size
     tools/fonts
+    tools/acis
 
 
 Global Options
@@ -138,7 +145,6 @@ Miscellaneous
 
     zoom
     comments
-    reorder
 
 .. _DXF Reference: http://docs.autodesk.com/ACD/2014/ENU/index.html?url=files/GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3.htm,topicNumber=d30e652301
 .. _Autodesk: http://usa.autodesk.com/

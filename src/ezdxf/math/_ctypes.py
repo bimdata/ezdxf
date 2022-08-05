@@ -1,13 +1,15 @@
 #  Copyright (c) 2020-2022, Manfred Moitzi
 #  License: MIT License
 from typing import Union, Sequence
+from typing_extensions import TypeAlias
+# noinspection PyUnresolvedReferences
 from ezdxf.acc import USE_C_EXT
 
 __all__ = [
     "Vec3",
     "Vec2",
     "AnyVec",
-    "Vertex",
+    "UVec",
     "X_AXIS",
     "Y_AXIS",
     "Z_AXIS",
@@ -84,6 +86,6 @@ else:
         arc_angle_span_rad,
     )
 
-# Early required type compositions
-AnyVec = Union[Vec2, Vec3]
-Vertex = Union[Sequence[float], AnyVec]
+# Early required type aliases
+AnyVec: TypeAlias = Union[Vec2, Vec3]
+UVec: TypeAlias = Union[Sequence[float], Vec2, Vec3]

@@ -739,10 +739,10 @@ class LeaderType(enum.IntEnum):
     splines = 2
 
 
+# noinspection PyArgumentList
 class ConnectionSide(enum.Enum):
     """
     The leader connection side.
-
     Vertical (top, bottom) and horizontal attachment sides (left, right)
     can not be mixed in a single entity - this is a limitation of the
     MULTILEADER entity.
@@ -846,7 +846,7 @@ class MultiLeaderBuilder(abc.ABC):
         )
         self.set_mleader_style(style)
         self._multileader.context.landing_gap_size = (
-            self._mleader_style.dxf.landing_gap
+            self._mleader_style.dxf.landing_gap_size
         )
 
     @abc.abstractmethod
@@ -896,6 +896,9 @@ class MultiLeaderBuilder(abc.ABC):
         """Reset base properties by :class:`~ezdxf.entities.MLeaderStyle`
         properties. This also resets the content!
         """
+        def copy_style_to_context():
+            self.context.char_height = style_dxf.char_height
+            self.context.landing_gap_size = style_dxf.landing_gap_size
 
         self._mleader_style = style
         multileader_dxf = self._multileader.dxf
@@ -904,6 +907,7 @@ class MultiLeaderBuilder(abc.ABC):
         for key in keys:
             if multileader_dxf.is_supported(key):
                 multileader_dxf.set(key, style_dxf.get_default(key))
+        copy_style_to_context()
         multileader_dxf.block_scale_vector = Vec3(
             style_dxf.block_scale_x,
             style_dxf.block_scale_y,
@@ -919,11 +923,9 @@ class MultiLeaderBuilder(abc.ABC):
         dogleg_length: float = 0.0,  # unscaled value!
     ):
         """Set the properties how to connect the leader line to the content.
-
         The landing gap is the space between the content and the start of the
-        the leader line. The "dogleg" is the first line segment of the leader
+        leader line. The "dogleg" is the first line segment of the leader
         in the "horizontal" direction of the content.
-
         """
         multileader = self.multileader
         scale = multileader.dxf.scale
@@ -973,10 +975,8 @@ class MultiLeaderBuilder(abc.ABC):
     def set_overall_scaling(self, scale: float):
         """Set the overall scaling factor for the whole entity,
         except for the leader line vertices!
-
         Args:
             scale: scaling factor > 0.0
-
         """
         new_scale = float(scale)
         if new_scale <= 0.0:
@@ -1003,13 +1003,11 @@ class MultiLeaderBuilder(abc.ABC):
         leader_type=LeaderType.straight_lines,
     ):
         """Set leader line properties.
-
         Args:
             color: line color as :ref:`ACI` or RGB tuple
             linetype: as name string, e.g. "BYLAYER"
             lineweight: as integer value, see: :ref:`lineweights`
             leader_type: straight lines of spline type
-
         """
         mleader = self._multileader
         mleader.dxf.leader_line_color = colors.encode_raw_color(color)  # type: ignore
@@ -1027,18 +1025,14 @@ class MultiLeaderBuilder(abc.ABC):
     ):
         """ Set leader arrow properties all leader lines have the same arrow
         type.
-
         The MULTILEADER entity is able to support multiple arrows, but this
         seems to be unsupported by CAD applications and is therefore also not
         supported by the builder classes.
-
         """
-        if size:
-            self._multileader.dxf.arrow_head_size = size
-        else:
-            self._multileader.dxf.arrow_head_size = (
-                self._mleader_style.dxf.arrow_head_size
-            )
+        if size == 0.0:
+            size = self._mleader_style.dxf.arrow_head_size
+        self._multileader.dxf.arrow_head_size = size
+        self.context.arrow_head_size = size
         if name:
             self._multileader.dxf.arrow_head_handle = ARROWS.arrow_handle(
                 self._doc.blocks, name
@@ -1053,17 +1047,13 @@ class MultiLeaderBuilder(abc.ABC):
     ) -> None:
         """Add leader as iterable of vertices in render UCS coordinates
         (:ref:`WCS` by default).
-
         .. note::
-
             Vertical (top, bottom) and horizontal attachment sides (left, right)
             can not be mixed in a single entity - this is a limitation of the
             MULTILEADER entity.
-
         Args:
             side: connection side where to attach the leader line
             vertices: leader vertices
-
         """
         self._leaders[side].append(list(vertices))
 
@@ -1072,12 +1062,10 @@ class MultiLeaderBuilder(abc.ABC):
     ) -> None:
         """Compute the required geometry data. The construction plane is
         the xy-plane of the given render :class:`~ezdxf.math.UCS`.
-
         Args:
             insert: insert location for the content in render UCS coordinates
             rotation: content rotation angle around the render UCS z-axis in degrees
             ucs: the render :class:`~ezdxf.math.UCS`, default is the :ref:`WCS`
-
         """
         assert isinstance(insert, Vec2), "insert has to be a Vec2() object"
         rotation = math.radians(rotation)
@@ -1233,14 +1221,12 @@ class MultiLeaderMTextBuilder(MultiLeaderBuilder):
         style: str = None,
     ):
         """Set MTEXT content.
-
         Args:
             content: MTEXT content as string
             color: block color as :ref:`ACI` or RGB tuple
             char_height: initial char height in drawing units
             alignment: :class:`TextAlignment` - left, center, right
             style: name of :class:`~ezdxf.entities.Textstyle` as string
-
         """
         mleader = self._multileader
         context = self.context
@@ -1374,7 +1360,6 @@ class MultiLeaderMTextBuilder(MultiLeaderBuilder):
         vertical) and the MTEXT alignment (left, center or right).
         Horizontal connections are always left or right aligned, vertical
         connections are always center aligned.
-
         Args:
             content: MTEXT content string
             target: leader target point as :class:`Vec2`
@@ -1384,7 +1369,6 @@ class MultiLeaderMTextBuilder(MultiLeaderBuilder):
             connection_type: one of :class:`HorizontalConnection` or
                 :class:`VerticalConnection`
             ucs: the rendering :class:`~ezdxf.math.UCS`, default is the :ref:`WCS`
-
         """
         offset = segment1
         if segment2 is not None:
@@ -1581,13 +1565,11 @@ class MultiLeaderBlockBuilder(MultiLeaderBuilder):
         alignment=BlockAlignment.center_extents,
     ):
         """Set BLOCK content.
-
         Args:
             name: the block name as string
             color: block color as :ref:`ACI` or RGB tuple
             scale: the block scaling, not to be confused with overall scaling
             alignment: the block insertion point or the center of extents
-
         """
         mleader = self._multileader
         # update MULTILEADER DXF namespace
@@ -1605,12 +1587,10 @@ class MultiLeaderBlockBuilder(MultiLeaderBuilder):
         """Add BLOCK attributes based on an ATTDEF entity in the block
         definition. All properties of the new created ATTRIB entity are
         defined by the template ATTDEF entity including the location.
-
         Args:
             tag: attribute tag name
             text: attribute content string
             width: width factor
-
         """
         block_layout = self.block_layout
         block_attribs = self._multileader.block_attribs
@@ -1628,4 +1608,4 @@ class MultiLeaderBlockBuilder(MultiLeaderBuilder):
 
     def _set_base_point(self, left: Vec3, bottom: Vec3):
         # BricsCAD does not support vertical attached leaders
-        self.context.base_point = left
+        self.context.base_point = 

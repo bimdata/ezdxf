@@ -1,5 +1,6 @@
-# Copyright (c) 2019-2021, Manfred Moitzi
+# Copyright (c) 2019-2022, Manfred Moitzi
 # License: MIT License
+from __future__ import annotations
 from typing import (
     TYPE_CHECKING,
     Iterable,
@@ -11,7 +12,7 @@ from typing import (
     Optional,
     Dict,
 )
-from ezdxf.math import Vec2
+from ezdxf.math import Vec2, UVec
 from ezdxf.entitydb import EntitySpace
 from ezdxf.lldxf import const
 from .base import BaseLayout
@@ -20,7 +21,6 @@ if TYPE_CHECKING:
     from ezdxf.eztypes import (
         GeoData,
         SortEntsTable,
-        Vertex,
         Viewport,
         Drawing,
         DXFLayout,
@@ -201,7 +201,7 @@ class Layout(BaseLayout):
                         "block_record_handle": self.layout_key,
                     },
                 )
-                xdict["ACAD_SORTENTS"] = sortents_table.dxf.handle
+                xdict["ACAD_SORTENTS"] = sortents_table
             else:
                 raise const.DXFValueError(
                     "Extension dictionary entry ACAD_SORTENTS does not exist."
@@ -378,7 +378,7 @@ class Layout(BaseLayout):
         self.set_plot_flags(self.PRINT_LINEWEIGHTS, state)
 
     def draw_viewports_first(self, state: bool = True) -> None:
-        self.set_plot_flags(self.PRINT_LINEWEIGHTS, state)
+        self.set_plot_flags(self.DRAW_VIEWPORTS_FIRST, state)
 
     def model_type(self, state: bool = True) -> None:
         self.set_plot_flags(self.MODEL_TYPE, state)
@@ -517,9 +517,9 @@ class Paperspace(Layout):
 
     def add_viewport(
         self,
-        center: "Vertex",
+        center: UVec,
         size: Tuple[float, float],
-        view_center_point: "Vertex",
+        view_center_point: UVec,
         view_height: float,
         dxfattribs: dict = None,
     ) -> "Viewport":
@@ -549,7 +549,7 @@ class Paperspace(Layout):
         self.add_new_main_viewport()
 
     def reset_main_viewport(
-        self, center: "Vertex" = None, size: "Vertex" = None
+        self, center: UVec = None, size: UVec = None
     ) -> "Viewport":
         """Reset the main viewport of this paper space layout to the given
         values, or reset them to the default values, deduced from the paper

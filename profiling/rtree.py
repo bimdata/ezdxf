@@ -1,8 +1,11 @@
+
 # Copyright (c) 2020, Manfred Moitzi
 # License: MIT License
 import time
 from pathlib import Path
-from ezdxf.math import Vec3, closest_point, RTree
+from ezdxf.math import Vec3, closest_point
+from ezdxf.math.rtree import RTree
+
 try:
     import matplotlib.pyplot as plt
 except ImportError:

@@ -74,7 +74,10 @@ TDispatchTable = Dict[str, Callable[[DXFGraphic, Properties], None]]
 POST_ISSUE_MSG = (
     "Please post sample DXF file at https://github.com/mozman/ezdxf/issues."
 )
+<<<<<<< HEAD
 
+=======
+>>>>>>> f51566328e5c8a87a1188cd4dff1e4852b3f8533
 logger = logging.getLogger("ezdxf")
 
 
@@ -176,8 +179,12 @@ class Frontend:
             self.ctx.current_layout_properties = layout_properties
         else:
             self.ctx.set_current_layout(layout)
-
         self.linear_precision = layout.doc.header.get("$LUPREC")  # Bimdata use
+        # set background before drawing entities
+        self.out.set_background(
+            self.ctx.current_layout_properties.background_color
+        )
+
         self.parent_stack = []
         handle_mapping = list(layout.get_redraw_order())
         if handle_mapping:
@@ -190,7 +197,6 @@ class Frontend:
                 layout,
                 filter_func=filter_func,
             )
-        self.out.set_background(self.ctx.current_layout_properties.background_color)
         if finalize:
             self.out.finalize()
 
@@ -588,7 +594,10 @@ class Frontend:
         path = make_path(entity)
         self.out.draw_path(path, properties)
 
-    def draw_composite_entity(self, entity: DXFGraphic, properties: Properties) -> None:
+    def draw_composite_entity(
+        self, entity: DXFGraphic, properties: Properties
+    ) -> None:
+
         def draw_insert(insert: Insert):
             self.draw_entities(insert.attribs)
             # draw_entities() includes the visibility check:
@@ -641,8 +650,9 @@ def closed_loops(
             path.user_data, const.BoundaryPathState
         ), "missing attached boundary path state"
         for sub_path in path.sub_paths():
-            sub_path.close()
-            loops.append(sub_path)
+            if len(sub_path):
+                sub_path.close()
+                loops.append(sub_path)
     return loops
 
 
