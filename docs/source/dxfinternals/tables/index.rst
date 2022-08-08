@@ -9,4 +9,3 @@ DXF Tables
    linetype_table
    dimstyle_table
    block_record_table
-   layer_table

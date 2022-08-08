@@ -1,4 +1,4 @@
-# Copyright (c) 2012-2022, Manfred Moitzi
+# Copyright (c) 2012-2021, Manfred Moitzi
 # License: MIT License
 """
 B-Splines
@@ -16,11 +16,9 @@ https://www.cl.cam.ac.uk/teaching/2000/AGraphHCI/SMEG/node5.html:
 https://books.google.at/books/about/The_NURBS_Book.html?id=7dqY5dyAwWkC&redir_esc=y
 
 """
-from __future__ import annotations
 from typing import (
     List,
     Iterable,
-    Iterator,
     Sequence,
     TYPE_CHECKING,
     Dict,
@@ -30,22 +28,27 @@ from typing import (
 import math
 from ezdxf.math import (
     Vec3,
-    UVec,
     NULLVEC,
     Basis,
     Evaluator,
     create_t_vector,
     estimate_end_tangent_magnitude,
     estimate_tangents,
+    LUDecomposition,
+    Matrix,
+    BandedMatrixLU,
+    compact_banded_matrix,
+    detect_banded_matrix,
+    quadratic_equation,
     linspace,
     distance_point_line_3d,
     arc_angle_span_deg,
 )
-from ezdxf.math import linalg
 from ezdxf.lldxf.const import DXFValueError
 from ezdxf import PYPY
 
 if TYPE_CHECKING:
+    from ezdxf.eztypes import Vertex
     from ezdxf.math import (
         ConstructionArc,
         ConstructionEllipse,
@@ -93,8 +96,8 @@ __all__ = [
 
 
 def fit_points_to_cad_cv(
-    fit_points: Iterable[UVec],
-    tangents: Iterable[UVec] = None,
+    fit_points: Iterable["Vertex"],
+    tangents: Iterable["Vertex"] = None,
     estimate: str = "5-p",
 ) -> "BSpline":
     """Returns a cubic :class:`BSpline` from fit points as close as possible
@@ -167,7 +170,7 @@ def fit_points_to_cad_cv(
     )
 
 
-def fit_points_to_cubic_bezier(fit_points: Iterable[UVec]) -> "BSpline":
+def fit_points_to_cubic_bezier(fit_points: Iterable["Vertex"]) -> "BSpline":
     """Returns a cubic :class:`BSpline` from fit points **without** end
     tangents.
 
@@ -193,9 +196,9 @@ def fit_points_to_cubic_bezier(fit_points: Iterable[UVec]) -> "BSpline":
 
 
 def global_bspline_interpolation(
-    fit_points: Iterable[UVec],
+    fit_points: Iterable["Vertex"],
     degree: int = 3,
-    tangents: Iterable[UVec] = None,
+    tangents: Iterable["Vertex"] = None,
     method: str = "chord",
 ) -> "BSpline":
     """`B-spline`_ interpolation by the `Global Curve Interpolation`_.
@@ -279,9 +282,9 @@ def global_bspline_interpolation(
 
 
 def local_cubic_bspline_interpolation(
-    fit_points: Iterable[UVec],
+    fit_points: Iterable["Vertex"],
     method: str = "5-points",
-    tangents: Iterable[UVec] = None,
+    tangents: Iterable["Vertex"] = None,
 ) -> "BSpline":
     """`B-spline`_ interpolation by 'Local Cubic Curve Interpolation', which
     creates B-spline from fit points and estimated tangent direction at start-,
@@ -596,29 +599,29 @@ def double_knots(n: int, p: int, t: Sequence[float]) -> List[float]:
     return u
 
 
-def _get_best_solver(matrix: Union[List, linalg.Matrix], degree: int):
+def _get_best_solver(matrix: Union[List, Matrix], degree: int):
     """Returns best suited linear equation solver depending on matrix
     configuration and python interpreter.
     """
-    A = matrix if isinstance(matrix, linalg.Matrix) else linalg.Matrix(matrix=matrix)
+    A = matrix if isinstance(matrix, Matrix) else Matrix(matrix=matrix)
     if PYPY:
         limit = USE_BANDED_MATRIX_SOLVER_PYPY_LIMIT
     else:
         limit = USE_BANDED_MATRIX_SOLVER_CPYTHON_LIMIT
     if A.nrows < limit:  # use default equation solver
-        return linalg.LUDecomposition(A.matrix)
+        return LUDecomposition(A.matrix)
     else:
         # Theory: band parameters m1, m2 are at maximum degree-1, for
         # B-spline interpolation and approximation:
         # m1 = m2 = degree-1
         # But the speed gain is not that big and just to be sure:
-        m1, m2 = linalg.detect_banded_matrix(A, check_all=False)
-        A = linalg.compact_banded_matrix(A, m1, m2)
-        return linalg.BandedMatrixLU(A, m1, m2)
+        m1, m2 = detect_banded_matrix(A, check_all=False)
+        A = compact_banded_matrix(A, m1, m2)
+        return BandedMatrixLU(A, m1, m2)
 
 
 def unconstrained_global_bspline_interpolation(
-    fit_points: Sequence[UVec],
+    fit_points: Sequence["Vertex"],
     degree: int,
     t_vector: Sequence[float],
     knot_generation_method: str = "average",
@@ -804,13 +807,10 @@ def local_cubic_bspline_interpolation_from_tangents(
         p3 = fit_points[i + 1]
         t0 = tangents[i]
         t3 = tangents[i + 1]
-        a = 16.0 - (t0 + t3).magnitude_square  # always > 0!
+        a = 16.0 - (t0 + t3).magnitude_square
         b = 12.0 * (p3 - p0).dot(t0 + t3)
         c = -36.0 * (p3 - p0).magnitude_square
-
-        # Raises an ArithmeticError exception if there is a complex solution.
-        # Is this possible?
-        alpha_plus, alpha_minus = linalg.quadratic_equation(a, b, c)
+        alpha_plus, alpha_minus = quadratic_equation(a, b, c)
         p1 = p0 + alpha_plus * t0 / 3.0
         p2 = p3 - alpha_plus * t3 / 3.0
         control_points.extend((p1, p2))
@@ -857,7 +857,7 @@ class BSpline:
 
     def __init__(
         self,
-        control_points: Iterable[UVec],
+        control_points: Iterable["Vertex"],
         order: int = 4,
         knots: Iterable[float] = None,
         weights: Iterable[float] = None,
@@ -934,7 +934,7 @@ class BSpline:
 
     @staticmethod
     def from_fit_points(
-        points: Iterable[UVec], degree=3, method="chord"
+        points: Iterable["Vertex"], degree=3, method="chord"
     ) -> "BSpline":
         """Returns :class:`BSpline` defined by fit points."""
         return global_bspline_interpolation(points, degree, method=method)
@@ -1041,7 +1041,7 @@ class BSpline:
         upper_bound = knots[self.count]
         return linspace(lower_bound, upper_bound, segments + 1)
 
-    def flattening(self, distance: float, segments: int = 4) -> Iterator[Vec3]:
+    def flattening(self, distance: float, segments: int = 4) -> Iterable[Vec3]:
         """Adaptive recursive flattening. The argument `segments` is the
         minimum count of approximation segments between two knots, if the
         distance from the center of the approximation segment to the curve is
@@ -1070,15 +1070,14 @@ class BSpline:
                 yield from subdiv(m, e, mid_t, end_t)
 
         evaluator = self.evaluator
-        knots: List[float] = self.knots()  # type: ignore
+        knots = self.knots()
         if self.is_clamped:
             lower_bound = 0.0
         else:
             lower_bound = knots[self.order - 1]
             knots = knots[: self.count + 1]
 
-        knots = list(set(knots))
-        knots.sort()
+        knots = tuple(set(knots))  # set() must preserve order!
         t = lower_bound
         start_point = evaluator.point(t)
         yield start_point
@@ -1336,7 +1335,7 @@ def subdivide_params(p: List[float]) -> Iterable[float]:
 
 
 def open_uniform_bspline(
-    control_points: Iterable[UVec],
+    control_points: Iterable["Vertex"],
     order: int = 4,
     weights: Iterable[float] = None,
 ) -> BSpline:
@@ -1358,7 +1357,7 @@ def open_uniform_bspline(
 
 
 def closed_uniform_bspline(
-    control_points: Iterable[UVec],
+    control_points: Iterable["Vertex"],
     order: int = 4,
     weights: Iterable[float] = None,
 ) -> BSpline:

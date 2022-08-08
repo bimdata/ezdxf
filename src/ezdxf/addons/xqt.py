@@ -18,11 +18,9 @@ if TRY_PYSIDE6:
             QMessageBox,
             QTableView,
             QTreeView,
-            QListView,
         )
         from PySide6.QtCore import (
             QAbstractTableModel,
-            QStringListModel,
             QFileSystemWatcher,
             QModelIndex,
             QPointF,
@@ -58,11 +56,9 @@ if TRY_PYQT5 and not PYSIDE6:
             QMessageBox,
             QTableView,
             QTreeView,
-            QListView,
         )
         from PyQt5.QtCore import (
             QAbstractTableModel,
-            QStringListModel,
             QFileSystemWatcher,
             QModelIndex,
             QPointF,

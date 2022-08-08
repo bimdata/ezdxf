@@ -1,4 +1,4 @@
-# Copyright (c) 2014-2022, Manfred Moitzi
+# Copyright (c) 2014-2019, Manfred Moitzi
 # License: MIT License
 import pytest
 import ezdxf
@@ -18,8 +18,7 @@ def test_body_default_settings(layout):
 
 
 def test_body_getting_acis_data(layout):
-    body = layout.add_body()
-    body.sat = TEST_DATA.splitlines()
+    body = layout.add_body(acis_data=TEST_DATA.splitlines())
     assert TEST_DATA == body.tostring()
 
 
@@ -29,8 +28,7 @@ def test_region_default_settings(layout):
 
 
 def test_region_getting_acis_data(layout):
-    region = layout.add_region()
-    region.sat = TEST_DATA.splitlines()
+    region = layout.add_region(acis_data=TEST_DATA.splitlines())
     assert TEST_DATA == region.tostring()
 
 
@@ -41,8 +39,7 @@ def test_3dsolid_default_settings(layout):
 
 
 def test_3dsolid_getting_acis_data(layout):
-    _3dsolid = layout.add_3dsolid()
-    _3dsolid.sat = TEST_DATA.splitlines()
+    _3dsolid = layout.add_3dsolid(acis_data=TEST_DATA.splitlines())
     assert TEST_DATA == _3dsolid.tostring()
 
 

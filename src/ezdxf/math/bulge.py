@@ -1,12 +1,13 @@
-# Copyright (c) 2018-2022 Manfred Moitzi
+# Copyright (c) 2018-2021 Manfred Moitzi
 # License: MIT License
 # source: http://www.lee-mac.com/bulgeconversion.html
 # source: http://www.afralisp.net/archive/lisp/Bulges1.htm
-from __future__ import annotations
-from typing import Any, Tuple
+from typing import Any, TYPE_CHECKING, Tuple
 import math
-from ezdxf.math import Vec2, UVec
+from ezdxf.math import Vec2
 
+if TYPE_CHECKING:
+    from ezdxf.eztypes import Vertex
 
 __all__ = [
     "bulge_to_arc",
@@ -41,7 +42,7 @@ def angle(p1: Any, p2: Any) -> float:
 
 
 def arc_to_bulge(
-    center: UVec, start_angle: float, end_angle: float, radius: float
+    center: "Vertex", start_angle: float, end_angle: float, radius: float
 ) -> Tuple["Vec2", "Vec2", float]:
     """Returns bulge parameters from arc parameters.
 
@@ -64,7 +65,7 @@ def arc_to_bulge(
 
 
 def bulge_3_points(
-    start_point: UVec, end_point: UVec, point: UVec
+    start_point: "Vertex", end_point: "Vertex", point: "Vertex"
 ) -> float:
     """Returns bulge value defined by three points.
 
@@ -81,7 +82,7 @@ def bulge_3_points(
 
 
 def bulge_to_arc(
-    start_point: UVec, end_point: UVec, bulge: float
+    start_point: "Vertex", end_point: "Vertex", bulge: float
 ) -> Tuple["Vec2", float, float, float]:
     """Returns arc parameters from bulge parameters.
 
@@ -110,7 +111,7 @@ def bulge_to_arc(
 
 
 def bulge_center(
-    start_point: UVec, end_point: UVec, bulge: float
+    start_point: "Vertex", end_point: "Vertex", bulge: float
 ) -> "Vec2":
     """Returns center of arc described by the given bulge parameters.
 
@@ -131,7 +132,7 @@ def bulge_center(
 
 
 def signed_bulge_radius(
-    start_point: UVec, end_point: UVec, bulge: float
+    start_point: "Vertex", end_point: "Vertex", bulge: float
 ) -> float:
     return (
         Vec2(start_point).distance(Vec2(end_point))
@@ -142,7 +143,7 @@ def signed_bulge_radius(
 
 
 def bulge_radius(
-    start_point: UVec, end_point: UVec, bulge: float
+    start_point: "Vertex", end_point: "Vertex", bulge: float
 ) -> float:
     """Returns radius of arc defined by the given bulge parameters.
 

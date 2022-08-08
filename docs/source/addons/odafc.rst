@@ -41,7 +41,7 @@ ACAD2013    R2013           AC1027
 ACAD2018    R2018           AC1032
 =========== =============== ===========
 
-On Windows the path to the ``ODAFileConverter.exe`` executable is
+On Windows systems the path of the ``ODAFileConverter.exe`` application is
 stored in the config file (see :mod:`ezdxf.options`) in the "odafc-addon"
 section as key "win_exec_path", the default entry is:
 
@@ -77,12 +77,8 @@ Usage:
     Path to installed `ODA File Converter` executable on Windows systems,
     default is ``"C:\Program Files\ODA\ODAFileConverter\ODAFileConverter.exe"``.
 
-.. autofunction:: is_installed
+.. autofunction:: readfile(filename: str, version: str = None, audit=False) -> Drawing
 
-.. autofunction:: readfile
-
-.. autofunction:: export_dwg
-
-.. autofunction:: convert
+.. autofunction:: export_dwg(doc: Drawing, filename: str, version: str = None, audit=False, replace=False) -> None
 
 .. _ODA File Converter: https://www.opendesign.com/guestfiles/oda_file_converter

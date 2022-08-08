@@ -1,19 +1,18 @@
-# Copyright (c) 2018-2022 Manfred Moitzi
+# Copyright (c) 2018-2021 Manfred Moitzi
 # License: MIT License
-from __future__ import annotations
 from typing import TYPE_CHECKING, Tuple, Sequence, Iterable
-from ezdxf.math import Vec3, UVec, X_AXIS, Y_AXIS, Z_AXIS, Matrix44
+from ezdxf.math import Vec3, X_AXIS, Y_AXIS, Z_AXIS, Matrix44
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import BaseLayout, RGB
+    from ezdxf.eztypes import Vertex, BaseLayout, RGB
 
 __all__ = ["OCS", "UCS", "PassTroughUCS"]
 
 
 def render_axis(
     layout: "BaseLayout",
-    start: UVec,
-    points: Sequence[UVec],
+    start: "Vertex",
+    points: Sequence["Vertex"],
     colors: "RGB" = (1, 3, 5),
 ) -> None:
     for point, color in zip(points, colors):
@@ -31,7 +30,7 @@ class OCS:
 
     """
 
-    def __init__(self, extrusion: UVec = Z_AXIS):
+    def __init__(self, extrusion: "Vertex" = Z_AXIS):
         Az = Vec3(extrusion).normalize()
         self.transform = not Az.isclose(Z_AXIS)
         if self.transform:
@@ -58,14 +57,14 @@ class OCS:
         """z-axis unit vector"""
         return self.matrix.uz if self.transform else Z_AXIS
 
-    def from_wcs(self, point: UVec) -> UVec:
+    def from_wcs(self, point: "Vertex") -> "Vertex":
         """Returns OCS vector for WCS `point`."""
         if self.transform:
             return self.matrix.ocs_from_wcs(point)
         else:
             return point
 
-    def points_from_wcs(self, points: Iterable[UVec]) -> Iterable[UVec]:
+    def points_from_wcs(self, points: Iterable["Vertex"]) -> Iterable["Vertex"]:
         """Returns iterable of OCS vectors from WCS `points`."""
         if self.transform:
             from_wcs = self.matrix.ocs_from_wcs
@@ -74,14 +73,14 @@ class OCS:
         else:
             yield from points
 
-    def to_wcs(self, point: UVec) -> UVec:
+    def to_wcs(self, point: "Vertex") -> "Vertex":
         """Returns WCS vector for OCS `point`."""
         if self.transform:
             return self.matrix.ocs_to_wcs(point)
         else:
             return point
 
-    def points_to_wcs(self, points: Iterable[UVec]) -> Iterable[UVec]:
+    def points_to_wcs(self, points: Iterable["Vertex"]) -> Iterable["Vertex"]:
         """Returns iterable of WCS vectors for OCS `points`."""
         if self.transform:
             to_wcs = self.matrix.ocs_to_wcs
@@ -131,10 +130,10 @@ class UCS:
 
     def __init__(
         self,
-        origin: UVec = (0, 0, 0),
-        ux: UVec = None,
-        uy: UVec = None,
-        uz: UVec = None,
+        origin: "Vertex" = (0, 0, 0),
+        ux: "Vertex" = None,
+        uy: "Vertex" = None,
+        uz: "Vertex" = None,
     ):
         if ux is None and uy is None:
             _ux: Vec3 = X_AXIS
@@ -180,7 +179,7 @@ class UCS:
         return self.matrix.origin
 
     @origin.setter
-    def origin(self, v: UVec) -> None:
+    def origin(self, v: "Vertex") -> None:
         """Set origin."""
         self.matrix.origin = v
 
@@ -268,7 +267,7 @@ class UCS:
         """
         return OCS(self.uz).from_wcs(self.direction_to_wcs(direction))
 
-    def rotate(self, axis: UVec, angle: float) -> "UCS":
+    def rotate(self, axis: "Vertex", angle: float) -> "UCS":
         """Returns a new rotated UCS, with the same origin as the source UCS.
         The rotation vector is located in the origin and has :ref:`WCS`
         coordinates e.g. (0, 0, 1) is the WCS z-axis as rotation vector.
@@ -315,7 +314,7 @@ class UCS:
         ux, uy = t.transform_vertices([self.ux, self.uy])
         return UCS(origin=self.origin, ux=ux, uy=uy, uz=self.uz)
 
-    def shift(self, delta: UVec) -> "UCS":
+    def shift(self, delta: "Vertex") -> "UCS":
         """Shifts current UCS by `delta` vector and returns `self`.
 
         Args:
@@ -325,7 +324,7 @@ class UCS:
         self.origin += Vec3(delta)
         return self
 
-    def moveto(self, location: UVec) -> "UCS":
+    def moveto(self, location: "Vertex") -> "UCS":
         """Place current UCS at new origin `location` and returns `self`.
 
         Args:
@@ -353,7 +352,7 @@ class UCS:
 
     @staticmethod
     def from_x_axis_and_point_in_xy(
-        origin: UVec, axis: UVec, point: UVec
+        origin: "Vertex", axis: "Vertex", point: "Vertex"
     ) -> "UCS":
         """Returns an new :class:`UCS` defined by the origin, the x-axis vector
         and an arbitrary point in the xy-plane.
@@ -371,7 +370,7 @@ class UCS:
 
     @staticmethod
     def from_x_axis_and_point_in_xz(
-        origin: UVec, axis: UVec, point: UVec
+        origin: "Vertex", axis: "Vertex", point: "Vertex"
     ) -> "UCS":
         """Returns an new :class:`UCS` defined by the origin, the x-axis vector
         and an arbitrary point in the xz-plane.
@@ -390,7 +389,7 @@ class UCS:
 
     @staticmethod
     def from_y_axis_and_point_in_xy(
-        origin: UVec, axis: UVec, point: UVec
+        origin: "Vertex", axis: "Vertex", point: "Vertex"
     ) -> "UCS":
         """Returns an new :class:`UCS` defined by the origin, the y-axis vector
         and an arbitrary point in the xy-plane.
@@ -409,7 +408,7 @@ class UCS:
 
     @staticmethod
     def from_y_axis_and_point_in_yz(
-        origin: UVec, axis: UVec, point: UVec
+        origin: "Vertex", axis: "Vertex", point: "Vertex"
     ) -> "UCS":
         """Returns an new :class:`UCS` defined by the origin, the y-axis vector
         and an arbitrary point in the yz-plane.
@@ -428,7 +427,7 @@ class UCS:
 
     @staticmethod
     def from_z_axis_and_point_in_xz(
-        origin: UVec, axis: UVec, point: UVec
+        origin: "Vertex", axis: "Vertex", point: "Vertex"
     ) -> "UCS":
         """Returns an new :class:`UCS` defined by the origin, the z-axis vector
         and an arbitrary point in the xz-plane.
@@ -446,7 +445,7 @@ class UCS:
 
     @staticmethod
     def from_z_axis_and_point_in_yz(
-        origin: UVec, axis: UVec, point: UVec
+        origin: "Vertex", axis: "Vertex", point: "Vertex"
     ) -> "UCS":
         """Returns an new :class:`UCS` defined by the origin, the z-axis vector
         and an arbitrary point in the yz-plane.

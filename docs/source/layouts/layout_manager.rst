@@ -20,24 +20,24 @@ The layout manager is unique to each DXF drawing, access the layout manager as
 
     .. automethod:: __contains__
 
-    .. automethod:: __iter__
+    .. automethod:: __iter__() -> Iterable[Layout]
 
     .. automethod:: names
 
     .. automethod:: names_in_taborder
 
-    .. automethod:: modelspace
+    .. automethod:: modelspace() -> Modelspace
 
-    .. automethod:: get
+    .. automethod:: get(name: str) -> Layout
 
-    .. automethod:: new
+    .. automethod:: new(name: str, dxfattribs: dict = None) -> Paperspace
 
     .. automethod:: rename
 
     .. automethod:: delete
 
-    .. automethod:: active_layout
+    .. automethod:: active_layout() -> Paperspace
 
     .. automethod:: set_active_layout
 
-    .. automethod:: get_layout_for_entity
+    .. automethod:: get_layout_for_entity(entity: DXFEntity) -> Layout

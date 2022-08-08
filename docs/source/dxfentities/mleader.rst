@@ -247,11 +247,11 @@ Required DXF version     DXF R2000 (``'AC1015'``)
 
         list of :class:`AttribData`
 
-    .. automethod:: virtual_entities
+    .. automethod:: virtual_entities() -> Iterable[DXFGraphic]
 
-    .. automethod:: explode
+    .. automethod:: explode(target_layout: BaseLayout = None) -> EntityQuery
 
-    .. automethod:: transform
+    .. automethod:: transform(m: Matrix44) -> MultiLeader
 
 .. class:: MLeaderContext
 

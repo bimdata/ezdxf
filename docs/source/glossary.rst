@@ -46,10 +46,10 @@ Glossary
         interpretation of `Autodesk`_. See also :ref:`what is dxf`
 
     SAB
-        ACIS file format (Standard ACIS Binary), binary stored data
+        ACIS file format, data stored as binary data
 
     SAT
-        ACIS file format (Standard ACIS Text), data stored as ASCII text
+        ACIS file format, data stored as ASCII text
 
     STB
         Named plot style table (:class:`~ezdxf.acadctb.NamedPlotStyles`)

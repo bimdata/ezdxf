@@ -44,16 +44,16 @@ Inherited DXF attributes :ref:`Common graphical DXF attributes`
 
     .. automethod:: angles
 
-    .. automethod:: flattening
+    .. automethod:: flattening(sagitta: float) -> Iterable[Vertex]
 
-    .. automethod:: transform
+    .. automethod:: transform(m: Matrix44) -> Arc
 
-    .. automethod:: to_ellipse
+    .. automethod:: to_ellipse(replace=True) -> Ellipse
 
-    .. automethod:: to_spline
+    .. automethod:: to_spline(replace=True) -> Spline
 
-    .. automethod:: construction_tool
+    .. automethod:: construction_tool() -> ConstructionArc
 
-    .. automethod:: apply_construction_tool
+    .. automethod:: apply_construction_tool(arc: ConstructionArc) -> Arc
 
 .. _DXF Reference: http://help.autodesk.com/view/OARX/2018/ENU/?guid=GUID-0B14D8F1-0EBA-44BF-9108-57D8CE614BC8

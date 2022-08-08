@@ -111,8 +111,8 @@ Required DXF version     DXF R2000 (``'AC1015'``)
 
     .. automethod:: set_vertices
 
-    .. automethod:: transform
+    .. automethod:: transform(m: Matrix44) -> Leader
 
-    .. automethod:: virtual_entities
+    .. automethod:: virtual_entities() -> Iterable[Union[Line, Arc]]
 
-    .. automethod:: explode
+    .. automethod:: explode(target_layout: BaseLayout = None) -> EntityQuery

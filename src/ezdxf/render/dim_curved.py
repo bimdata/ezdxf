@@ -886,7 +886,8 @@ class ArcLengthMeasurement(LengthMeasurement):
 
 
 class ArcLengthDimension(_CurvedDimensionLine):
-    """Arc length dimension line renderer.
+    """
+    Arc length dimension line renderer.
     Requires DXF R2004.
 
     Supported render types:

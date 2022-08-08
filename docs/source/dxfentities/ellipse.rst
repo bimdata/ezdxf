@@ -55,22 +55,22 @@ Required DXF version     DXF R2000 (``'AC1015'``)
 
         Returns the minor axis of the ellipse as :class:`Vec3` in WCS.
 
-    .. automethod:: construction_tool
+    .. automethod:: construction_tool() -> ConstructionEllipse
 
-    .. automethod:: apply_construction_tool
+    .. automethod:: apply_construction_tool(e: ConstructionEllipse) -> Ellipse
 
-    .. automethod:: vertices
+    .. automethod:: vertices(params:Iterable[float]) -> Iterable[Vec3]
 
-    .. automethod:: flattening
+    .. automethod:: flattening(distance: float, segments: int = 8) -> Iterable[Vec3]
 
     .. automethod:: params
 
-    .. automethod:: transform
+    .. automethod:: transform(m: Matrix44) -> Ellipse
 
-    .. automethod:: translate
+    .. automethod:: translate(dx: float, dy: float, dz: float) -> Ellipse
 
-    .. automethod:: to_spline
+    .. automethod:: to_spline(replace=True) -> Spline
 
-    .. automethod:: from_arc
+    .. automethod:: from_arc(entity: DXFGraphic) -> Ellipse
 
 .. _DXF Reference: http://help.autodesk.com/view/OARX/2018/ENU/?guid=GUID-107CB04F-AD4D-4D2F-8EC9-AC90888063AB

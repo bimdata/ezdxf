@@ -1,6 +1,5 @@
 # Copyright (c) 2020-2022, Manfred Moitzi
 # License: MIT License
-from __future__ import annotations
 from typing import (
     List,
     Iterable,
@@ -17,7 +16,7 @@ from ezdxf.math import (
     Bezier4P,
     Matrix44,
     has_clockwise_orientation,
-    UVec,
+    Vertex,
 )
 
 from .commands import (
@@ -46,7 +45,7 @@ class Path:
         "_user_data",
     )
 
-    def __init__(self, start: UVec = NULLVEC):
+    def __init__(self, start: Vertex = NULLVEC):
         # stores all command vertices in a contiguous list
         self._vertices: List[Vec3] = [Vec3(start)]
         # start index of each command
@@ -120,7 +119,7 @@ class Path:
         return self._vertices[0]
 
     @start.setter
-    def start(self, location: UVec) -> None:
+    def start(self, location: Vertex) -> None:
         if self._commands:
             raise ValueError("Requires an empty path.")
         else:
@@ -159,15 +158,19 @@ class Path:
     def has_sub_paths(self) -> bool:
         """Returns ``True`` if the path is a :term:`Multi-Path` object which
         contains multiple sub-paths.
+
         .. versionadded:: 0.17
+
         """
         return self._has_sub_paths
 
     def has_clockwise_orientation(self) -> bool:
         """Returns ``True`` if 2D path has clockwise orientation, ignores
         z-axis of all control vertices.
+
         Raises:
             TypeError: can't detect orientation of a :term:`Multi-Path` object
+
         """
         if self.has_sub_paths:
             raise TypeError("can't detect orientation of a multi-path object")
@@ -187,19 +190,22 @@ class Path:
         else:
             raise ValueError(f"Invalid command: {t}")
 
-    def line_to(self, location: UVec) -> None:
+    def line_to(self, location: Vertex) -> None:
         """Add a line from actual path end point to `location`."""
         self._commands.append(Command.LINE_TO)
         self._start_index.append(len(self._vertices))
         self._vertices.append(Vec3(location))
 
-    def move_to(self, location: UVec) -> None:
+    def move_to(self, location: Vertex) -> None:
         """Start a new sub-path at `location`. This creates a gap between the
         current end-point and the start-point of the new sub-path. This converts
         the instance into a :term:`Multi-Path` object.
+
         If the :meth:`move_to` command is the first command, the start point of
         the path will be reset to `location`.
+
         .. versionadded:: 0.17
+
         """
         commands = self._commands
         if not commands:
@@ -215,7 +221,7 @@ class Path:
         self._start_index.append(len(self._vertices))
         self._vertices.append(Vec3(location))
 
-    def curve3_to(self, location: UVec, ctrl: UVec) -> None:
+    def curve3_to(self, location: Vertex, ctrl: Vertex) -> None:
         """Add a quadratic Bèzier-curve from actual path end point to
         `location`, `ctrl` is the control point for the quadratic Bèzier-curve.
         """
@@ -223,7 +229,7 @@ class Path:
         self._start_index.append(len(self._vertices))
         self._vertices.extend((Vec3(ctrl), Vec3(location)))
 
-    def curve4_to(self, location: UVec, ctrl1: UVec, ctrl2: UVec) -> None:
+    def curve4_to(self, location: Vertex, ctrl1: Vertex, ctrl2: Vertex) -> None:
         """Add a cubic Bèzier-curve from actual path end point to `location`,
         `ctrl1` and `ctrl2` are the control points for the cubic Bèzier-curve.
         """
@@ -242,7 +248,9 @@ class Path:
         """Close last sub-path by adding a line segment from the end point to
         the start point of the last sub-path. Behaves like :meth:`close` for
         :term:`Single-Path` instances.
+
         .. versionadded:: 0.17
+
         """
         if self.has_sub_paths:
             start_point = self._start_of_last_sub_path()
@@ -268,6 +276,7 @@ class Path:
     def reversed(self) -> "Path":
         """Returns a new :class:`Path` with reversed segments and control
         vertices.
+
         """
         path = self.clone()
         if not path._commands:
@@ -305,8 +314,10 @@ class Path:
 
     def clockwise(self) -> "Path":
         """Returns new :class:`Path` in clockwise orientation.
+
         Raises:
             TypeError: can't detect orientation of a :term:`Multi-Path` object
+
         """
         if self.has_clockwise_orientation():
             return self.clone()
@@ -315,8 +326,10 @@ class Path:
 
     def counter_clockwise(self) -> "Path":
         """Returns new :class:`Path` in counter-clockwise orientation.
+
         Raises:
             TypeError: can't detect orientation of a :term:`Multi-Path` object
+
         """
 
         if self.has_clockwise_orientation():
@@ -327,10 +340,13 @@ class Path:
     def approximate(self, segments: int = 20) -> Iterator[Vec3]:
         """Approximate path by vertices, `segments` is the count of
         approximation segments for each Bézier curve.
+
         Does not yield any vertices for empty paths, where only a start point
         is present!
+
         Approximation of :term:`Multi-Path` objects is possible, but gaps are
         indistinguishable from line segments.
+
         """
 
         def approx_curve3(s, c, e) -> Iterable[Vec3]:
@@ -347,25 +363,25 @@ class Path:
         minimum count of approximation segments for each curve, if the distance
         from the center of the approximation segment to the curve is bigger than
         `distance` the segment will be subdivided.
+
         Does not yield any vertices for empty paths, where only a start point
         is present!
+
         Flattening of :term:`Multi-Path` objects is possible, but gaps are
         indistinguishable from line segments.
+
         Args:
             distance: maximum distance from the center of the curve to the
                 center of the line segment between two approximation points to
                 determine if a segment should be subdivided.
             segments: minimum segment count per Bézier curve
+
         """
 
         def approx_curve3(s, c, e) -> Iterable[Vec3]:
-            if distance == 0.0:
-                raise ValueError(f"invalid max distance: {distance}")
             return Bezier3P((s, c, e)).flattening(distance, segments)
 
         def approx_curve4(s, c1, c2, e) -> Iterable[Vec3]:
-            if distance == 0.0:
-                raise ValueError(f"invalid max distance: {distance}")
             return Bezier4P((s, c1, c2, e)).flattening(distance, segments)
 
         yield from self._approximate(approx_curve3, approx_curve4)
@@ -401,8 +417,10 @@ class Path:
 
     def transform(self, m: "Matrix44") -> "Path":
         """Returns a new transformed path.
+
         Args:
              m: transformation matrix of type :class:`~ezdxf.math.Matrix44`
+
         """
         new_path = self.clone()
         new_path._vertices = list(m.transform_vertices(self._vertices))
@@ -416,9 +434,12 @@ class Path:
 
     def sub_paths(self) -> Iterator["Path"]:
         """Yield sub-path as :term:`Single-Path` objects.
+
         It is safe to call :meth:`sub_paths` on any path-type:
         :term:`Single-Path`, :term:`Multi-Path` and :term:`Empty-Path`.
+
         .. versionadded:: 0.17
+
         """
         path = self.__class__(start=self.start)
         path._user_data = self._user_data
@@ -437,7 +458,9 @@ class Path:
         :term:`Multi-Path` object, even if the previous end point matches the
         start point of the appended path. Ignores paths without any commands
         (empty paths).
+
         .. versionadded:: 0.17
+
         """
         if len(path):
             self.move_to(path.start)
@@ -447,7 +470,9 @@ class Path:
     def append_path(self, path: "Path") -> None:
         """Append another path to this path. Adds a :code:`self.line_to(path.start)`
         if the end of this path != the start of appended path.
+
         .. versionadded:: 0.17
+
         """
         if len(path) == 0:
             return  # do not append an empty path

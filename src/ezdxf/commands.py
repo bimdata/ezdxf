@@ -13,7 +13,6 @@ import ezdxf
 from ezdxf import recover
 from ezdxf.lldxf import const
 from ezdxf.lldxf.validator import is_dxf_file, is_binary_dxf_file
-from ezdxf.dwginfo import dwg_file_info
 
 if TYPE_CHECKING:
     from ezdxf.eztypes import DXFGraphic
@@ -229,9 +228,7 @@ def load_document(filename: str):
 
     if auditor.has_errors:
         # But is most likely good enough for rendering.
-        msg = (
-            f"Audit process found {len(auditor.errors)} unrecoverable error(s)."
-        )
+        msg = f"Audit process found {len(auditor.errors)} unrecoverable error(s)."
         print(msg)
         logger.error(msg)
     if auditor.has_fixes:
@@ -506,51 +503,6 @@ class Browse(Command):
 
 
 @register
-class BrowseAcisData(Command):
-    """Launcher sub-command: browse-acis"""
-
-    NAME = "browse-acis"
-
-    @staticmethod
-    def add_parser(subparsers):
-        parser = subparsers.add_parser(
-            BrowseAcisData.NAME, help="browse ACIS structures in DXF files"
-        )
-        parser.add_argument(
-            "file",
-            metavar="FILE",
-            nargs="?",
-            help="DXF file to browse",
-        )
-        parser.add_argument(
-            "-g",
-            "--handle",
-            required=False,
-            help="go to entity by HANDLE, HANDLE has to be a hex value without "
-            "any prefix like 'fefe'",
-        )
-
-    @staticmethod
-    def run(args):
-        try:
-            from ezdxf.addons.xqt import QtWidgets
-        except ImportError as e:
-            print(str(e))
-            sys.exit(1)
-        from ezdxf.addons.acisbrowser.browser import AcisStructureBrowser
-
-        signal.signal(signal.SIGINT, signal.SIG_DFL)  # handle Ctrl+C properly
-        app = QtWidgets.QApplication(sys.argv)
-        set_app_icon(app)
-        main_window = AcisStructureBrowser(
-            args.file,
-            handle=args.handle,
-        )
-        main_window.show()
-        sys.exit(app.exec())
-
-
-@register
 class Strip(Command):
     """Launcher sub-command: strip"""
 
@@ -672,16 +624,6 @@ def load_every_document(filename: str):
         except IOError:
             raise const.DXFLoadError(io_error())
         except const.DXFStructureError:
-            dwginfo = dwg_file_info(filename)
-            if dwginfo.version != "invalid":
-                print(
-                    f"This is a DWG file!!!\n"
-                    f"Filename: \"{filename}\"\n"
-                    f"Format: DWG\n"
-                    f"Release: {dwginfo.release}\n"
-                    f"DWG Version: {dwginfo.version}\n"
-                )
-                raise const.DXFLoadError()
             raise const.DXFLoadError(structure_error())
     return doc, auditor, binary_fmt
 

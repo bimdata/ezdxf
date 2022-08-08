@@ -5,7 +5,6 @@ from pathlib import Path
 import ezdxf
 from ezdxf.layouts import Paperspace
 from ezdxf.enums import TextEntityAlignment
-from ezdxf import colors
 
 MESH_SIZE = 20
 DIR = Path("~/Desktop/Outbox").expanduser()
@@ -30,33 +29,33 @@ def build_cos_sin_mesh(mesh):
 
 def create_2d_modelspace_content(layout):
     rect = layout.add_polyline2d(
-        [(5, 5), (10, 5), (10, 10), (5, 10)], dxfattribs={"color": colors.RED}
+        [(5, 5), (10, 5), (10, 10), (5, 10)], dxfattribs={"color": 2}
     )
     rect.close(True)
 
-    layout.add_circle((10, 5), 2.5, dxfattribs={"color": colors.GREEN})
+    layout.add_circle((10, 5), 2.5, dxfattribs={"color": 3})
 
     triangle = layout.add_polyline2d(
-        [(10, 7.5), (15, 5), (15, 10)], dxfattribs={"color": colors.CYAN}
+        [(10, 7.5), (15, 5), (15, 10)], dxfattribs={"color": 4}
     )
     triangle.close(True)
 
 
 def create_3d_modelspace_content(modelspace):
     mesh = modelspace.add_polymesh(
-        (MESH_SIZE, MESH_SIZE), dxfattribs={"color": colors.MAGENTA}
+        (MESH_SIZE, MESH_SIZE), dxfattribs={"color": 6}
     )
     build_cos_sin_mesh(mesh)
 
 
-def create_viewports(paperspace: Paperspace):
+def create_viewports(paperspace: Paperspace, dxfversion):
     # Define viewports in paper space:
     # center, size=(width, height) defines the viewport in paper space.
     # view_center_point and view_height defines the area in model space
     # which is displayed in the viewport.
     txt_attribs = dict(
         style="OpenSans-Bold",
-        color=colors.BLUE,
+        color=5,
     )
     paperspace.add_viewport(
         center=(2.5, 2.5),
@@ -64,8 +63,7 @@ def create_viewports(paperspace: Paperspace):
         view_center_point=(7.5, 7.5),
         view_height=10,
     )
-    # scale is calculated by:
-    # height of model space (view_height=10) / height of viewport (height=5)
+    # scale is calculated by: height of model space (view_height=10) / height of viewport (height=5)
     paperspace.add_text(
         "View of Rectangle Scale=1:2", height=0.18, dxfattribs=txt_attribs
     ).set_placement((0, 5.2))
@@ -125,23 +123,19 @@ def create_viewports(paperspace: Paperspace):
 def main():
     def make(dxfversion, filename):
         doc = ezdxf.new(dxfversion, setup=True)
-        # create/get the default layer for VIEWPORT entities:
         if "VIEWPORTS" not in doc.layers:
             vp_layer = doc.layers.add("VIEWPORTS")
         else:
             vp_layer = doc.layers.get("VIEWPORTS")
         # switch viewport layer off to hide the viewport border lines
         vp_layer.off()
-        # the VIEWPORT layer is not fixed:
-        # Paperspace.add_viewport(..., dxfattribs={"layer": "MyViewportLayer"})
 
         create_2d_modelspace_content(doc.modelspace())
         create_3d_modelspace_content(doc.modelspace())
-        # IMPORTANT: DXF R12 supports only one paper space aka layout, every
-        # layout name returns the same layout
+        # IMPORTANT: DXF R12 supports only one paper space aka layout, every layout name returns the same layout
         layout: Paperspace = doc.layout("Layout1")  # type: ignore
         layout.page_setup(size=(22, 17), margins=(1, 1, 1, 1), units="inch")
-        create_viewports(layout)
+        create_viewports(layout, dxfversion)
 
         try:
             doc.saveas(DIR / filename)

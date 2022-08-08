@@ -226,15 +226,15 @@ Angular Dimension by ConstructionArc        :meth:`~ezdxf.layouts.BaseLayout.add
 
     .. automethod:: get_measurement
 
-    .. automethod:: override
+    .. automethod:: override() -> DimStyleOverride
 
-    .. automethod:: render
+    .. automethod:: render()
 
-    .. automethod:: transform
+    .. automethod:: transform(m: Matrix44) -> Dimension
 
-    .. automethod:: virtual_entities
+    .. automethod:: virtual_entities() -> Iterable[DXFGraphic]
 
-    .. automethod:: explode
+    .. automethod:: explode(target_layout: BaseLayout = None) -> EntityQuery
 
 
 DimStyleOverride

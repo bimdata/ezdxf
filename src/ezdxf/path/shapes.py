@@ -1,13 +1,11 @@
-#  Copyright (c) 2021-2022, Manfred Moitzi
+#  Copyright (c) 2021, Manfred Moitzi
 #  License: MIT License
-from __future__ import annotations
 import math
 from ezdxf.math import (
     cubic_bezier_arc_parameters,
     Matrix44,
-    UVec,
+    Vertex,
     basic_transformation,
-    Vec3,
 )
 from ezdxf.render import forms
 from .path import Path
@@ -21,7 +19,6 @@ __all__ = [
     "wedge",
     "star",
     "gear",
-    "helix",
 ]
 
 
@@ -99,7 +96,7 @@ def wedge(
 
 
 def elliptic_transformation(
-    center: UVec = (0, 0, 0),
+    center: Vertex = (0, 0, 0),
     radius: float = 1,
     ratio: float = 1,
     rotation: float = 0,
@@ -238,71 +235,3 @@ def gear(
     if transform is not None:
         vertices = transform.transform_vertices(vertices)
     return converter.from_vertices(vertices, close=True)
-
-
-def helix(
-    radius: float,
-    pitch: float,
-    turns: float,
-    ccw=True,
-    segments: int = 4,
-) -> Path:
-    """
-    Returns a `helix <https://en.wikipedia.org/wiki/Helix>`_ as
-    a :class:`Path` object.
-    The center of the helix is always (0, 0, 0), a positive `pitch` value
-    creates a helix along the +z-axis, a negative value along the -z-axis.
-
-    Args:
-        radius: helix radius
-        pitch: the height of one complete helix turn
-        turns: count of turns
-        ccw: creates a counter-clockwise turning (right-handed) helix if ``True``
-        segments: cubic Bezier segments per turn
-
-    .. versionadded:: 0.18
-
-    """
-    # Source of algorithm: https://www.arc.id.au/HelixDrawing.html
-    def bezier_ctrl_points(b, angle, segments):
-        zz = 0.0
-        z_step = angle / segments * p
-        z_step_2 = z_step * 0.5
-        for _, v1, v2, v3 in cubic_bezier_arc_parameters(0, angle, segments):
-            yield (
-                Vec3(v1.x * rx, v1.y * ry, zz + z_step_2 - b),
-                Vec3(v2.x * rx, v2.y * ry, zz + z_step_2 + b),
-                Vec3(v3.x * rx, v3.y * ry, zz + z_step),
-            )
-            zz += z_step
-
-    def param_b(alpha: float) -> float:
-        cos_a = math.cos(alpha)
-        b_1 = (1.0 - cos_a) * (3.0 - cos_a) * alpha * p
-        b_2 = math.sin(alpha) * (4.0 - cos_a) * math.tan(alpha)
-        return b_1 / b_2
-    rx = radius
-    ry = radius
-    if not ccw:
-        ry = -ry
-    path = Path(start=(radius, 0, 0))
-
-    p = pitch / math.tau
-    b = param_b(math.pi / segments)
-    full_turns = int(math.floor(turns))
-    if full_turns > 0:
-        curve_params = list(bezier_ctrl_points(b, math.tau, segments))
-        for _ in range(full_turns):
-            z = Vec3(0, 0, path.end.z)
-            for v1, v2, v3 in curve_params:
-                path.curve4_to(z + v3, z + v1, z + v2)
-
-    reminder = turns - full_turns
-    if reminder > 1e-6:
-        segments = math.ceil(reminder * 4)
-        b = param_b(reminder * math.pi / segments)
-        z = Vec3(0, 0, path.end.z)
-        for v1, v2, v3 in bezier_ctrl_points(b, math.tau * reminder, segments):
-            path.curve4_to(z + v3, z + v1, z + v2)
-
-    return path

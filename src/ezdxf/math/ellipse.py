@@ -1,11 +1,9 @@
-# Copyright (c) 2020-2022, Manfred Moitzi
+# Copyright (c) 2020-2021, Manfred Moitzi
 # License: MIT License
-from __future__ import annotations
 from typing import TYPE_CHECKING, Iterable, Dict, Tuple
 import math
 from ezdxf.math import (
     Vec3,
-    UVec,
     NULLVEC,
     X_AXIS,
     Z_AXIS,
@@ -18,7 +16,7 @@ from ezdxf.math import (
 )
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import BaseLayout, Ellipse
+    from ezdxf.eztypes import Vertex, BaseLayout, Ellipse
 
 __all__ = [
     "ConstructionEllipse",
@@ -46,9 +44,9 @@ class ConstructionEllipse:
 
     def __init__(
         self,
-        center: UVec = NULLVEC,
-        major_axis: UVec = X_AXIS,
-        extrusion: UVec = Z_AXIS,
+        center: "Vertex" = NULLVEC,
+        major_axis: "Vertex" = X_AXIS,
+        extrusion: "Vertex" = Z_AXIS,
         ratio: float = 1,
         start_param: float = 0,
         end_param: float = math.tau,
@@ -73,9 +71,9 @@ class ConstructionEllipse:
     @classmethod
     def from_arc(
         cls,
-        center: UVec = NULLVEC,
+        center: "Vertex" = NULLVEC,
         radius: float = 1,
-        extrusion: UVec = Z_AXIS,
+        extrusion: "Vertex" = Z_AXIS,
         start_angle: float = 0,
         end_angle: float = 360,
         ccw: bool = True,
@@ -412,7 +410,7 @@ class ConstructionEllipse:
             start_point = end_point
 
     def params_from_vertices(
-        self, vertices: Iterable[UVec]
+        self, vertices: Iterable["Vertex"]
     ) -> Iterable[float]:
         """Yields ellipse params for all given `vertices`.
 

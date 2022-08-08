@@ -27,16 +27,16 @@ Inherited DXF attributes :ref:`Common graphical DXF attributes`
 
         Radius of circle (float)
 
-    .. automethod:: vertices
+    .. automethod:: vertices(angle:Iterable[float]) -> Iterable[Vec3]
 
-    .. automethod:: flattening
+    .. automethod:: flattening(sagitta: float) -> Iterable[Vec3]
 
-    .. automethod:: transform
+    .. automethod:: transform(m: Matrix44) -> Circle
 
-    .. automethod:: translate
+    .. automethod:: translate(dx: float, dy: float, dz: float) -> Circle
 
-    .. automethod:: to_ellipse
+    .. automethod:: to_ellipse(replace=True) -> Ellipse
 
-    .. automethod:: to_spline
+    .. automethod:: to_spline(replace=True) -> Spline
 
 .. _DXF Reference: http://help.autodesk.com/view/OARX/2018/ENU/?guid=GUID-8663262B-222C-414D-B133-4A8506A27C18

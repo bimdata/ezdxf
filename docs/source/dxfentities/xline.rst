@@ -26,6 +26,6 @@ Required DXF version     DXF R2000 (``'AC1015'``)
 
     Unit direction vector as (3D Point in :ref:`WCS`)
 
-    .. automethod:: transform
+    .. automethod:: transform(m: Matrix44) -> XLine
 
-    .. automethod:: translate
+    .. automethod:: translate(dx: float, dy: float, dz: float) -> XLine

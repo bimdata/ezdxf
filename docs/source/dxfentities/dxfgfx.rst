@@ -46,15 +46,15 @@ Subclass of  :class:`ezdxf.entities.DXFEntity`
 
     .. autoproperty:: is_transparency_by_block
 
-    .. automethod:: ocs
+    .. automethod:: ocs() -> OCS
 
-    .. automethod:: get_layout
+    .. automethod:: get_layout() -> BaseLayout
 
     .. automethod:: unlink_from_layout
 
-    .. automethod:: copy_to_layout
+    .. automethod:: copy_to_layout(layout: BaseLayout) -> DXFEntity
 
-    .. automethod:: move_to_layout
+    .. automethod:: move_to_layout(layout: BaseLayout, source: BaseLayout=None)
 
     .. automethod:: graphic_properties
 
@@ -64,21 +64,21 @@ Subclass of  :class:`ezdxf.entities.DXFEntity`
 
     .. automethod:: set_hyperlink
 
-    .. automethod:: transform
+    .. automethod:: transform(t: Matrix44) -> DXFGraphic
 
-    .. automethod:: translate
+    .. automethod:: translate(dx: float, dy: float, dz: float) -> DXFGraphic
 
-    .. automethod:: scale
+    .. automethod:: scale(sx: float, sy: float, sz: float) -> DXFGraphic
 
-    .. automethod:: scale_uniform
+    .. automethod:: scale_uniform(s: float) -> DXFGraphic
 
-    .. automethod:: rotate_x
+    .. automethod:: rotate_x(angle: float) -> DXFGraphic
 
-    .. automethod:: rotate_y
+    .. automethod:: rotate_y(angle: float) -> DXFGraphic
 
-    .. automethod:: rotate_z
+    .. automethod:: rotate_z(angle: float) -> DXFGraphic
 
-    .. automethod:: rotate_axis
+    .. automethod:: rotate_axis(axis: Vec3, angle: float) -> DXFGraphic
 
 .. _Common graphical DXF attributes:
 

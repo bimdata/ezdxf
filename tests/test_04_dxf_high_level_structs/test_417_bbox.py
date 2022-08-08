@@ -148,16 +148,26 @@ def circle():
     return lay
 
 
-def test_fast_bounding_box_calculation(circle):
-    box = bbox.extents(circle, fast=True)
+def test_bbox_from_control_points(circle):
+    box = bbox.extents(circle, flatten=0)
     assert box.extmin == (-100, -100)
     assert box.extmax == (+100, +100)
 
 
-def test_precise_bounding_box_calculation(circle):
-    box = bbox.extents(circle, fast=False)
-    assert box.extmin == (-100, -100)
-    assert box.extmax == (+100, +100)
+def test_bbox_from_rough_flattening(circle):
+    box = bbox.extents(circle, flatten=5)
+    assert box.extmin != (-100, -100), "did not expect a precise result"
+    assert box.extmax != (+100, +100), "did not expect a precise result"
+
+
+def test_bbox_from_precise_flattening(circle):
+    box = bbox.extents(circle, flatten=0.0001)
+    assert box.extmin.isclose(
+        (-100, -100), abs_tol=0.0001
+    ), "expected a very close result"
+    assert box.extmax.isclose(
+        (+100, +100), abs_tol=0.0001
+    ), "expected a very_close result"
 
 
 if __name__ == "__main__":

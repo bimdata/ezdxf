@@ -1,13 +1,12 @@
 # Purpose: menger sponge addon for ezdxf
-# Copyright (c) 2016-2022 Manfred Moitzi
+# Copyright (c) 2016-2021 Manfred Moitzi
 # License: MIT License
-from __future__ import annotations
-from typing import TYPE_CHECKING, List, Tuple, Iterator, Sequence, Dict
-from ezdxf.math import Vec3, UVec
-from ezdxf.render.mesh import MeshVertexMerger, MeshTransformer, MeshBuilder
+from typing import TYPE_CHECKING, Iterable, List, Tuple, Iterator
+from ezdxf.math import Vec3
+from ezdxf.render.mesh import MeshVertexMerger, MeshTransformer
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import GenericLayoutType, Matrix44, UCS
+    from ezdxf.eztypes import Vertex, GenericLayoutType, Matrix44, UCS
 
 # fmt: off
 all_cubes_size_3_template = [
@@ -100,7 +99,7 @@ class MengerSponge:
 
     def __init__(
         self,
-        location: UVec = (0.0, 0.0, 0.0),
+        location: "Vertex" = (0.0, 0.0, 0.0),
         length: float = 1.0,
         level: int = 1,
         kind: int = 0,
@@ -109,7 +108,7 @@ class MengerSponge:
             location=location, length=length, level=level, kind=kind
         )
 
-    def vertices(self) -> Iterator[UVec]:
+    def vertices(self) -> Iterator["Vertex"]:
         """Yields the cube vertices as list of (x, y, z) tuples."""
         for location, length in self.cube_definitions:
             x, y, z = location
@@ -175,32 +174,12 @@ class MengerSponge:
         mesh = MeshVertexMerger()
         for vertices in self:
             mesh.add_mesh(vertices=vertices, faces=faces)  # type: ignore
-        return remove_duplicate_inner_faces(mesh)
-
-
-def remove_duplicate_inner_faces(mesh: MeshBuilder) -> MeshTransformer:
-    new_mesh = MeshTransformer()
-    new_mesh.vertices = mesh.vertices
-    new_mesh.faces = list(manifold_faces(mesh.faces))
-    return new_mesh
-
-
-def manifold_faces(faces: List[Sequence[int]]) -> Iterator[Sequence[int]]:
-    ledger: Dict[Tuple[int, ...], List[Sequence[int]]] = {}
-    for face in faces:
-        key = tuple(sorted(face))
-        try:
-            ledger[key].append(face)
-        except KeyError:
-            ledger[key] = [face]
-    for faces in ledger.values():
-        if len(faces) == 1:
-            yield faces[0]
+        return MeshTransformer.from_builder(mesh)
 
 
 def _subdivide(
-    location: UVec = (0.0, 0.0, 0.0), length: float = 1.0, kind: int = 0
-) -> List[Tuple[UVec, float]]:
+    location: "Vertex" = (0.0, 0.0, 0.0), length: float = 1.0, kind: int = 0
+) -> List[Tuple["Vertex", float]]:
     """Divides a cube in sub-cubes and keeps only cubes determined by the
     building schema.
 
@@ -234,7 +213,7 @@ def _subdivide(
 
 
 def _menger_sponge(
-    location: UVec = (0.0, 0.0, 0.0),
+    location: "Vertex" = (0.0, 0.0, 0.0),
     length: float = 1.0,
     level: int = 1,
     kind: int = 0,

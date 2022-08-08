@@ -16,8 +16,8 @@ from typing import (
 if TYPE_CHECKING:
     # Low level stuff
     from ezdxf.math import (
-        Vec3, Vec2, AnyVec, Matrix44, BoundingBox, BoundingBox2d, UCS,
-        OCS, UVec
+        Vec3, Vec2, AnyVec, Vertex, Matrix44, BoundingBox, BoundingBox2d, UCS,
+        OCS
     )
     from ezdxf.tools.handle import HandleGenerator
     from ezdxf.lldxf.types import DXFTag, DXFBinaryTag
@@ -133,12 +133,12 @@ if TYPE_CHECKING:
     from ezdxf.audit import Auditor
     from ezdxf.lldxf.validator import DXFInfo
 
-    # Type aliases
+    # Type compositions
     RGB = Tuple[int, int, int]
     IterableTags = Iterable[Tuple[int, Any]]
     SectionDict = Dict[str, List[Union[Tags, ExtendedTags]]]
     KeyFunc = Callable[['DXFEntity'], Hashable]
-    FaceType = Sequence[UVec]
+    FaceType = Sequence[Vertex]
 
     # Type Unions
     GenericLayoutType = Union[Layout, BlockLayout, VirtualLayout]

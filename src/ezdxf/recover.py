@@ -127,6 +127,8 @@ def explore(
         DXFStructureError: for invalid or corrupted DXF structures
         UnicodeDecodeError: if `errors` is "strict" and a decoding error occurs
 
+    .. versionadded: 0.15
+
     """
     filename = str(filename)
     with open(filename, mode="rb") as fp:

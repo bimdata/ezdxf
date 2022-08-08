@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2022, Manfred Moitzi
+# Copyright (c) 2010-2021, Manfred Moitzi
 # License: MIT License
 """MText - MultiLine-Text-Entity, build by simple TEXT-Entities.
 
@@ -9,7 +9,6 @@ RIGHT), rotation for an arbitrary (!) angle and mirror.
 This add-on exist only for porting 'dxfwrite' projects to 'ezdxf'.
 
 """
-from __future__ import annotations
 from typing import TYPE_CHECKING
 import math
 from .mixins import SubscriptAttributes
@@ -18,8 +17,7 @@ from ezdxf.lldxf import const
 from ezdxf.enums import MAP_FLAGS_TO_STRING_ALIGN, MAP_STRING_ALIGN_TO_FLAGS
 
 if TYPE_CHECKING:
-    from ezdxf.math import UVec
-    from ezdxf.eztypes import GenericLayoutType
+    from ezdxf.eztypes import Vertex, GenericLayoutType
 
 
 class MText(SubscriptAttributes):
@@ -61,7 +59,7 @@ class MText(SubscriptAttributes):
     )
 
     def __init__(
-        self, text: str, insert: UVec, linespacing: float = 1.5, **kwargs
+        self, text: str, insert: "Vertex", linespacing: float = 1.5, **kwargs
     ):
         self.textlines = text.split("\n")
         self.insert = insert
@@ -112,7 +110,7 @@ class MText(SubscriptAttributes):
                 dxfattribs=self._dxfattribs(self.insert),
             )
 
-    def _get_align_point(self, linenum: int) -> UVec:
+    def _get_align_point(self, linenum: int) -> "Vertex":
         """Calculate the align point depending on the line number."""
         x = self.insert[0]
         y = self.insert[1]
@@ -132,7 +130,7 @@ class MText(SubscriptAttributes):
             y += (len(self.textlines) - 1 - linenum) * self.lineheight
         return self._rotate((x, y, z))  # consider rotation
 
-    def _rotate(self, alignpoint: UVec) -> UVec:
+    def _rotate(self, alignpoint: "Vertex") -> "Vertex":
         """Rotate alignpoint around insert point about rotation degrees."""
         dx = alignpoint[0] - self.insert[0]
         dy = alignpoint[1] - self.insert[1]
@@ -141,7 +139,7 @@ class MText(SubscriptAttributes):
         y = self.insert[1] + dy * math.cos(beta) + dx * math.sin(beta)
         return round(x, 6), round(y, 6), alignpoint[2]
 
-    def _dxfattribs(self, alignpoint: UVec) -> dict:
+    def _dxfattribs(self, alignpoint: "Vertex") -> dict:
         """Build keyword arguments for TEXT entity creation."""
         halign, valign = MAP_STRING_ALIGN_TO_FLAGS.get(self.align, (0, 3))
         return {

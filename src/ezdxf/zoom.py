@@ -1,8 +1,8 @@
-#  Copyright (c) 2021-2022, Manfred Moitzi
+#  Copyright (c) 2021, Manfred Moitzi
 #  License: MIT License
 from typing import Iterable, cast
 
-from ezdxf.math import UVec, Vec2, BoundingBox2d
+from ezdxf.math import Vertex, Vec2, BoundingBox2d
 from ezdxf.layouts import Layout, Paperspace
 from ezdxf.entities import DXFEntity
 from ezdxf import bbox
@@ -10,7 +10,7 @@ from ezdxf import bbox
 __all__ = ["center", "objects", "extents", "window"]
 
 
-def center(layout: Layout, point: UVec, size: UVec):
+def center(layout: Layout, point: Vertex, size: Vertex):
     """Resets the active viewport center of `layout` to the given `point`,
     argument `size` defines the width and height of the viewport.
     Replaces the current viewport configuration by a single window
@@ -41,7 +41,7 @@ def zoom_to_entities(layout: Layout, entities: Iterable[DXFEntity], factor):
         main_viewport = layout.main_viewport()
         if main_viewport is not None:
             entities = (e for e in entities if e is not main_viewport)
-    extents = bbox.extents(entities, fast=True)
+    extents = bbox.extents(entities, flatten=0)
     if extents.has_data:
         center(layout, extents.center, extents.size * factor)
 
@@ -69,7 +69,7 @@ def extents(layout: Layout, factor: float = 1):
     zoom_to_entities(layout, layout, factor)
 
 
-def window(layout: Layout, p1: UVec, p2: UVec):
+def window(layout: Layout, p1: Vertex, p2: Vertex):
     """Resets the active viewport limits of `layout` to the lower left corner
     `p1` and the upper right corner `p2`.
     Replaces the current viewport configuration by a single window

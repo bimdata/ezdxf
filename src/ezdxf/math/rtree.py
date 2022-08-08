@@ -147,24 +147,32 @@ class InnerNode(Node):
 
 class RTree:
     """Immutable spatial search tree loosely based on `R-trees`_.
+
     The search tree is buildup once at initialization and immutable afterwards,
     because rebuilding the tree after inserting or deleting nodes is very costly
     and also keeps the implementation very simple. Without the ability to
     alter the content the restrictions which forces the tree balance at growing
     and shrinking of the original `R-trees`_, could be ignored, like the fixed
     minimum and maximum node size.
+
     This class uses internally only 3D bounding boxes, but also supports
     :class:`Vec2` as well as :class:`Vec3` objects as input data, but point
     types should not be mixed in a single search tree.
+
     The point objects keep their type and identity and the returned points of
     queries can be compared by the ``is`` operator for identity to the input
     points.
+
     The implementation requires a maximum node size of at least 2 and
     does not support empty trees!
+
     Raises:
         ValueError: max. node size too small or no data given
+
     .. versionadded:: 0.18
+
     .. _R-trees: https://en.wikipedia.org/wiki/R-tree
+
     """
 
     __slots__ = ("_root",)
@@ -193,7 +201,7 @@ class RTree:
 
     def nearest_neighbor(self, target: AnyVec) -> Tuple[AnyVec, float]:
         """Returns the closest point to the `target` point and the distance
-        between these points.
+        between this points.
         """
         return self._root.nearest_neighbor(target)
 
@@ -238,9 +246,12 @@ class RTree:
         leaf nodes. Excludes outliers with a distance beyond the overall
         mean + standard deviation * spread. Returns 0.0 if less than two points
         in tree.
+
         .. warning::
+
             This is a brute force check with O(n!) for each leaf node, where n
             is the point count of the leaf node.
+
         """
         distances: List[float] = []
         for leaf in collect_leafs(self._root):

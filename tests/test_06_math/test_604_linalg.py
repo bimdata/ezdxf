@@ -3,7 +3,7 @@
 from typing import Iterable
 import pytest
 import math
-from ezdxf.math.linalg import (
+from ezdxf.math import (
     Matrix,
     gauss_vector_solver,
     gauss_matrix_solver,

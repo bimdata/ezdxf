@@ -1,12 +1,13 @@
-# Copyright (c) 2010-2022 Manfred Moitzi
+# Copyright (c) 2010-2021 Manfred Moitzi
 # License: MIT License
-from __future__ import annotations
-from typing import Sequence, Iterator, Iterable
+from typing import TYPE_CHECKING, Sequence, Iterator, Iterable
 import math
-from ezdxf.math import Vec2, linspace, UVec
+from ezdxf.math import Vec2, linspace
 from .line import ConstructionRay, ConstructionLine
 from .bbox import BoundingBox2d
 
+if TYPE_CHECKING:
+    from ezdxf.eztypes import Vertex
 
 HALF_PI = math.pi / 2.0
 
@@ -22,7 +23,7 @@ class ConstructionCircle:
 
     """
 
-    def __init__(self, center: UVec, radius: float = 1.0):
+    def __init__(self, center: "Vertex", radius: float = 1.0):
         self.center = Vec2(center)
         self.radius = float(radius)
         if self.radius <= 0.0:
@@ -35,7 +36,9 @@ class ConstructionCircle:
         return f"ConstructionCircle({self.center}, {self.radius})"
 
     @staticmethod
-    def from_3p(p1: UVec, p2: UVec, p3: UVec) -> "ConstructionCircle":
+    def from_3p(
+        p1: "Vertex", p2: "Vertex", p3: "Vertex"
+    ) -> "ConstructionCircle":
         """Creates a circle from three points, all points have to be compatible
         to :class:`Vec2` class.
         """
@@ -104,7 +107,7 @@ class ConstructionCircle:
         count = arc_segment_count(self.radius, math.tau, sagitta)
         yield from self.vertices(linspace(0.0, math.tau, count + 1))
 
-    def inside(self, point: UVec) -> bool:
+    def inside(self, point: "Vertex") -> bool:
         """Returns ``True`` if `point` is inside circle."""
         return self.radius >= self.center.distance(Vec2(point))
 

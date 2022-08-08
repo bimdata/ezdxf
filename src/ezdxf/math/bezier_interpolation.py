@@ -1,8 +1,10 @@
-# Copyright (c) 2010-2022 Manfred Moitzi
+# Copyright (c) 2010-2021 Manfred Moitzi
 # License: MIT License
-from __future__ import annotations
-from typing import List, Iterable, Sequence
-from ezdxf.math import Vec3, Bezier4P, UVec
+from typing import List, TYPE_CHECKING, Iterable, Sequence
+from ezdxf.math import Vec3, Bezier4P
+
+if TYPE_CHECKING:
+    from ezdxf.eztypes import Vertex
 
 # These are low-level interpolation tools for B-splines, which can not be
 # integrated into other curve related modules!
@@ -10,7 +12,7 @@ __all__ = ["cubic_bezier_interpolation", "tangents_cubic_bezier_interpolation"]
 
 
 def cubic_bezier_interpolation(
-    points: Iterable[UVec],
+    points: Iterable["Vertex"],
 ) -> Iterable[Bezier4P]:
     """Returns an interpolation curve for given data `points` as multiple cubic
     Bézier-curves. Returns n-1 cubic Bézier-curves for n given data points,
@@ -20,7 +22,7 @@ def cubic_bezier_interpolation(
         points: data points
 
     """
-    from ezdxf.math.linalg import tridiagonal_matrix_solver
+    from ezdxf.math import tridiagonal_matrix_solver
 
     # Source: https://towardsdatascience.com/b%C3%A9zier-interpolation-8033e9a262c2
     pnts = Vec3.tuple(points)

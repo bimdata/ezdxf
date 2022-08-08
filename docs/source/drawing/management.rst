@@ -33,13 +33,13 @@ AC1027      R2013      UTF-8          AutoCAD R2013
 AC1032      R2018      UTF-8          AutoCAD R2018
 =========== ========== ============== ===================================
 
-.. autofunction:: ezdxf.readfile
+.. autofunction:: ezdxf.readfile(filename: str, encoding: str = None, errors: str="surrogateescape") -> Drawing
 
-.. autofunction:: ezdxf.read
+.. autofunction:: ezdxf.read(stream: TextIO) -> Drawing
 
-.. autofunction:: ezdxf.readzip
+.. autofunction:: ezdxf.readzip(zipfile: str, filename: str = None, errors: str="surrogateescape") -> Drawing
 
-.. autofunction:: ezdxf.decode_base64
+.. autofunction:: ezdxf.decode_base64(data: bytes, errors: str="surrogateescape") -> Drawing
 
 .. hint::
 

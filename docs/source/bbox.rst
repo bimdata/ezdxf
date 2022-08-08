@@ -56,11 +56,11 @@ Example usage with caching:
 Functions
 ---------
 
-.. autofunction:: extents
+.. autofunction:: extents(entities: Iterable[DXFEntity], *, flatten=0.01, cache: Cache=None) -> BoundingBox
 
-.. autofunction:: multi_flat
+.. autofunction:: multi_flat(entities: Iterable[DXFEntity], *, flatten=0.01, cache: Cache=None) -> Iterable[BoundingBox]
 
-.. autofunction:: multi_recursive
+.. autofunction:: multi_recursive(entities: Iterable[DXFEntity], *, flatten=0.01, cache: Cache=None) -> Iterable[BoundingBox]
 
 Caching Strategies
 ------------------

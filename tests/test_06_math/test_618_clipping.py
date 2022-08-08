@@ -40,7 +40,7 @@ def test_subject_is_inside_rect(rect, inside):
     result = clip_polygon_2d(rect, inside)
     assert len(result) == 4
     for v in inside:
-        assert any(r.isclose(v) for r in result) is True
+        assert v in result
 
 
 def test_clockwise_oriented_clipping_rect(rect, inside):
@@ -48,7 +48,7 @@ def test_clockwise_oriented_clipping_rect(rect, inside):
     result = clip_polygon_2d(rect, inside)
     assert len(result) == 4
     for v in inside:
-        assert any(r.isclose(v) for r in result) is True
+        assert v in result
 
 
 def test_subject_is_outside_rect(rect, outside):
@@ -61,7 +61,7 @@ def test_circle_outside_rect(rect):
     result = clip_polygon_2d(rect, c, ccw_check=False)
     assert len(result) == 4
     for v in rect:
-        assert any(r.isclose(v) for r in result) is True
+        assert v in result
 
 
 def test_circle_inside_rect(rect):
@@ -69,7 +69,7 @@ def test_circle_inside_rect(rect):
     result = clip_polygon_2d(rect, c, ccw_check=False)
     assert len(result) == 16
     for v in c:
-        assert any(r.isclose(v) for r in result) is True
+        assert v in result
 
 
 def test_rect_outside_circle(rect):
@@ -77,7 +77,7 @@ def test_rect_outside_circle(rect):
     result = clip_polygon_2d(c, rect, ccw_check=False)
     assert len(result) == 16
     for v in c:
-        assert any(r.isclose(v) for r in result) is True
+        assert v in result
 
 
 def test_rect_inside_circle(rect):
@@ -85,7 +85,7 @@ def test_rect_inside_circle(rect):
     result = clip_polygon_2d(c, rect, ccw_check=False)
     assert len(result) == 4
     for v in rect:
-        assert any(r.isclose(v) for r in result) is True
+        assert v in result
 
 
 if __name__ == "__main__":

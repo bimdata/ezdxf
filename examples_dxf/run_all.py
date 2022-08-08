@@ -6,10 +6,10 @@ import shlex
 import shutil
 import sys
 
-PYTHON3 = "python"
+PYTHON3 = "python3"
 POSIX = sys.platform != "win32"
 if POSIX:
-    PYTHON3 = shutil.which("python3")
+    PYTHON3 = shutil.which(PYTHON3)
 
 
 def main():

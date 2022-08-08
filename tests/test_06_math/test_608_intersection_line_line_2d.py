@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2022 Manfred Moitzi
+# Copyright (c) 2020 Manfred Moitzi
 # License: MIT License
 import pytest
 from ezdxf.math import intersection_line_line_2d, Vec2
@@ -24,7 +24,7 @@ def test_intersect_with_vertical():
     assert point.isclose(vec2(10.0, -4.4074), abs_tol=1e-4)
 
 
-def test_intersect_with_horizontal():
+def testintersect_with_horizontal():
     ray1 = (vec2(-10, 10), vec2(10, 10))
     ray2 = (vec2(-10, 20), vec2(10, 0))
     point = intersection_line_line_2d(ray1, ray2)
@@ -60,17 +60,6 @@ def test_intersect_normal_vertical():
     assert point.isclose(vec2(10, 3))
 
 
-def test_intersection_by_line_end_points():
-    hor = (vec2(1, 1), vec2(3, 1))
-    vert = (vec2(2, 1), vec2(2, 5))
-    point = intersection_line_line_2d(hor, vert)
-    assert point.isclose(vec2(2, 1))
-
-    vert = (vec2(2, 5), vec2(2, 1))
-    point = intersection_line_line_2d(hor, vert)
-    assert point.isclose(vec2(2, 1))
-
-
 def test_intersect_real():
     line1 = (vec2(0, 0), vec2(4, 4))
     line2 = (vec2(3, 2), vec2(5, 0))
@@ -100,24 +89,6 @@ def test_issue_128():
     point = intersection_line_line_2d(line1, line2, virtual=False)
     assert point is not None
     assert point.isclose(vec2(175.0, 30.1235))
-
-
-def test_issue_664():
-    from ezdxf.math import ConstructionLine
-    p1 = Vec2(16399619.87946683, -199438.8133075837)
-    p2 = Vec2(16399700.34999472, -199438.8133075837)
-    p3 = Vec2(16399659.76235549, -199423.8133075837)
-    p4 = Vec2(16399659.76235549, -199463.8133075837)
-    expected = Vec2(16399659.76235549, -199438.8133075837)
-
-    point = intersection_line_line_2d(
-        (p1, p2), (p3, p4), virtual=False
-    )
-    assert point.isclose(expected)
-
-    cl1 = ConstructionLine(p1, p2)
-    cl2 = ConstructionLine(p3, p4)
-    assert cl1.intersect(cl2).isclose(expected)
 
 
 if __name__ == "__main__":

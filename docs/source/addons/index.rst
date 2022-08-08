@@ -22,5 +22,3 @@ Add-ons
     acadctb
     forms
     binpacking
-    meshex
-    openscad

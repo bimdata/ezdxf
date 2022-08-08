@@ -11,23 +11,23 @@ Generic Table Class
     Generic collection of table entries. Table entry names are case insensitive:
     "Test" == "TEST".
 
-    .. automethod:: key
+    .. automethod:: key(entity: Union[str, DXFEntity]) -> str
 
-    .. automethod:: has_entry
+    .. automethod:: has_entry(name: Union[str, DXFEntity]) -> bool
 
-    .. automethod:: __contains__
+    .. automethod:: __contains__(name: Union[str, DXFEntity]) -> bool
 
     .. automethod:: __len__
 
-    .. automethod:: __iter__
+    .. automethod:: __iter__() -> Iterable[DXFEntity]
 
-    .. automethod:: new
+    .. automethod:: new(name: str, dxfattribs: dict = None) -> DXFEntity
 
-    .. automethod:: get
+    .. automethod:: get(name: str) -> DXFEntity
 
     .. automethod:: remove
 
-    .. automethod:: duplicate_entry
+    .. automethod:: duplicate_entry(name: str, new_name: str) -> DXFEntity
 
 Layer Table
 -----------

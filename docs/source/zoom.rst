@@ -47,10 +47,10 @@ entities:
     zoom.extents(msp)
     doc.saveas("your.dxf")
 
-.. autofunction:: center
+.. autofunction:: center(layout: Layout, point: Vertex, height: float)
 
-.. autofunction:: objects
+.. autofunction:: objects(layout: Layout, entities: Iterable[DXFEntity], factor: float=1)
 
-.. autofunction:: extents
+.. autofunction:: extents(layout: Layout, factor: float=1)
 
-.. autofunction:: window
+.. autofunction:: window(layout: Layout, p1: Vertex, p2: Vertex)

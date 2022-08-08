@@ -87,11 +87,11 @@ Supported DXF entities are:
 Module Functions
 ----------------
 
-.. autofunction:: proxy
+.. autofunction:: proxy(entity: Union[DXFGraphic, Iterable[DXFGraphic]], distance=0.1, force_line_string=False) -> GeoProxy
 
-.. autofunction:: dxf_entities
+.. autofunction:: dxf_entities(geo_mapping, polygon=1, dxfattribs: Dict = None) -> Iterable[DXFGraphic]
 
-.. autofunction:: gfilter
+.. autofunction:: gfilter(entities: Iterable[DXFGraphic]) -> Iterable[DXFGraphic]
 
 GeoProxy Class
 --------------
@@ -104,11 +104,11 @@ GeoProxy Class
 
     .. automethod:: parse(geo_mapping: Dict) -> GeoProxy
 
-    .. automethod:: from_dxf_entities
+    .. automethod:: from_dxf_entities(entity: Union[DXFGraphic, Iterable[DXFGraphic]], distance=0.1, force_line_string=False) -> GeoProxy
 
-    .. automethod:: to_dxf_entities
+    .. automethod:: to_dxf_entities(polygon=1, dxfattribs: Dict = None) -> Iterable[DXFGraphic]
 
-    .. automethod:: copy
+    .. automethod:: copy() -> GeoProxy
 
     .. automethod:: __iter__
 
@@ -116,20 +116,20 @@ GeoProxy Class
 
     .. automethod:: crs_to_wcs
 
-    .. automethod:: globe_to_map
+    .. automethod:: globe_to_map(func: Callable[[Vec3], Vec3] = None)->None
 
-    .. automethod:: map_to_globe
+    .. automethod:: map_to_globe(func: Callable[[Vec3], Vec3] = None)->None
 
-    .. automethod:: apply
+    .. automethod:: apply(func: Callable[[Vec3], Vec3])->None
 
-    .. automethod:: filter
+    .. automethod:: filter(func: Callable[[GeoProxy], bool])->None
 
 Helper Functions
 ----------------
 
-.. autofunction:: wgs84_4326_to_3395
+.. autofunction:: wgs84_4326_to_3395(location: Vec3) -> Vec3
 
-.. autofunction:: wgs84_3395_to_4326
+.. autofunction:: wgs84_3395_to_4326(location: Vec3, tol=1e-6) -> Vec3
 
 .. autofunction:: dms2dd
 

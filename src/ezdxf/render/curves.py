@@ -1,13 +1,11 @@
-# Copyright (c) 2010-2022, Manfred Moitzi
+# Copyright (c) 2010-2021, Manfred Moitzi
 # License: MIT License
-from __future__ import annotations
 from typing import TYPE_CHECKING, Iterable, List, Tuple, Optional
 import random
 import math
 from ezdxf.math import (
     Vec3,
     Vec2,
-    UVec,
     Matrix44,
     perlin,
     Bezier4P,
@@ -19,7 +17,7 @@ from ezdxf.math import (
 )
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import BaseLayout
+    from ezdxf.eztypes import Vertex, BaseLayout, Matrix44
 
 
 def rnd(max_value):
@@ -123,10 +121,10 @@ class Bezier:
     class Segment:
         def __init__(
             self,
-            start: UVec,
-            end: UVec,
-            start_tangent: UVec,
-            end_tangent: UVec,
+            start: "Vertex",
+            end: "Vertex",
+            start_tangent: "Vertex",
+            end_tangent: "Vertex",
             segments: int,
         ):
             self.start = Vec3(start)
@@ -153,7 +151,7 @@ class Bezier:
             Tuple[Vec3, Optional[Vec3], Optional[Vec3], Optional[int]]
         ] = []
 
-    def start(self, point: UVec, tangent: UVec) -> None:
+    def start(self, point: "Vertex", tangent: "Vertex") -> None:
         """Set start point and start tangent.
 
         Args:
@@ -165,9 +163,9 @@ class Bezier:
 
     def append(
         self,
-        point: UVec,
-        tangent1: UVec,
-        tangent2: UVec = None,
+        point: "Vertex",
+        tangent1: "Vertex",
+        tangent2: "Vertex" = None,
         segments: int = 20,
     ):
         """Append a control point with two control tangents.
@@ -241,7 +239,7 @@ class Spline:
 
     """
 
-    def __init__(self, points: Iterable[UVec] = None, segments: int = 100):
+    def __init__(self, points: Iterable["Vertex"] = None, segments: int = 100):
         """
         Args:
             points: spline definition points

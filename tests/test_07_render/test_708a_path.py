@@ -909,14 +909,14 @@ LOOP = Vec2(0, 0), Vec2(1, 0), Vec2(1, 1), Vec2(0, 1)
 A, B, C, D = LOOP
 
 
-def test_edge_path_loops_with_gaps_should_be_closed():
-    # behavior based on issue #706
+def test_edge_path_open_loop():
     ep = EdgePath()
-    ep.add_line(A, B)  # gap B -> C
-    ep.add_line(C, D)  # gap D -> A
+    # open segments do not create a path
+    ep.add_line(A, B)
+    ep.add_line(B, C)
+    ep.add_line(C, D)
     path = converter.from_hatch_edge_path(ep)
-    assert len(path) == 4
-    assert path.is_closed is True, "expected a closed loop"
+    assert bool(path) is False, "expected an open loop"
 
 
 @pytest.mark.parametrize(

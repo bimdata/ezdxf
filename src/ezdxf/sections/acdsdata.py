@@ -1,5 +1,5 @@
 # Purpose: acdsdata section manager
-# Copyright (c) 2014-2022, Manfred Moitzi
+# Copyright (c) 2014-2021, Manfred Moitzi
 # License: MIT License
 """
 ACDSDATA entities have NO handles, therefore they can not be stored in the
@@ -73,13 +73,11 @@ section structure (work in progress):
 
 0 <str> ENDSEC
 """
-from __future__ import annotations
-from typing import TYPE_CHECKING, Iterator, Iterable, List, Any, Optional
+from typing import TYPE_CHECKING, Iterator, Iterable, List, Any, Union
 import abc
 from itertools import islice
 
 from ezdxf.lldxf.tags import group_tags, Tags
-from ezdxf.lldxf.types import dxftag
 from ezdxf.lldxf.const import DXFKeyError, DXFStructureError
 
 if TYPE_CHECKING:
@@ -88,7 +86,7 @@ if TYPE_CHECKING:
 
 class AcDsEntity(abc.ABC):
     @abc.abstractmethod
-    def export_dxf(self, tagwriter: TagWriter):
+    def export_dxf(self, tagwriter: "TagWriter"):
         ...
 
     @abc.abstractmethod
@@ -99,7 +97,7 @@ class AcDsEntity(abc.ABC):
 class AcDsDataSection:
     name = "ACDSDATA"
 
-    def __init__(self, doc: Drawing, entities: Iterable[Tags] = None):
+    def __init__(self, doc: "Drawing", entities: Iterable[Tags] = None):
         self.doc = doc
         self.entities: List[AcDsEntity] = []
         self.section_info = Tags()
@@ -107,14 +105,8 @@ class AcDsDataSection:
             self.load_tags(iter(entities))
 
     @property
-    def is_valid(self) -> bool:
-        return len(self.section_info) > 0
-
-    @property
-    def has_records(self) -> bool:
-        return any(
-            isinstance(entity, AcDsRecord) for entity in self.entities
-        )
+    def is_valid(self):
+        return len(self.section_info)
 
     def load_tags(self, entities: Iterator[Tags]) -> None:
         section_head = next(entities)
@@ -130,14 +122,13 @@ class AcDsDataSection:
         for entity in entities:
             self.append(AcDsData(entity))  # tags have no subclasses
 
-    def append(self, entity: AcDsData) -> None:
+    def append(self, entity: "AcDsData") -> None:
         cls = ACDSDATA_TYPES.get(entity.dxftype(), AcDsData)
         data = cls(entity.tags)
         self.entities.append(data)
 
-    def export_dxf(self, tagwriter: TagWriter) -> None:
-        if not self.is_valid or not self.has_records:
-            # Empty ACDSDATA section is not required!
+    def export_dxf(self, tagwriter: "TagWriter") -> None:
+        if not self.is_valid:
             return
         tagwriter.write_tags(self.section_info)
         for entity in self.entities:
@@ -145,44 +136,32 @@ class AcDsDataSection:
         tagwriter.write_tag2(0, "ENDSEC")
 
     @property
-    def acdsrecords(self) -> Iterable[AcDsRecord]:
+    def acdsrecords(self) -> Iterable["AcDsRecord"]:
         return (
             entity for entity in self.entities if isinstance(entity, AcDsRecord)
         )
 
-    def get_acis_data(self, handle: str) -> bytes:
-        asm_record = self.find_acis_record(handle)
-        if asm_record is not None:
-            return b"".join(get_acis_data(asm_record))
-        return b""
-
-    def set_acis_data(self, handle: str, sab_data: bytes) -> None:
-        asm_record = self.find_acis_record(handle)
-        if asm_record is not None:
-            set_acis_data(asm_record, sab_data)
-        else:
-            self.new_acis_data(handle, sab_data)
-
-    def new_acis_data(self, handle: str, sab_data: bytes) -> None:
-        self.entities.append(new_acis_record(handle, sab_data))
-
-    def del_acis_data(self, handle) -> None:
-        asm_record = self.find_acis_record(handle)
-        if asm_record is not None:
-            self.entities.remove(asm_record)
-
-    def find_acis_record(self, handle: str) -> Optional[AcDsRecord]:
+    def get_acis_data(self, handle: str) -> List[bytes]:
         for record in self.acdsrecords:
-            if is_acis_data(record) and acis_entity_handle(record) == handle:
-                return record
-        return None
+            try:
+                section = record.get_section("AcDbDs::ID")
+            except DXFKeyError:  # not present
+                continue
+            asm_handle = section.get_first_value(320, None)
+            if asm_handle == handle:
+                try:
+                    asm_data = record.get_section("ASM_Data")
+                except DXFKeyError:  # no data stored
+                    break
+                return [tag.value for tag in asm_data if tag.code == 310]
+        return []
 
 
 class AcDsData(AcDsEntity):
     def __init__(self, tags: Tags):
         self.tags = tags
 
-    def export_dxf(self, tagwriter: TagWriter):
+    def export_dxf(self, tagwriter: "TagWriter"):
         tagwriter.write_tags(self.tags)
 
     def dxftype(self) -> str:
@@ -227,291 +206,21 @@ class AcDsRecord(AcDsEntity):
         else:
             return default
 
-    def index(self, name: str) -> int:
-        for i, section in enumerate(self.sections):
-            if section.name == name:
-                return i
-        return -1
-
-    def replace(self, section: Section) -> None:
-        index = self.index(section.name)
-        if index == -1:
-            self.sections.append(section)
-        else:
-            self.sections[index] = section
-
-    def append(self, section: Section):
-        self.sections.append(section)
-
     def __len__(self):
         return len(self.sections)
 
     def __getitem__(self, item) -> Section:
         return self.sections[item]
 
-    def _write_header(self, tagwriter: TagWriter) -> None:
+    def _write_header(self, tagwriter: "TagWriter") -> None:
         tagwriter.write_tags(Tags([self._dxftype, self.flags]))
 
-    def export_dxf(self, tagwriter: TagWriter) -> None:
+    def export_dxf(self, tagwriter: "TagWriter") -> None:
         self._write_header(tagwriter)
         for section in self.sections:
             tagwriter.write_tags(section)
 
 
-def get_acis_data(record: AcDsRecord) -> List[bytes]:
-    try:
-        asm_data = record.get_section("ASM_Data")
-    except DXFKeyError:  # no data stored
-        return []
-    else:
-        return [tag.value for tag in asm_data if tag.code == 310]
-
-
-def is_acis_data(record: AcDsRecord) -> bool:
-    return record.has_section("ASM_Data")
-
-
-def acis_entity_handle(record: AcDsRecord) -> str:
-    try:
-        section = record.get_section("AcDbDs::ID")
-    except DXFKeyError:  # not present
-        return ""
-    return section.get_first_value(320, "")
-
-
-def set_acis_data(record: AcDsRecord, data: bytes) -> None:
-    chunk_size = 127
-    size = len(data)
-    tags = Tags(
-        [
-            dxftag(2, "ASM_Data"),
-            dxftag(280, 15),
-            dxftag(94, size),
-        ]
-    )
-    index = 0
-    while index < size:
-        tags.append(dxftag(310, data[index : index + chunk_size]))
-        index += chunk_size
-    record.replace(Section(tags))
-
-
-def new_acis_record(handle: str, sab_data: bytes) -> AcDsRecord:
-    tags = Tags(
-        [
-            dxftag(0, "ACDSRECORD"),
-            dxftag(90, 1),
-            dxftag(2, "AcDbDs::ID"),
-            dxftag(280, 10),
-            dxftag(320, handle),
-        ]
-    )
-    record = AcDsRecord(tags)
-    set_acis_data(record, sab_data)
-    return record
-
-
 ACDSDATA_TYPES = {
     "ACDSRECORD": AcDsRecord,
 }
-
-
-DEFAULT_SETUP = """0
-SECTION
-2
-ACDSDATA
-70
-2
-71
-2
-0
-ACDSSCHEMA
-90
-0
-1
-AcDb_Thumbnail_Schema
-2
-AcDbDs::ID
-280
-10
-91
-8
-2
-Thumbnail_Data
-280
-15
-91
-0
-101
-ACDSRECORD
-95
-0
-90
-2
-2
-AcDbDs::TreatedAsObjectData
-280
-1
-291
-1
-101
-ACDSRECORD
-95
-0
-90
-3
-2
-AcDbDs::Legacy
-280
-1
-291
-1
-101
-ACDSRECORD
-1
-AcDbDs::ID
-90
-4
-2
-AcDs:Indexable
-280
-1
-291
-1
-101
-ACDSRECORD
-1
-AcDbDs::ID
-90
-5
-2
-AcDbDs::HandleAttribute
-280
-7
-282
-1
-0
-ACDSSCHEMA
-90
-1
-1
-AcDb3DSolid_ASM_Data
-2
-AcDbDs::ID
-280
-10
-91
-8
-2
-ASM_Data
-280
-15
-91
-0
-101
-ACDSRECORD
-95
-1
-90
-2
-2
-AcDbDs::TreatedAsObjectData
-280
-1
-291
-1
-101
-ACDSRECORD
-95
-1
-90
-3
-2
-AcDbDs::Legacy
-280
-1
-291
-1
-101
-ACDSRECORD
-1
-AcDbDs::ID
-90
-4
-2
-AcDs:Indexable
-280
-1
-291
-1
-101
-ACDSRECORD
-1
-AcDbDs::ID
-90
-5
-2
-AcDbDs::HandleAttribute
-280
-7
-282
-1
-0
-ACDSSCHEMA
-90
-2
-1
-AcDbDs::TreatedAsObjectDataSchema
-2
-AcDbDs::TreatedAsObjectData
-280
-1
-91
-0
-0
-ACDSSCHEMA
-90
-3
-1
-AcDbDs::LegacySchema
-2
-AcDbDs::Legacy
-280
-1
-91
-0
-0
-ACDSSCHEMA
-90
-4
-1
-AcDbDs::IndexedPropertySchema
-2
-AcDs:Indexable
-280
-1
-91
-0
-0
-ACDSSCHEMA
-90
-5
-1
-AcDbDs::HandleAttributeSchema
-2
-AcDbDs::HandleAttribute
-280
-7
-91
-1
-284
-1
-"""
-# (0, ENDSEC) must be omitted!
-
-
-def new_acds_data_section(doc: Drawing) -> AcDsDataSection:
-    if doc.dxfversion >= "AC1027":
-        return AcDsDataSection(doc, group_tags(Tags.from_text(DEFAULT_SETUP)))
-    else:
-        return AcDsDataSection(doc)

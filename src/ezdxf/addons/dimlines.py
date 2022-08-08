@@ -1,7 +1,7 @@
 # Purpose: dimension lines as composite entities build with basic dxf entities,
 #   but not the DIMENSION entity.
 # Created: 10.03.2010, 2018 adapted for ezdxf
-# Copyright (c) 2010-2022, Manfred Moitzi
+# Copyright (c) 2010-2021, Manfred Moitzi
 # License: MIT License
 """
 Dimension lines as composite entities build with basic dxf entities, but not the
@@ -30,15 +30,14 @@ entity and therefore, they have completely different implementations and
 parameters.
 
 """
-from __future__  import annotations
 from typing import Any, Dict, TYPE_CHECKING, Iterable, List, Tuple
 from math import radians, degrees, pi
 from abc import abstractmethod
 from ezdxf.enums import TextEntityAlignment
-from ezdxf.math import Vec3, Vec2, distance, lerp, ConstructionRay, UVec
+from ezdxf.math import Vec3, distance, lerp, ConstructionRay
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import Drawing, GenericLayoutType
+    from ezdxf.eztypes import Drawing, GenericLayoutType, Vertex
 
 DIMENSIONS_MIN_DISTANCE = 0.05
 DIMENSIONS_FLOATINGPOINT = "."
@@ -263,8 +262,8 @@ class LinearDimension(_DimensionBase):
 
     def __init__(
         self,
-        pos: UVec,
-        measure_points: Iterable[UVec],
+        pos: "Vertex",
+        measure_points: Iterable["Vertex"],
         angle: float = 0.0,
         dimstyle: str = "Default",
         layer: str = None,
@@ -308,7 +307,7 @@ class LinearDimension(_DimensionBase):
         self.point_order = self._indices_of_sorted_points(self.dimline_points)
         self._build_vectors()
 
-    def _get_dimline_point(self, index: int) -> UVec:
+    def _get_dimline_point(self, index: int) -> "Vertex":
         """
         Get point on the dimension line, index runs left to right.
         """
@@ -348,7 +347,7 @@ class LinearDimension(_DimensionBase):
         self._draw_ticks(layout)
 
     @staticmethod
-    def _indices_of_sorted_points(points: Iterable[UVec]) -> List[int]:
+    def _indices_of_sorted_points(points: Iterable["Vertex"]) -> List[int]:
         """get indices of points, for points sorted by x, y values"""
         indexed_points = [(point, idx) for idx, point in enumerate(points)]
         indexed_points.sort()
@@ -361,7 +360,7 @@ class LinearDimension(_DimensionBase):
         self.normal_vector = self.parallel_vector.orthogonal()
 
     @staticmethod
-    def _get_point_on_dimline(point: UVec, dimray: ConstructionRay) -> Vec3:
+    def _get_point_on_dimline(point: "Vertex", dimray: ConstructionRay) -> Vec3:
         """get the measure target point projection on the dimension line"""
         return dimray.intersect(dimray.orthogonal(point))
 
@@ -481,10 +480,10 @@ class AngularDimension(_DimensionBase):
 
     def __init__(
         self,
-        pos: UVec,
-        center: UVec,
-        start: UVec,
-        end: UVec,
+        pos: "Vertex",
+        center: "Vertex",
+        start: "Vertex",
+        end: "Vertex",
         dimstyle: str = "angle.deg",
         layer: str = None,
         roundval: int = None,
@@ -619,10 +618,10 @@ class ArcDimension(AngularDimension):
 
     def __init__(
         self,
-        pos: UVec,
-        center: UVec,
-        start: UVec,
-        end: UVec,
+        pos: "Vertex",
+        center: "Vertex",
+        start: "Vertex",
+        end: "Vertex",
         arc3points: bool = False,
         dimstyle: str = "Default",
         layer: str = None,
@@ -675,8 +674,8 @@ class RadialDimension(_DimensionBase):
 
     def __init__(
         self,
-        center: UVec,
-        target: UVec,
+        center: "Vertex",
+        target: "Vertex",
         length: float = 1.0,
         dimstyle: str = "Default",
         layer: str = None,
@@ -759,11 +758,10 @@ class RadialDimension(_DimensionBase):
 
 
 def center_of_3points_arc(
-    point1: UVec, point2: UVec, point3: UVec
-) -> Vec2:
+    point1: "Vertex", point2: "Vertex", point3: "Vertex"
+) -> Vec3:
     """
-    Calc center point of 3 point arc. ConstructionCircle is defined by 3 points
-    on the circle: point1, point2 and point3.
+    Calc center point of 3 point arc. ConstructionCircle is defined by 3 points on the circle: point1, point2 and point3.
     """
     ray1 = ConstructionRay(point1, point2)
     ray2 = ConstructionRay(point1, point3)
