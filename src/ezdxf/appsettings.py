@@ -105,7 +105,14 @@ def update_extents(doc: "Drawing") -> BoundingBox:
         - the :mod:`ezdxf.zoom` module
 
     """
-    extents = bbox.extents(doc.modelspace(), flatten=0)
+    extents = bbox.extents(doc.modelspace(), fast=True)
     doc.header[EXTMIN] = extents.extmin
     doc.header[EXTMAX] = extents.extmax
     return extents
+
+
+def show_lineweight(doc: "Drawing", state=True) -> None:
+    """The CAD application or DXF viewer should show lines and curves with
+    "thickness" (lineweight) if `state` is ``True``.
+    """
+    doc.header["$LWDISPLAY"] = int(state)

@@ -1,11 +1,13 @@
 #  Copyright (c) 2021-2022, Manfred Moitzi
 #  License: MIT License
-from typing import Callable, Optional, Dict, TYPE_CHECKING, Type
+from __future__ import annotations
+from typing import Callable, Optional, Dict, TYPE_CHECKING, Type, Tuple
 import abc
 import sys
 import os
 import glob
 import signal
+import time
 import logging
 from pathlib import Path
 
@@ -13,6 +15,8 @@ import ezdxf
 from ezdxf import recover
 from ezdxf.lldxf import const
 from ezdxf.lldxf.validator import is_dxf_file, is_binary_dxf_file
+from ezdxf.dwginfo import dwg_file_info
+from ezdxf import units
 
 if TYPE_CHECKING:
     from ezdxf.eztypes import DXFGraphic
@@ -167,8 +171,8 @@ class Audit(Command):
                 print(msg)
                 logger.error(msg)
                 return  # keep on processing additional files
-            except const.DXFStructureError:
-                msg = "Invalid or corrupted DXF file."
+            except const.DXFStructureError as e:
+                msg = f"Invalid or corrupted DXF file: {str(e)}"
                 print(msg)
                 logger.error(msg)
                 return  # keep on processing additional files
@@ -228,7 +232,9 @@ def load_document(filename: str):
 
     if auditor.has_errors:
         # But is most likely good enough for rendering.
-        msg = f"Audit process found {len(auditor.errors)} unrecoverable error(s)."
+        msg = (
+            f"Audit process found {len(auditor.errors)} unrecoverable error(s)."
+        )
         print(msg)
         logger.error(msg)
     if auditor.has_fixes:
@@ -304,6 +310,12 @@ class Draw(Command):
             choices=["approximate", "accurate"],
             help=HELP_LTYPE,
         )
+        parser.add_argument(
+            "-v",
+            "--verbose",
+            action="store_true",
+            help="give more output",
+        )
 
     @staticmethod
     def run(args):
@@ -317,7 +329,7 @@ class Draw(Command):
         from ezdxf.addons.drawing import RenderContext, Frontend
         from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
         from ezdxf.addons.drawing.config import Configuration, LinePolicy
-
+        verbose = args.verbose
         # Print all supported export formats:
         if args.formats:
             fig = plt.figure()
@@ -333,7 +345,7 @@ class Draw(Command):
         else:
             print("argument FILE is required")
             sys.exit(1)
-
+        print(f'loading file "{filename}"...')
         doc, _ = load_document(filename)
 
         try:
@@ -372,13 +384,25 @@ class Draw(Command):
             frontend = AllVisibleFrontend(ctx, out, config=config)
         else:
             frontend = Frontend(ctx, out, config=config)
+        t0 = time.perf_counter()
+        if verbose:
+            print("drawing modelspace...")
         frontend.draw_layout(layout, finalize=True)
-
+        t1 = time.perf_counter()
+        if verbose:
+            print(f"took {t1-t0:.4f} seconds")
         if args.out is not None:
-            print(f'exporting to "{args.out}"')
+            print(f'exporting to "{args.out}"...')
+            t0 = time.perf_counter()
             fig.savefig(args.out, dpi=args.dpi)
             plt.close(fig)
+            t1 = time.perf_counter()
+            if verbose:
+                print(f"took {t1 - t0:.4f} seconds")
+
         else:
+            if verbose:
+                print("opening viewer...")
             plt.show()
 
 
@@ -453,6 +477,171 @@ class View(Command):
 
 
 @register
+class Pillow(Command):
+    """Launcher sub-command: pil"""
+
+    NAME = "pillow"
+
+    @staticmethod
+    def add_parser(subparsers):
+        parser = subparsers.add_parser(
+            Pillow.NAME, help="draw and convert DXF files by Pillow"
+        )
+        parser.add_argument(
+            "file",
+            metavar="FILE",
+            nargs="?",
+            help="DXF file to draw",
+        )
+        parser.add_argument(
+            "-o",
+            "--out",
+            required=False,
+            help="output filename, the filename extension defines the image format "
+            "(.png, .jpg, .tif, .bmp, ...)",
+        )
+        parser.add_argument(
+            "-i",
+            "--image_size",
+            type=str,
+            default="1920,1080",
+            help='image size in pixels as "width,height", default is "1920,1080", '
+            'supports also "x" as delimiter like "1920x1080". A single integer '
+            'is used for both directions e.g. "2000" defines an image size of '
+            "2000x2000. The image is centered for the smaller DXF drawing extent.",
+        )
+        parser.add_argument(
+            "-b",
+            "--background",
+            default=None,
+            help='override background color in hex format "RRGGBB" or "RRGGBBAA", '
+            'e.g. use "FFFFFF00" to get a white transparent background and a black '
+            "foreground color (ACI=7), because a light background gets a "
+            'black foreground color or vice versa  "00000000" for a black transparent '
+            "background and a white foreground color.",
+        ),
+        parser.add_argument(
+            "-r",
+            "--oversampling",
+            type=int,
+            default=2,
+            help="oversampling factor, default is 2, use 0 or 1 to disable oversampling",
+        )
+        parser.add_argument(
+            "-m",
+            "--margin",
+            type=int,
+            default=10,
+            help="minimal margin around the image in pixels, default is 10",
+        )
+        parser.add_argument(
+            "--dpi",
+            type=int,
+            default=300,
+            help="output resolution in pixels/inch which is significant for the "
+            "linewidth, default is 300",
+        )
+        parser.add_argument(
+            "-v",
+            "--verbose",
+            action="store_true",
+            help="give more output",
+        )
+
+    @staticmethod
+    def run(args):
+        # Import on demand for a quicker startup:
+        from ezdxf import bbox
+        from ezdxf.addons.drawing import RenderContext, Frontend
+        from ezdxf.addons.drawing.config import Configuration, LinePolicy
+        from ezdxf.addons.drawing.pillow import PillowBackend
+        from ezdxf.addons.drawing.properties import LayoutProperties
+
+        verbose = args.verbose
+        if args.file:
+            filename = args.file
+        else:
+            print("argument FILE is required")
+            sys.exit(1)
+        print(f'loading file "{filename}"...')
+        doc, _ = load_document(filename)
+        msp = doc.modelspace()
+        bg = args.background
+        layout_properties = LayoutProperties.from_layout(msp)
+        if bg is not None:
+            if not bg.startswith("#"):
+                bg = "#" + bg
+            try:
+                layout_properties.set_colors(bg)
+            except ValueError:
+                print(
+                    f'ERROR: invalid background color value "{args.background}"'
+                )
+                sys.exit(4)
+
+        ctx = RenderContext(doc)
+        # force accurate linetype rendering by the frontend
+        config = Configuration.defaults().with_changes(
+            line_policy=LinePolicy.ACCURATE
+        )
+        if verbose:
+            print(f"detecting extents...\n")
+        extents = bbox.extents(msp, fast=True)
+        img_x, img_y = parse_image_size(args.image_size)
+        if verbose:
+            print(f"    units: {units.unit_name(msp.units)}")
+            print(
+                f"    modelspace size: {extents.size.x:.3f} x {extents.size.y:.3f}"
+            )
+            print(
+                f"    min extents: ({extents.extmin.x:.3f}, {extents.extmin.y:.3f})"
+            )
+            print(
+                f"    max extents: ({extents.extmax.x:.3f}, {extents.extmax.y:.3f})"
+            )
+            print(f"\nimage size: {img_x} x {img_y}")
+        out = PillowBackend(
+            extents,
+            image_size=(img_x, img_y),
+            oversampling=args.oversampling,
+            margin=args.margin,
+            dpi=args.dpi,
+            text_placeholder=False,
+        )
+        t0 = time.perf_counter()
+        if verbose:
+            print("drawing modelspace...")
+        Frontend(ctx, out, config=config).draw_layout(
+            msp, layout_properties=layout_properties
+        )
+        t1 = time.perf_counter()
+        if verbose:
+            print(f"took {t1-t0:.4f} seconds")
+        if args.out is not None:
+            print(f'exporting to "{args.out}"')
+            t0 = time.perf_counter()
+            out.export(args.out)
+            t1 = time.perf_counter()
+            if verbose:
+                print(f"took {t1 - t0:.4f} seconds")
+        else:
+            if verbose:
+                print("opening image with the default system viewer...")
+            out.resize().show(args.file)
+
+
+def parse_image_size(image_size: str) -> Tuple[int, int]:
+    if "," in image_size:
+        sx, sy = image_size.split(",")
+    elif "x" in image_size:
+        sx, sy = image_size.split("x")
+    else:
+        sx = int(image_size)  # type: ignore
+        sy = sx
+    return int(sx), int(sy)
+
+
+@register
 class Browse(Command):
     """Launcher sub-command: browse"""
 
@@ -497,6 +686,51 @@ class Browse(Command):
             line=args.line,
             handle=args.handle,
             resource_path=resources_path(),
+        )
+        main_window.show()
+        sys.exit(app.exec())
+
+
+@register
+class BrowseAcisData(Command):
+    """Launcher sub-command: browse-acis"""
+
+    NAME = "browse-acis"
+
+    @staticmethod
+    def add_parser(subparsers):
+        parser = subparsers.add_parser(
+            BrowseAcisData.NAME, help="browse ACIS structures in DXF files"
+        )
+        parser.add_argument(
+            "file",
+            metavar="FILE",
+            nargs="?",
+            help="DXF file to browse",
+        )
+        parser.add_argument(
+            "-g",
+            "--handle",
+            required=False,
+            help="go to entity by HANDLE, HANDLE has to be a hex value without "
+            "any prefix like 'fefe'",
+        )
+
+    @staticmethod
+    def run(args):
+        try:
+            from ezdxf.addons.xqt import QtWidgets
+        except ImportError as e:
+            print(str(e))
+            sys.exit(1)
+        from ezdxf.addons.acisbrowser.browser import AcisStructureBrowser
+
+        signal.signal(signal.SIGINT, signal.SIG_DFL)  # handle Ctrl+C properly
+        app = QtWidgets.QApplication(sys.argv)
+        set_app_icon(app)
+        main_window = AcisStructureBrowser(
+            args.file,
+            handle=args.handle,
         )
         main_window.show()
         sys.exit(app.exec())
@@ -624,6 +858,16 @@ def load_every_document(filename: str):
         except IOError:
             raise const.DXFLoadError(io_error())
         except const.DXFStructureError:
+            dwginfo = dwg_file_info(filename)
+            if dwginfo.version != "invalid":
+                print(
+                    f"This is a DWG file!!!\n"
+                    f'Filename: "{filename}"\n'
+                    f"Format: DWG\n"
+                    f"Release: {dwginfo.release}\n"
+                    f"DWG Version: {dwginfo.version}\n"
+                )
+                raise const.DXFLoadError()
             raise const.DXFLoadError(structure_error())
     return doc, auditor, binary_fmt
 

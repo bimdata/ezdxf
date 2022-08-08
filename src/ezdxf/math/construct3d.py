@@ -1,36 +1,45 @@
 # Copyright (c) 2020-2022, Manfred Moitzi
 # License: MIT License
-from typing import Sequence, List, Iterable, TYPE_CHECKING, Tuple, Optional
+from __future__ import annotations
+from typing import Sequence, List, Iterable, Tuple, Optional, Set
 from enum import IntEnum
 import math
-from ezdxf.math import Vec3, Matrix44, X_AXIS, Y_AXIS, Z_AXIS
+from ezdxf.math import (
+    Vec3,
+    Vec2,
+    Matrix44,
+    X_AXIS,
+    Y_AXIS,
+    Z_AXIS,
+    AnyVec,
+    UVec,
+)
 
-if TYPE_CHECKING:
-    from ezdxf.math import Vertex, AnyVec
 
 __all__ = [
     "is_planar_face",
     "subdivide_face",
     "subdivide_ngons",
     "Plane",
-    "LocationState",
+    "PlaneLocationState",
     "normal_vector_3p",
+    "safe_normal_vector",
     "distance_point_line_3d",
     "intersection_line_line_3d",
+    "intersection_ray_polygon_3d",
+    "intersection_line_polygon_3d",
     "basic_transformation",
     "best_fit_normal",
     "BarycentricCoordinates",
     "linear_vertex_spacing",
     "has_matrix_3d_stretching",
     "spherical_envelope",
+    "inscribe_circle_tangent_length",
+    "bending_angle",
+    "split_polygon_by_plane",
+    "is_face_normal_pointing_outwards",
 ]
-
-
-class LocationState(IntEnum):
-    COPLANAR = 0  # all the vertices are within the plane
-    FRONT = 1  # all the vertices are in front of the plane
-    BACK = 2  # all the vertices are at the back of the plane
-    SPANNING = 3  # some vertices are in front, some in the back
+PI2 = math.pi / 2.0
 
 
 def is_planar_face(face: Sequence[Vec3], abs_tol=1e-9) -> bool:
@@ -48,16 +57,21 @@ def is_planar_face(face: Sequence[Vec3], abs_tol=1e-9) -> bool:
     first_normal = None
     for index in range(len(face) - 2):
         a, b, c = face[index : index + 3]
-        normal = (b - a).cross(c - b).normalize()
+        try:
+            normal = (b - a).cross(c - b).normalize()
+        except ZeroDivisionError:  # colinear edge
+            continue
         if first_normal is None:
             first_normal = normal
         elif not first_normal.isclose(normal, abs_tol=abs_tol):
             return False
-    return True
+    if first_normal is not None:
+        return True
+    return False
 
 
 def subdivide_face(
-    face: Sequence["AnyVec"], quads: bool = True
+    face: Sequence[AnyVec], quads: bool = True
 ) -> Iterable[Tuple[Vec3, ...]]:
     """Yields new subdivided faces. Creates new faces from subdivided edges and
     the face midpoint by linear interpolation.
@@ -87,17 +101,19 @@ def subdivide_face(
 
 
 def subdivide_ngons(
-    faces: Iterable[Sequence["AnyVec"]],
-) -> Iterable[Tuple[Vec3, ...]]:
+    faces: Iterable[Sequence[AnyVec]],
+    max_vertex_count=4,
+) -> Iterable[Sequence[Vec3]]:
     """Yields only triangles or quad faces, subdivides ngons into triangles.
 
     Args:
         faces: iterable of faces as sequence of :class:`Vec2` and
             :class:`Vec3` objects
+        max_vertex_count: subdivide only ngons with more vertices
 
     """
     for face in faces:
-        if len(face) < 5:
+        if len(face) <= max_vertex_count:
             yield Vec3.tuple(face)
         else:
             mid_pos = Vec3.sum(face) / len(face)
@@ -112,7 +128,21 @@ def normal_vector_3p(a: Vec3, b: Vec3, c: Vec3) -> Vec3:
     return (b - a).cross(c - a).normalize()
 
 
-def best_fit_normal(vertices: Iterable["Vertex"]) -> Vec3:
+def safe_normal_vector(vertices: Sequence[Vec3]) -> Vec3:
+    """Safe function to detect the normal vector for a face or polygon defined
+    by 3 or more `vertices`.
+
+    """
+    if len(vertices) < 3:
+        raise ValueError("3 or more vertices required")
+    a, b, c, *_ = vertices
+    try:  # fast path
+        return (b - a).cross(c - a).normalize()
+    except ZeroDivisionError:  # safe path, can still raise ZeroDivisionError
+        return best_fit_normal(vertices)
+
+
+def best_fit_normal(vertices: Iterable[UVec]) -> Vec3:
     """Returns the "best fit" normal for a plane defined by three or more
     vertices. This function tolerates imperfect plane vertices. Safe function
     to detect the extrusion vector of flat arbitrary polygons.
@@ -180,6 +210,7 @@ def intersection_line_line_3d(
 
     """
     from ezdxf.math import intersection_ray_ray_3d, BoundingBox
+
     res = intersection_ray_ray_3d(line1, line2, abs_tol)
     if len(res) != 1:
         return None
@@ -193,8 +224,8 @@ def intersection_line_line_3d(
 
 
 def basic_transformation(
-    move: "Vertex" = (0, 0, 0),
-    scale: "Vertex" = (1, 1, 1),
+    move: UVec = (0, 0, 0),
+    scale: UVec = (1, 1, 1),
     z_rotation: float = 0,
 ) -> Matrix44:
     """Returns a combined transformation matrix for translation, scaling and
@@ -216,6 +247,16 @@ def basic_transformation(
     return m
 
 
+PLANE_EPSILON = 1e-9
+
+
+class PlaneLocationState(IntEnum):
+    COPLANAR = 0  # all the vertices are within the plane
+    FRONT = 1  # all the vertices are in front of the plane
+    BACK = 2  # all the vertices are at the back of the plane
+    SPANNING = 3  # some vertices are in front, some in the back
+
+
 class Plane:
     """Represents a plane in 3D space as normal vector and the perpendicular
     distance from origin.
@@ -224,6 +265,7 @@ class Plane:
     __slots__ = ("_normal", "_distance_from_origin")
 
     def __init__(self, normal: Vec3, distance: float):
+        assert normal.is_null is False, "invalid plane normal"
         self._normal = normal
         # the (perpendicular) distance of the plane from (0, 0, 0)
         self._distance_from_origin = distance
@@ -246,14 +288,20 @@ class Plane:
     @classmethod
     def from_3p(cls, a: Vec3, b: Vec3, c: Vec3) -> "Plane":
         """Returns a new plane from 3 points in space."""
-        n = (b - a).cross(c - a).normalize()
+        try:
+            n = (b - a).cross(c - a).normalize()
+        except ZeroDivisionError:
+            raise ValueError("undefined plane: colinear vertices")
         return Plane(n, n.dot(a))
 
     @classmethod
-    def from_vector(cls, vector) -> "Plane":
-        """Returns a new plane from a location vector."""
+    def from_vector(cls, vector: UVec) -> "Plane":
+        """Returns a new plane from the given location vector."""
         v = Vec3(vector)
-        return Plane(v.normalize(), v.magnitude)
+        try:
+            return Plane(v.normalize(), v.magnitude)
+        except ZeroDivisionError:
+            raise ValueError("invalid NULL vector")
 
     def __copy__(self) -> "Plane":
         """Returns a copy of the plane."""
@@ -297,6 +345,231 @@ class Plane:
             -p._normal, abs_tol=abs_tol
         )
 
+    def intersect_line(
+        self, start: Vec3, end: Vec3, *, coplanar=True, abs_tol=PLANE_EPSILON
+    ) -> Optional[Vec3]:
+        """Returns the intersection point of the 3D line from `start` to `end`
+        and this plane or ``None`` if there is no intersection. If the argument
+        `coplanar` is ``False`` the start- or end point of the line are ignored
+        as intersection points.
+
+        .. versionadded:: 0.18
+
+        """
+        state0 = self.vertex_location_state(start, abs_tol)
+        state1 = self.vertex_location_state(end, abs_tol)
+        if state0 is state1:
+            return None
+        if not coplanar and (
+            state0 is PlaneLocationState.COPLANAR
+            or state1 is PlaneLocationState.COPLANAR
+        ):
+            return None
+        n = self.normal
+        weight = (self.distance_from_origin - n.dot(start)) / n.dot(end - start)
+        return start.lerp(end, weight)
+
+    def intersect_ray(self, origin: Vec3, direction: Vec3) -> Optional[Vec3]:
+        """Returns the intersection point of the infinite 3D ray defined by
+        `origin` and the `direction` vector and this plane or ``None`` if there
+        is no intersection. A coplanar ray does not intersect the plane!
+
+        .. versionadded:: 0.18
+
+        """
+        n = self.normal
+        try:
+            weight = (self.distance_from_origin - n.dot(origin)) / n.dot(
+                direction
+            )
+        except ZeroDivisionError:
+            return None
+        return origin + (direction * weight)
+
+    def vertex_location_state(
+        self, vertex: Vec3, abs_tol=PLANE_EPSILON
+    ) -> PlaneLocationState:
+        """Returns the :class:`PlaneLocationState` of the given `vertex` in
+        relative to this plane.
+
+        .. versionadded:: 0.18
+
+        """
+        distance = self._normal.dot(vertex) - self._distance_from_origin
+        if distance < -abs_tol:
+            return PlaneLocationState.BACK
+        elif distance > abs_tol:
+            return PlaneLocationState.FRONT
+        else:
+            return PlaneLocationState.COPLANAR
+
+
+def split_polygon_by_plane(
+    polygon: Iterable[Vec3],
+    plane: Plane,
+    *,
+    coplanar=True,
+    abs_tol=PLANE_EPSILON,
+) -> Tuple[Sequence[Vec3], Sequence[Vec3]]:
+    """
+    Split a convex `polygon` by the given `plane` if needed. Returns a tuple of
+    front- and back vertices (front, back).
+    Returns also coplanar polygons if the
+    argument `coplanar` is ``True``, the coplanar vertices goes into either
+    front or back depending on their orientation with respect to this plane.
+
+    .. versionadded:: 0.18
+
+    """
+    polygon_type = PlaneLocationState.COPLANAR
+    vertex_types: List[PlaneLocationState] = []
+    front_vertices: List[Vec3] = []
+    back_vertices: List[Vec3] = []
+    vertices = list(polygon)
+    w = plane.distance_from_origin
+    normal = plane.normal
+
+    # Classify each point as well as the entire polygon into one of four classes:
+    # COPLANAR, FRONT, BACK, SPANNING = FRONT + BACK
+    for vertex in vertices:
+        vertex_type = plane.vertex_location_state(vertex, abs_tol)
+        polygon_type |= vertex_type  # type: ignore
+        vertex_types.append(vertex_type)
+
+    # Put the polygon in the correct list, splitting it when necessary.
+    if polygon_type == PlaneLocationState.COPLANAR:
+        if coplanar:
+            polygon_normal = best_fit_normal(vertices)
+            if normal.dot(polygon_normal) > 0:
+                front_vertices = vertices
+            else:
+                back_vertices = vertices
+    elif polygon_type == PlaneLocationState.FRONT:
+        front_vertices = vertices
+    elif polygon_type == PlaneLocationState.BACK:
+        back_vertices = vertices
+    elif polygon_type == PlaneLocationState.SPANNING:
+        len_vertices = len(vertices)
+        for index in range(len_vertices):
+            next_index = (index + 1) % len_vertices
+            vertex_type = vertex_types[index]
+            next_vertex_type = vertex_types[next_index]
+            vertex = vertices[index]
+            next_vertex = vertices[next_index]
+            if vertex_type != PlaneLocationState.BACK:  # FRONT or COPLANAR
+                front_vertices.append(vertex)
+            if vertex_type != PlaneLocationState.FRONT:  # BACK or COPLANAR
+                back_vertices.append(vertex)
+            if (vertex_type | next_vertex_type) == PlaneLocationState.SPANNING:
+                interpolation_weight = (w - normal.dot(vertex)) / normal.dot(
+                    next_vertex - vertex
+                )
+                plane_intersection_point = vertex.lerp(
+                    next_vertex, interpolation_weight
+                )
+                front_vertices.append(plane_intersection_point)
+                back_vertices.append(plane_intersection_point)
+        if len(front_vertices) < 3:
+            front_vertices = []
+        if len(back_vertices) < 3:
+            back_vertices = []
+    return tuple(front_vertices), tuple(back_vertices)
+
+
+def intersection_line_polygon_3d(
+    start: Vec3,
+    end: Vec3,
+    polygon: Iterable[Vec3],
+    *,
+    coplanar=True,
+    boundary=True,
+    abs_tol=PLANE_EPSILON,
+) -> Optional[Vec3]:
+    """Returns the intersection point of the 3D line form `start` to `end` and
+    the given `polygon`.
+
+    Args:
+        start: start point of 3D line as :class:`Vec3`
+        end: end point of 3D line as :class:`Vec3`
+        polygon: 3D polygon as iterable of :class:`Vec3`
+        coplanar: if ``True`` a coplanar start- or end point as intersection
+            point is valid
+        boundary: if ``True`` an intersection point at the polygon boundary line
+            is valid
+        abs_tol: absolute tolerance for comparisons
+
+    .. versionadded:: 0.18
+
+    """
+    vertices = list(polygon)
+    if len(vertices) < 3:
+        raise ValueError("3 or more vertices required")
+    try:
+        normal = safe_normal_vector(vertices)
+    except ZeroDivisionError:
+        return None
+    plane = Plane(normal, normal.dot(vertices[0]))
+    ip = plane.intersect_line(start, end, coplanar=coplanar, abs_tol=abs_tol)
+    if ip is None:
+        return None
+    return _is_intersection_point_inside_3d_polygon(
+        ip, vertices, normal, boundary, abs_tol
+    )
+
+
+def intersection_ray_polygon_3d(
+    origin: Vec3,
+    direction: Vec3,
+    polygon: Iterable[Vec3],
+    *,
+    boundary=True,
+    abs_tol=PLANE_EPSILON,
+) -> Optional[Vec3]:
+    """Returns the intersection point of the infinite 3D ray defined by `origin`
+    and the `direction` vector and the given `polygon`.
+
+    Args:
+        origin: origin point of the 3D ray as :class:`Vec3`
+        direction: direction vector of the 3D ray as :class:`Vec3`
+        polygon: 3D polygon as iterable of :class:`Vec3`
+        boundary: if ``True`` intersection points at the polygon boundary line
+            are valid
+        abs_tol: absolute tolerance for comparisons
+
+    .. versionadded:: 0.18
+
+    """
+
+    vertices = list(polygon)
+    if len(vertices) < 3:
+        raise ValueError("3 or more vertices required")
+    try:
+        normal = safe_normal_vector(vertices)
+    except ZeroDivisionError:
+        return None
+    plane = Plane(normal, normal.dot(vertices[0]))
+    ip = plane.intersect_ray(origin, direction)
+    if ip is None:
+        return None
+    return _is_intersection_point_inside_3d_polygon(
+        ip, vertices, normal, boundary, abs_tol
+    )
+
+
+def _is_intersection_point_inside_3d_polygon(
+    ip: Vec3, vertices: List[Vec3], normal: Vec3, boundary: bool, abs_tol: float
+):
+    from ezdxf.math import is_point_in_polygon_2d, OCS
+
+    ocs = OCS(normal)
+    ocs_vertices = Vec2.list(ocs.points_from_wcs(vertices))
+    state = is_point_in_polygon_2d(
+        Vec2(ocs.from_wcs(ip)), ocs_vertices, abs_tol=abs_tol
+    )
+    if state > 0 or (boundary and state == 0):
+        return ip
+    return None
+
 
 class BarycentricCoordinates:
     """Barycentric coordinate calculation.
@@ -324,7 +597,7 @@ class BarycentricCoordinates:
 
     # Source: https://gamemath.com/book/geomprims.html#triangle_barycentric_space
 
-    def __init__(self, a: "Vertex", b: "Vertex", c: "Vertex"):
+    def __init__(self, a: UVec, b: UVec, c: UVec):
         self.a = Vec3(a)
         self.b = Vec3(b)
         self.c = Vec3(c)
@@ -337,7 +610,7 @@ class BarycentricCoordinates:
         if abs(self._denom) < 1e-9:
             raise ValueError("invalid triangle")
 
-    def from_cartesian(self, p: "Vertex") -> Vec3:
+    def from_cartesian(self, p: UVec) -> Vec3:
         p = Vec3(p)
         n = self._n
         denom = self._denom
@@ -349,7 +622,7 @@ class BarycentricCoordinates:
         b3 = self._e3.cross(d2).dot(n) / denom
         return Vec3(b1, b2, b3)
 
-    def to_cartesian(self, b: "Vertex") -> Vec3:
+    def to_cartesian(self, b: UVec) -> Vec3:
         b1, b2, b3 = Vec3(b).xyz
         return self.a * b1 + self.b * b2 + self.c * b3
 
@@ -387,7 +660,7 @@ def has_matrix_3d_stretching(m: Matrix44) -> bool:
     ) or not math.isclose(ux_mag_sqr, uz.magnitude_square)
 
 
-def spherical_envelope(points: Sequence["Vertex"]) -> Tuple[Vec3, float]:
+def spherical_envelope(points: Sequence[UVec]) -> Tuple[Vec3, float]:
     """Calculate the spherical envelope for the given points.  Returns the
     centroid (a.k.a. geometric center) and the radius of the enclosing sphere.
 
@@ -401,3 +674,107 @@ def spherical_envelope(points: Sequence["Vertex"]) -> Tuple[Vec3, float]:
     centroid = Vec3.sum(points) / len(points)
     radius = max(centroid.distance(p) for p in points)
     return centroid, radius
+
+
+def inscribe_circle_tangent_length(
+    dir1: Vec3, dir2: Vec3, radius: float
+) -> float:
+    """Returns the tangent length of an inscribe-circle of the given `radius`.
+    The direction `dir1` and `dir2` define two intersection tangents,
+    The tangent length is the distance from the intersection point of the
+    tangents to the touching point on the inscribe-circle.
+
+    """
+    alpha = dir1.angle_between(dir2)
+    beta = PI2 - (alpha / 2.0)
+    if math.isclose(abs(beta), PI2):
+        return 0.0
+    return abs(math.tan(beta) * radius)
+
+
+def bending_angle(dir1: Vec3, dir2: Vec3, normal=Z_AXIS) -> float:
+    """Returns the bending angle from `dir1` to `dir2` in radians.
+
+    The normal vector is required to detect the bending orientation,
+    an angle > 0 bends to the "left" an angle < 0 bends to the "right".
+
+    """
+    angle = dir1.angle_between(dir2)
+    nn = dir1.cross(dir2)
+    if nn.isclose(normal) or nn.is_null:
+        return angle
+    elif nn.isclose(-normal):
+        return -angle
+    raise ValueError("invalid normal vector")
+
+
+def any_vertex_inside_face(vertices: Sequence[Vec3]) -> Vec3:
+    """Returns a vertex from the "inside" of  the given face.
+    """
+    # Triangulation is for concave shapes important!
+    from ezdxf.math.triangulation import mapbox_earcut_3d
+    it = mapbox_earcut_3d(vertices)
+    return Vec3.sum(next(it)) / 3.0
+
+
+def front_faces_intersect_face_normal(
+    faces: Sequence[Sequence[Vec3]],
+    face: Sequence[Vec3],
+    *,
+    abs_tol=PLANE_EPSILON,
+) -> int:
+    """Returns the count of intersections of the normal-vector of the given
+    `face` with the `faces` in front of this `face`.
+
+    A counter-clockwise vertex order is assumed!
+
+    """
+    def is_face_in_front_of_detector(vertices: Sequence[Vec3]) -> bool:
+        if len(vertices) < 3:
+            return False
+        return any(
+            detector_plane.signed_distance_to(v) > abs_tol for v in vertices
+        )
+
+    # face-normal for counter-clockwise vertex order
+    face_normal = safe_normal_vector(face)
+    origin = any_vertex_inside_face(face)
+    detector_plane = Plane(face_normal, face_normal.dot(origin))
+
+    # collect all faces with at least one vertex in front of the detection plane
+    front_faces = (f for f in faces if is_face_in_front_of_detector(f))
+
+    # The detector face is excluded by the
+    # is_face_in_front_of_detector() function!
+
+    intersection_points: Set[Vec3] = set()
+    for face in front_faces:
+        ip = intersection_ray_polygon_3d(
+            origin, face_normal, face, boundary=True, abs_tol=abs_tol
+        )
+        if ip is None:
+            continue
+        if detector_plane.signed_distance_to(ip) > abs_tol:
+            # Only count unique intersections points, the ip could lie on an
+            # edge (2 ips) or even a corner vertex (3 or more ips).
+            intersection_points.add(ip.round(6))
+    return len(intersection_points)
+
+
+def is_face_normal_pointing_outwards(
+    faces: Sequence[Sequence[Vec3]],
+    face: Sequence[Vec3],
+    *,
+    abs_tol=PLANE_EPSILON,
+) -> bool:
+    """Returns ``True`` if the face-normal for the given `face` of a
+    closed surface is pointing outwards. A counter-clockwise vertex order is
+    assumed, for faces with clockwise vertex order the result is inverted,
+    therefore ``False`` is pointing outwards.
+
+    This function does not check if the `faces` are a closed surface.
+
+    """
+    return (
+        front_faces_intersect_face_normal(faces, face, abs_tol=abs_tol) % 2 == 0
+    )

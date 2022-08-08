@@ -3,16 +3,18 @@ Launcher
 
 The command line script `ezdxf` launches various sub-commands:
 
-=========== ====================================================================
-``pp``      DXF pretty printer, replacement for the previous `dxfpp` command
-``audit``   Audit and repair DXF files
-``draw``    Draw and convert DXF files by the Matplotlib backend
-``view``    PyQt DXF file viewer
-``browse``  PyQt DXF structure browser for DXF debugging and curious people
-``strip``   Strip comments and THUMBNAILIMAGE section from DXF files
-``config``  Manage config files
-``info``    Show information and optional stats of DXF files as loaded by ezdxf
-=========== ====================================================================
+=============== ====================================================================
+``pp``          DXF pretty printer, replacement for the previous `dxfpp` command
+``audit``       Audit and repair DXF files
+``draw``        Draw and convert DXF files by the Matplotlib backend
+``view``        PyQt DXF file viewer
+``pillow``      Draw and convert DXF files by the Pillow backend
+``browse``      PyQt DXF structure browser for DXF debugging and curious people
+``browse-acis`` PyQt ACIS entity content browser for SAT/SAB debugging
+``strip``       Strip comments and THUMBNAILIMAGE section from DXF files
+``config``      Manage config files
+``info``        Show information and optional stats of DXF files as loaded by ezdxf
+=============== ====================================================================
 
 The help option ``-h`` is supported by the main script and all sub-commands:
 
@@ -20,7 +22,7 @@ The help option ``-h`` is supported by the main script and all sub-commands:
 
     C:\> ezdxf -h
     usage: ezdxf [-h] [-V] [-v] [--config CONFIG] [--log LOG]
-                 {pp,audit,draw,view,browse,strip,config} ...
+                 {pp,audit,draw,view,browse,browse-acis,strip,config} ...
 
     Command launcher for the Python package "ezdxf":
     https://pypi.org/project/ezdxf/
@@ -31,7 +33,9 @@ The help option ``-h`` is supported by the main script and all sub-commands:
         audit               audit and repair DXF files
         draw                draw and convert DXF files by Matplotlib
         view                view DXF files by the PyQt viewer
+        pillow              draw and convert DXF files by Pillow
         browse              browse DXF file structure
+        browse-acis         browse ACIS structures in DXF files
         strip               strip comments from DXF files
         config              manage config files
         info                show information and optional stats of DXF files loaded by ezdxf,
@@ -47,8 +51,8 @@ The help option ``-h`` is supported by the main script and all sub-commands:
 
 .. note::
 
-    The ``ezdxf`` script  is the only executable script installed on the user
-    system, if installed by ``pip``, the ``dxfpp`` script is not included anymore.
+    The ``ezdxf`` script  is the only executable script installed on the
+    user system.
 
 Pretty Printer
 --------------
@@ -153,7 +157,7 @@ Print help:
     C:\> ezdxf draw -h
     usage: ezdxf draw [-h] [--formats] [--layout LAYOUT] [--all-layers-visible]
                       [--all-entities-visible] [-o OUT] [--dpi DPI]
-                      [--ltype {approximate,accurate}]
+                      [--ltype {approximate,accurate}] [-v]
                       [FILE]
 
     positional arguments:
@@ -176,6 +180,7 @@ Print help:
                             approximation available to the backend, the accurate
                             method renders as accurately as possible but this
                             approach is slower.
+      -v, --verbose         give more output
 
 View
 ----
@@ -212,6 +217,65 @@ Print help:
                             possible but this approach is slower.
       --lwscale LWSCALE     set custom line weight scaling, default is 0 to
                             disable line weights at all
+
+Pillow
+------
+
+.. versionadded:: 0.18.1
+
+Convert the DXF file "gear.dxf" into a PNG file by the *Pillow* backend:
+
+.. code-block:: Text
+
+    C:\> ezdxf pillow -o gear.png gear.dxf
+
+Advantage over the `Draw`_ command is the speed and much less memory usage,
+disadvantages are:
+
+  - text is only rendered by outlines
+  - solid hatches are rendered without holes
+
+.. image:: gfx/pillow-sample.png
+   :align: center
+
+Print help:
+
+.. code-block:: Text
+
+    C:\> ezdxf view -h
+    usage: ezdxf pillow [-h] [-o OUT] [-i IMAGE_SIZE] [-b BACKGROUND]
+                        [-r OVERSAMPLING] [-m MARGIN] [--dpi DPI] [-v]
+                        [FILE]
+
+    positional arguments:
+      FILE                  DXF file to draw
+
+    options:
+      -h, --help            show this help message and exit
+      -o OUT, --out OUT     output filename, the filename extension defines the
+                            image format (.png, .jpg, .tif, .bmp, ...)
+      -i IMAGE_SIZE, --image_size IMAGE_SIZE
+                            image size in pixels as "width,height", default is
+                            "1920,1080", supports also "x" as delimiter like
+                            "1920x1080". A single integer is used for both
+                            directions e.g. "2000" defines an image size of
+                            2000x2000. The image is centered for the smaller DXF
+                            drawing extent.
+      -b BACKGROUND, --background BACKGROUND
+                            override background color in hex format "RRGGBB" or
+                            "RRGGBBAA", e.g. use "FFFFFF00" to get a white
+                            transparent background and a black foreground color
+                            (ACI=7), because a light background gets a black
+                            foreground color or vice versa "00000000" for a black
+                            transparent background and a white foreground color.
+      -r OVERSAMPLING, --oversampling OVERSAMPLING
+                            oversampling factor, default is 2, use 0 or 1 to
+                            disable oversampling
+      -m MARGIN, --margin MARGIN
+                            minimal margin around the image in pixels, default is 10
+      --dpi DPI             output resolution in pixels/inch which is significant
+                            for the linewidth, default is 300
+      -v, --verbose         give more output
 
 Browse
 ------
@@ -321,8 +385,10 @@ Menus and Shortcuts
       editor at the current location
     - **Export DXF Entity...** *Ctrl+E*, export the current DXF entity shown in the
       list view as text file
-    - **Copy DXF Entity to Clipboard** *Ctrl+C*, copy the current DXF entity shown
-      in the list view into the clipboard
+    - **Copy selected DXF Tags to Clipboard** *Ctrl+C*, copy the current
+      selected DXF tags into the clipboard
+    - **Copy DXF Entity to Clipboard** *Ctrl+Shift+C*, copy all DXF tags of the
+      current DXF entity shown in the list view into the clipboard
     - **Quit** *Ctrl+Q*
 
 - Navigate Menu
@@ -344,6 +410,60 @@ Menus and Shortcuts
 - Bookmarks Menu
     - **Store Bookmark...** *Ctrl+Shift+B*, store current location as named bookmark
     - **Go to Bookmark...** *Ctrl+B*, go to stored location
+
+Browse-ACIS
+-----------
+
+Show and export the :term:`SAT` or :term:`SAB` content of :term:`ACIS` entities:
+
+.. code-block:: Text
+
+    C:\> ezdxf browse-acis 3dsolid.dxf
+
+.. image:: gfx/browse-acis-3dsolid.png
+   :align: center
+
+The DXF format stores modern solid geometry as :term:`SAT` data for DXF R2000 -
+R2010 and as :term:`SAB` data for DXF R2013 and later. This command shows the
+content of this entities and also let you export the raw data for further
+processing.
+
+Entity View
+~~~~~~~~~~~
+
+The entity view is a read-only text editor, it is possible to select and copy
+parts of the text into the clipboard.
+All ACIS content entities get an id assigned automatically, this way the data
+is more readable, by default AutoCAD and BricsCAD do not use ids for ACIS
+entities. The id is shown as decimal number in parenthesis after the entity
+name. The ``~`` is a shortcut for a null-pointer.
+
+.. code-block:: Text
+
+    C:\>ezdxf browse-acis -h
+    usage: ezdxf browse-acis [-h] [-g HANDLE] [FILE]
+
+    positional arguments:
+      FILE                  DXF file to browse
+
+    options:
+      -h, --help            show this help message and exit
+      -g HANDLE, --handle HANDLE
+                            go to entity by HANDLE, HANDLE has to be a hex value
+                            without any prefix like 'fefe'
+
+Menus and Shortcuts
+~~~~~~~~~~~~~~~~~~~
+
+- File Menu
+    - **Open DXF file...** *Ctrl+O*
+    - **Reload DXF file** *Ctrl+R*
+    - **Export Current Entity View...** *Ctrl+E*, Export the parsed content of
+      the entity view as text file
+    - **Export Raw SAT/SAB Data...** *Ctrl+W*, export the raw SAT data as text
+      file and the raw SAB data as a binary file for further processing
+    - **Quit** *Ctrl+Q*
+
 
 Strip
 -----

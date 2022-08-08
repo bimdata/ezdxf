@@ -10,6 +10,7 @@ from ezdxf.math import (
     intersection_ray_ray_3d,
     intersection_line_line_3d,
     normal_vector_3p,
+    safe_normal_vector,
     NULLVEC,
     X_AXIS,
     Y_AXIS,
@@ -29,6 +30,10 @@ IRREGULAR_FACE = Vec3.list([(0, 0, 0), (1, 0, 1), (1, 1, 0), (0, 1, 0)])
 REGULAR_FACE_WRONG_ORDER = Vec3.list(
     [(0, 0, 0), (1, 1, 1), (1, 0, 1), (0, 1, 0)]
 )
+ONLY_COLINEAR_EDGES = Vec3.list([(0, 0, 0), (1, 0, 0), (2, 0, 0), (3, 0, 0)])
+REGULAR_FACE_WITH_COLINEAR_EDGE = Vec3.list(
+    [(0, 0, 0), (1, 0, 0), (2, 0, 0), (3, 0, 0), (1.5, 2.0, 0)]
+)
 
 
 def test_face_count():
@@ -42,6 +47,14 @@ def test_regular_face():
 
 def test_irregular_face():
     assert is_planar_face(IRREGULAR_FACE) is False
+
+
+def test_only_colinear_edges():
+    assert is_planar_face(ONLY_COLINEAR_EDGES) is False
+
+
+def test_regular_face_with_colinear_edge():
+    assert is_planar_face(REGULAR_FACE) is True
 
 
 def test_does_not_detect_wrong_order():
@@ -186,6 +199,27 @@ RH_ORTHO = [
 @pytest.mark.parametrize("a,b,c,r", RH_ORTHO)
 def test_normal_vector_for_3_points(a, b, c, r):
     assert normal_vector_3p(a, b, c) == r
+
+
+def test_safe_normal_vector_regular():
+    vertices = Vec3.list([(0, 0, 0), (1, 0, 0), (1, 1, 0)])
+    assert safe_normal_vector(vertices).isclose((0, 0, 1))
+
+
+def test_safe_normal_vector_for_coincident_vertices():
+    vertices = Vec3.list([(0, 0, 0), (0, 0, 0), (1, 0, 0), (1, 1, 0)])
+    assert safe_normal_vector(vertices).isclose((0, 0, 1))
+
+
+def test_safe_normal_vector_for_colinear_vertices():
+    vertices = Vec3.list([(0, 0, 0), (0.5, 0, 0), (1, 0, 0), (1, 1, 0)])
+    assert safe_normal_vector(vertices).isclose((0, 0, 1))
+
+
+def test_safe_normal_vector_raises_exception_for_undefined_normal_vector():
+    vertices = Vec3.list([(0, 0, 0), (1, 0, 0), (2, 0, 0)])
+    with pytest.raises(ZeroDivisionError):
+        safe_normal_vector(vertices)
 
 
 @pytest.mark.parametrize(

@@ -6,6 +6,7 @@ from typing import (
     cast,
     Union,
     List,
+    Sequence,
     Dict,
     Callable,
     Tuple,
@@ -13,6 +14,8 @@ from typing import (
     Optional,
 )
 import logging
+import itertools
+import time
 from ezdxf.addons.drawing.config import (
     Configuration,
     ProxyGraphicPolicy,
@@ -27,6 +30,7 @@ from ezdxf.addons.drawing.properties import (
     Filling,
     LayoutProperties,
 )
+from ezdxf.addons.drawing.config import LinePolicy
 from ezdxf.addons.drawing.text import simplified_text_chunks
 from ezdxf.addons.drawing.type_hints import FilterFunc
 from ezdxf.addons.drawing.gfxproxy import DXFGraphicProxy
@@ -50,7 +54,7 @@ from ezdxf.entities.attrib import BaseAttrib
 from ezdxf.entities.polygon import DXFPolygon
 from ezdxf.entities.boundary_paths import AbstractBoundaryPath
 from ezdxf.layouts import Layout
-from ezdxf.math import Vec3, OCS, NULLVEC
+from ezdxf.math import Vec3, OCS, NULLVEC, Vec2
 from ezdxf.path import (
     Path,
     make_path,
@@ -59,22 +63,23 @@ from ezdxf.path import (
     winding_deconstruction,
     from_vertices,
 )
-from ezdxf.render import MeshBuilder, TraceBuilder
+from ezdxf.render import MeshBuilder, TraceBuilder, linetypes
 from ezdxf import reorder
 from ezdxf.proxygraphic import ProxyGraphic, ProxyGraphicError
 from ezdxf.protocols import SupportsVirtualEntities, virtual_entities
 from ezdxf.tools.text import has_inline_formatting_codes
 from ezdxf.lldxf import const
+from ezdxf.render import hatching
 
 __all__ = ["Frontend"]
 
 
 # typedef
 TDispatchTable = Dict[str, Callable[[DXFGraphic, Properties], None]]
+PatternKey = Tuple[str, float]
 POST_ISSUE_MSG = (
     "Please post sample DXF file at https://github.com/mozman/ezdxf/issues."
 )
-
 logger = logging.getLogger("ezdxf")
 
 
@@ -111,6 +116,7 @@ class Frontend:
         self.parent_stack: List[DXFGraphic] = []
 
         self._dispatch = self._build_dispatch_table()
+        self._pattern_cache: Dict[PatternKey, Sequence[float]] = dict()
 
         # Supported DXF entities which use only proxy graphic for rendering:
         self._proxy_graphic_only_entities: Set[str] = {
@@ -156,7 +162,7 @@ class Frontend:
 
     def override_properties(self, entity: DXFGraphic, properties: Properties) -> None:
         """The :meth:`override_properties` filter can change the properties of
-        an entity independent from the DXF attributes.
+        an entity independent of the DXF attributes.
 
         This filter has access to the DXF attributes by the `entity` object,
         the current render context, and the resolved properties by the
@@ -178,6 +184,10 @@ class Frontend:
             self.ctx.set_current_layout(layout)
 
         self.linear_precision = layout.doc.header.get("$LUPREC")  # Bimdata use
+        # set background before drawing entities
+        self.out.set_background(
+            self.ctx.current_layout_properties.background_color
+        )
         self.parent_stack = []
         handle_mapping = list(layout.get_redraw_order())
         if handle_mapping:
@@ -190,9 +200,74 @@ class Frontend:
                 layout,
                 filter_func=filter_func,
             )
-        self.out.set_background(self.ctx.current_layout_properties.background_color)
         if finalize:
             self.out.finalize()
+
+    def pattern(self, properties: Properties) -> Sequence[float]:
+        """Get pattern - implements pattern caching."""
+        if self.config.line_policy == LinePolicy.SOLID:
+            scale = 0.0
+        else:
+            scale = properties.linetype_scale
+
+        key: PatternKey = (properties.linetype_name, scale)
+        pattern_ = self._pattern_cache.get(key)
+        if pattern_ is None:
+            pattern_ = self.create_pattern(properties, scale)
+            self._pattern_cache[key] = pattern_
+        return pattern_
+
+    def create_pattern(
+        self, properties: Properties, scale: float
+    ) -> Sequence[float]:
+        """Returns simplified linetype tuple: on_off_sequence"""
+        if len(properties.linetype_pattern) < 2:
+            # Do not return None -> None indicates: "not cached"
+            return tuple()
+        else:
+            min_dash_length = self.config.min_dash_length
+            pattern = [
+                max(e * scale, min_dash_length)
+                for e in properties.linetype_pattern
+            ]
+            if len(pattern) % 2:
+                pattern.pop()
+            return pattern
+
+    def backend_draw_line(self, start: Vec3, end: Vec3, properties: Properties):
+        """Indirection layer for Backend.draw_line() to apply accurate linetype
+        rendering by the frontend.
+        """
+        if (
+            self.config.line_policy != LinePolicy.ACCURATE
+            or len(properties.linetype_pattern) < 2  # CONTINUOUS
+        ):
+            self.out.draw_line(start, end, properties)
+        else:
+            renderer = linetypes.LineTypeRenderer(self.pattern(properties))
+            self.out.draw_solid_lines(
+                ((s, e) for s, e in renderer.line_segment(start, end)),
+                properties,
+            )
+
+    def backend_draw_path(self, path: Path, properties: Properties):
+        """Indirection layer for Backend.draw_line() to apply accurate linetype
+        rendering by the frontend.
+        """
+        if (
+            self.config.line_policy != LinePolicy.ACCURATE
+            or len(properties.linetype_pattern) < 2  # CONTINUOUS
+        ):
+            self.out.draw_path(path, properties)
+        else:
+            renderer = linetypes.LineTypeRenderer(self.pattern(properties))
+            vertices = path.flattening(
+                self.config.max_flattening_distance, segments=16
+            )
+            self.out.draw_solid_lines(
+                ((s, e) for s, e in renderer.line_segments(vertices)),
+                properties,
+            )
 
     def draw_entities(
         self,
@@ -267,17 +342,20 @@ class Frontend:
         if dxftype == "LINE":
             line_prec = self.linear_precision if self.linear_precision else 10
             if d.start.round(line_prec) != d.end.round(line_prec):
-                self.out.draw_line(d.start, d.end, properties)
+                self.backend_draw_line(d.start, d.end, properties)
             else:
                 self.skip_entity(entity, "invalid line's coordinates")
+            
 
         elif dxftype in ("XLINE", "RAY"):
             start = d.start
             delta = d.unit_vector * self.config.infinite_line_length
             if dxftype == "XLINE":
-                self.out.draw_line(start - delta / 2, start + delta / 2, properties)
+                self.backend_draw_line(
+                    start - delta / 2, start + delta / 2, properties
+                )
             elif dxftype == "RAY":
-                self.out.draw_line(start, start + delta, properties)
+                self.backend_draw_line(start, start + delta, properties)
         else:
             raise TypeError(dxftype)
 
@@ -336,7 +414,7 @@ class Frontend:
             path = make_path(entity)
         except AttributeError:  # API usage error
             raise TypeError(f"Unsupported DXF type {entity.dxftype()}")
-        self.out.draw_path(path, properties)
+        self.backend_draw_path(path, properties)
 
     def draw_point_entity(self, entity: DXFGraphic, properties: Properties) -> None:
         point = cast(Point, entity)
@@ -362,8 +440,8 @@ class Frontend:
                     end = entity.dxf.end
                     if start.isclose(end):
                         self.out.draw_point(start, properties)
-                    else:
-                        self.out.draw_line(start, end, properties)
+                    else:  # direct draw by backend is OK!
+                        self.backend_draw_line(start, end, properties)
                     pass
                 elif dxftype == "CIRCLE":
                     self.draw_curve_entity(entity, properties)
@@ -386,11 +464,11 @@ class Frontend:
                 return
             edge_visibility = entity.get_edges_visibility()
             if all(edge_visibility):
-                self.out.draw_path(from_vertices(points), properties)
+                self.backend_draw_path(from_vertices(points), properties)
             else:
                 for a, b, visible in zip(points, points[1:], edge_visibility):
                     if visible:
-                        self.out.draw_line(a, b, properties)
+                        self.backend_draw_line(a, b, properties)
 
         elif isinstance(entity, Solid):
             # set solid fill type for SOLID and TRACE
@@ -400,6 +478,43 @@ class Frontend:
         else:
             raise TypeError("API error, requires a SOLID, TRACE or 3DFACE entity")
 
+    def draw_hatch_pattern(
+        self, polygon: DXFPolygon, paths: List[Path], properties: Properties
+    ):
+        if polygon.pattern is None or len(polygon.pattern.lines) == 0:
+            return
+        ocs = polygon.ocs()
+        elevation = polygon.dxf.elevation.z
+
+        polygons = [
+            Vec2.list(p.flattening(self.config.max_flattening_distance))
+            for p in ignore_text_boxes(paths)
+        ]
+        properties.linetype_pattern = tuple()
+        lines: List[Tuple[Vec3, Vec3]] = []
+
+        t0 = time.perf_counter()
+        max_time = self.config.hatching_timeout
+
+        def timeout() -> bool:
+            if time.perf_counter() - t0 > max_time:
+                print(
+                    f"hatching timeout of {max_time}s reached for {str(polygon)} - aborting"
+                )
+                return True
+            return False
+
+        for baseline in hatching.pattern_baselines(polygon):
+            for line in hatching.hatch_polygons(baseline, polygons, timeout):
+                line_pattern = baseline.pattern_renderer(line.distance)
+                for s, e in line_pattern.render(line.start, line.end):
+                    if ocs.transform:
+                        s, e = ocs.to_wcs((s.x, s.y, elevation)), ocs.to_wcs(
+                            (e.x, e.y, elevation)
+                        )
+                    lines.append((s, e))
+        self.out.draw_solid_lines(lines, properties)
+
     def draw_hatch_entity(
         self,
         entity: DXFGraphic,
@@ -407,10 +522,26 @@ class Frontend:
         *,
         loops: List[Path] = None,
     ) -> None:
+        if properties.filling is None:
+            return
+        filling = properties.filling
+        show_only_outline = False
         if self.config.hatch_policy == HatchPolicy.IGNORE:
             return
+        elif self.config.hatch_policy == HatchPolicy.SHOW_SOLID:
+            filling = Filling()  # solid filling
+        elif self.config.hatch_policy == HatchPolicy.SHOW_OUTLINE:
+            filling = Filling()  # solid filling
+            show_only_outline = True
 
         polygon = cast(DXFPolygon, entity)
+        if filling.type == Filling.PATTERN:
+            if loops is None:
+                loops = hatching.hatch_paths(polygon)
+            self.draw_hatch_pattern(polygon, loops, properties)
+            return
+
+        # draw SOLID filling
         ocs = polygon.ocs()
         # all OCS coordinates have the same z-axis stored as vector (0, 0, z),
         # default (0, 0, 0)
@@ -425,6 +556,11 @@ class Frontend:
             paths = polygon.paths.rendering_paths(polygon.dxf.hatch_style)
             polygons: List = fast_bbox_detection(closed_loops(paths, ocs, elevation))
             external_paths, holes = winding_deconstruction(polygons)
+
+        if show_only_outline:
+            for p in itertools.chain(ignore_text_boxes(external_paths), holes):
+                self.backend_draw_path(p, properties)
+            return
 
         if external_paths:
             self.out.draw_filled_paths(
@@ -467,7 +603,7 @@ class Frontend:
         properties.color = line_color
         # draw boundary paths as lines
         for loop in loops:
-            self.out.draw_path(loop, properties)
+            self.backend_draw_path(loop, properties)
 
     def draw_wipeout_entity(self, entity: DXFGraphic, properties: Properties) -> None:
         wipeout = cast(Wipeout, entity)
@@ -543,7 +679,9 @@ class Frontend:
         self, builder: MeshBuilder, properties: Properties
     ) -> None:
         for face in builder.faces_as_vertices():
-            self.out.draw_path(from_vertices(face, close=True), properties=properties)
+            self.backend_draw_path(
+                from_vertices(face, close=True), properties=properties
+            )
 
     def draw_polyline_entity(self, entity: DXFGraphic, properties: Properties) -> None:
         dxftype = entity.dxftype()
@@ -586,9 +724,11 @@ class Frontend:
             return
 
         path = make_path(entity)
-        self.out.draw_path(path, properties)
+        self.backend_draw_path(path, properties)
 
-    def draw_composite_entity(self, entity: DXFGraphic, properties: Properties) -> None:
+    def draw_composite_entity(
+        self, entity: DXFGraphic, properties: Properties
+    ) -> None:
         def draw_insert(insert: Insert):
             self.draw_entities(insert.attribs)
             # draw_entities() includes the visibility check:
@@ -641,8 +781,9 @@ def closed_loops(
             path.user_data, const.BoundaryPathState
         ), "missing attached boundary path state"
         for sub_path in path.sub_paths():
-            sub_path.close()
-            loops.append(sub_path)
+            if len(sub_path):
+                sub_path.close()
+                loops.append(sub_path)
     return loops
 
 

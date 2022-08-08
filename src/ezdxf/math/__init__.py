@@ -9,7 +9,6 @@ from ._ctypes import *
 # Everything else are pure Python imports:
 from .construct2d import *
 from .construct3d import *
-from .linalg import *
 from .parametrize import *
 from .bspline import *
 from .bezier import *
@@ -28,7 +27,6 @@ from .bbox import *
 from .offset2d import *
 from .transformtools import *
 from .curvetools import *
-from .clipping import *
 from .polyline import *
 from .rtree import *
 from .clustering import *
@@ -37,7 +35,7 @@ ABS_TOL = 1e-12
 REL_TOL = 1e-9
 
 
-def close_vectors(a: Iterable[AnyVec], b: Iterable[Vertex], *,
+def close_vectors(a: Iterable[AnyVec], b: Iterable[UVec], *,
                   rel_tol=REL_TOL, abs_tol=ABS_TOL) -> bool:
     return all(v1.isclose(v2, rel_tol=rel_tol, abs_tol=abs_tol)
                for v1, v2 in zip(a, b))

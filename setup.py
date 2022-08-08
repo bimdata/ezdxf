@@ -59,6 +59,23 @@ ext_modules = [
         optional=True,
         language="c++",
     ),
+    Extension(
+        "ezdxf.acc.mapbox_earcut",
+        [
+            "src/ezdxf/acc/mapbox_earcut.pyx",
+        ],
+        optional=True,
+        language="c++",
+    ),
+    Extension(
+        "ezdxf.acc.linetypes",
+        [
+            "src/ezdxf/acc/linetypes.pyx",
+        ],
+        optional=True,
+        language="c++",
+    ),
+
 ]
 try:
     from Cython.Distutils import build_ext
@@ -104,8 +121,8 @@ def read(fname, until=""):
         return "File '%s' not found.\n" % fname
 
 
-DRAW = ["matplotlib", "PySide6"]
-DRAW5 = ["matplotlib", "PyQt5"]
+DRAW = ["matplotlib", "PySide6", "Pillow"]
+DRAW5 = ["matplotlib", "PyQt5", "Pillow"]
 TEST = ["pytest", "geomdl"]
 DEV = ["setuptools", "wheel", "Cython"]
 
@@ -153,7 +170,7 @@ setup(
     },
     keywords=["DXF", "CAD"],
     long_description=read("README.md")
-    + read("NEWS.md", until="Version 0.10.0"),
+    + read("NEWS.md", until="Version 0.11.2"),
     long_description_content_type="text/markdown",
     platforms="OS Independent",
     license="MIT License",
@@ -165,6 +182,7 @@ setup(
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: Implementation :: CPython",
         "Programming Language :: Python :: Implementation :: PyPy",
         "Intended Audience :: Developers",

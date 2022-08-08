@@ -1,11 +1,14 @@
-# Copyright (c) 2014-2019, Manfred Moitzi
+# Copyright (c) 2014-2022, Manfred Moitzi
 # License: MIT License
 import pytest
 
+import ezdxf
 from ezdxf.sections.acdsdata import AcDsDataSection
 from ezdxf import DXFKeyError
 from ezdxf.lldxf.tags import internal_tag_compiler, group_tags
 from ezdxf.lldxf.tagwriter import TagCollector, basic_tags_from_text
+
+HANDLE = "339"
 
 
 @pytest.fixture
@@ -19,12 +22,17 @@ def test_loader(section):
     assert len(section.entities) > 0
 
 
+def test_default_section_does_not_have_records():
+    acds = AcDsDataSection(None)
+    assert acds.has_records is False
+
+
+def test_loaded_section_does_not_have_records(section):
+    assert section.has_records is True
+
+
 def test_acds_record(section):
-    records = [
-        entity
-        for entity in section.entities
-        if entity.dxftype() == "ACDSRECORD"
-    ]
+    records = list(section.acdsrecords)
     assert len(records) > 0
     record = records[0]
     assert record.has_section("ASM_Data") is True
@@ -40,6 +48,56 @@ def test_acds_record(section):
 
 
 def test_write_dxf(section):
+    result = TagCollector.dxftags(section)
+    expected = basic_tags_from_text(ACDSSECTION)
+    assert result[:-1] == expected
+
+
+def test_empty_acds_section_will_not_be_exported():
+    doc = ezdxf.new("R2013")
+    result = TagCollector.dxftags(doc.acdsdata)
+    assert len(result) == 0
+
+
+def test_get_acis_data(section):
+    data = section.get_acis_data(HANDLE)
+    assert len(data) == 1088
+
+
+def test_del_acis_data(section):
+    count = len(section.entities)
+    section.del_acis_data(HANDLE)
+    assert len(section.entities) == count - 1
+    assert section.find_acis_record(HANDLE) is None
+
+
+def test_reset_acis_data(section):
+    data = b"0123456789" * 100
+    section.set_acis_data(HANDLE, data)
+    assert section.get_acis_data(HANDLE) == data
+
+
+def test_set_new_acis_data(section):
+    """Setting data for a non-existing acis-record creates a new record
+    automatically.
+    """
+    handle = "ABBA"
+    data = b"0123456789" * 100
+    section.set_acis_data(handle, data)
+    assert section.get_acis_data(handle) == data
+
+
+def test_create_explicit_a_new_acis_data(section):
+    handle = "ABBA"
+    data = b"0123456789" * 100
+    section.new_acis_data(handle, data)
+    assert section.get_acis_data(handle) == data
+
+
+def test_write_dxf_for_new_created_acis_record(section):
+    data = section.get_acis_data(HANDLE)
+    section.del_acis_data(HANDLE)
+    section.new_acis_data(HANDLE, data)
     result = TagCollector.dxftags(section)
     expected = basic_tags_from_text(ACDSSECTION)
     assert result[:-1] == expected
@@ -238,7 +296,7 @@ AcDbDs::HandleAttribute
 0
 ACDSRECORD
 90
-0
+1
 2
 AcDbDs::ID
 280

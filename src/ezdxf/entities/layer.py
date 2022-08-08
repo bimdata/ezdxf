@@ -1,7 +1,8 @@
 # Copyright (c) 2019-2022, Manfred Moitzi
 # License: MIT License
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple, cast, Dict, List, Any
 import logging
+from dataclasses import dataclass
 from ezdxf.lldxf import validator
 from ezdxf.lldxf.attributes import (
     DXFAttr,
@@ -11,6 +12,7 @@ from ezdxf.lldxf.attributes import (
     group_code_mapping,
 )
 from ezdxf import colors as clr
+from ezdxf.lldxf import const
 from ezdxf.lldxf.const import (
     DXF12,
     SUBCLASS_MARKER,
@@ -29,12 +31,19 @@ from .factory import register_entity
 logger = logging.getLogger("ezdxf")
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import TagWriter, DXFNamespace
+    from ezdxf.eztypes import (
+        TagWriter,
+        DXFNamespace,
+        Viewport,
+        XRecord,
+        EntityDB,
+    )
 
-__all__ = ["Layer", "acdb_symbol_table_record"]
+__all__ = ["Layer", "acdb_symbol_table_record", "LayerOverrides"]
 
 
 def is_valid_layer_color_index(aci: int) -> bool:
+    # BYBLOCK or BYLAYER is not valid a layer color!
     return (-256 < aci < 256) and aci != 0
 
 
@@ -361,3 +370,375 @@ class Layer(DXFEntity):
                     f'renaming layer "{old_name}" - document contains '
                     f"LAYER_INDEX"
                 )
+
+    def get_vp_overrides(self) -> "LayerOverrides":
+        """Returns the :class:`LayerOverrides` object for this layer."""
+        return LayerOverrides(self)
+
+
+@dataclass
+class OverrideAttributes:
+    aci: int
+    rgb: Optional[clr.RGB]
+    transparency: float
+    linetype: str
+    lineweight: int
+
+
+class LayerOverrides:
+    """This object stores the layer attribute overridden in VIEWPORT entities,
+    where each VIEWPORT can have individual layer attribute overrides.
+
+    Layer attributes which can be overridden:
+
+        - ACI color
+        - true color (rgb)
+        - linetype
+        - lineweight
+        - transparency
+
+    """
+
+    def __init__(self, layer: Layer):
+        assert layer.doc is not None, "valid DXF document required"
+        self._layer = layer
+        self._overrides = load_layer_overrides(layer)
+
+    def has_overrides(self, vp_handle: str = None) -> bool:
+        """Returns ``True`` if attribute overrides exist for the given
+        :class:`Viewport` handle.
+        Returns ``True`` if `any` attribute overrides exist if the given
+        handle is ``None``.
+        """
+        if vp_handle is None:
+            return bool(self._overrides)
+        return vp_handle in self._overrides
+
+    def commit(self) -> None:
+        """Write :class:`Viewport` overrides back into the :class:`Layer` entity.
+        Without a commit() all changes are lost!
+        """
+        store_layer_overrides(self._layer, self._overrides)
+
+    def _acquire_overrides(self, vp_handle: str) -> OverrideAttributes:
+        """Returns the OverrideAttributes() instance for `vp_handle`, creates a new
+        OverrideAttributes() instance if none exist.
+        """
+        return self._overrides.setdefault(
+            vp_handle,
+            default_ovr_settings(self._layer),
+        )
+
+    def _get_overrides(self, vp_handle: str) -> OverrideAttributes:
+        """Returns the overrides for `vp_handle`, returns the default layer
+        settings if no Override() instance exist.
+        """
+        try:
+            return self._overrides[vp_handle]
+        except KeyError:
+            return default_ovr_settings(self._layer)
+
+    def set_color(self, vp_handle: str, value: int) -> None:
+        """Override the :ref:`ACI`.
+
+        Raises:
+            ValueError: invalid color value
+        """
+        # BYBLOCK or BYLAYER is not valid a layer color
+        if not is_valid_layer_color_index(value):
+            raise ValueError(f"invalid ACI value: {value}")
+        vp_overrides = self._acquire_overrides(vp_handle)
+        vp_overrides.aci = value
+
+    def get_color(self, vp_handle: str) -> int:
+        """Returns the :ref:`ACI` override or the original layer value if no
+        override exist.
+        """
+        vp_overrides = self._get_overrides(vp_handle)
+        return vp_overrides.aci
+
+    def set_rgb(self, vp_handle: str, value: Optional[clr.RGB]):
+        """Set the RGB override as (red, gree, blue) tuple or ``None`` to remove
+        the true color setting.
+
+        Raises:
+            ValueError: invalid RGB value
+
+        """
+        if value is not None and not validator.is_valid_rgb(value):
+            raise ValueError(f"invalid RGB value: {value}")
+        vp_overrides = self._acquire_overrides(vp_handle)
+        vp_overrides.rgb = value
+
+    def get_rgb(self, vp_handle: str) -> Optional[clr.RGB]:
+        """Returns the RGB override or the original layer value if no
+        override exist. Returns ``None`` if no true color value is set.
+        """
+        vp_overrides = self._get_overrides(vp_handle)
+        return vp_overrides.rgb
+
+    def set_transparency(self, vp_handle: str, value: float) -> None:
+        """Set the transparency override. A transparency of 0.0 is opaque and
+        1.0 is fully transparent.
+
+        Raises:
+            ValueError: invalid transparency value
+
+        """
+        if not (0.0 <= value <= 1.0):
+            raise ValueError(
+                f"invalid transparency: {value}, has to be in the range [0, 1]"
+            )
+        vp_overrides = self._acquire_overrides(vp_handle)
+        vp_overrides.transparency = value
+
+    def get_transparency(self, vp_handle: str) -> float:
+        """Returns the transparency override or the original layer value if no
+        override exist. Returns 0.0 for opaque and 1.0 for fully transparent.
+        """
+        vp_overrides = self._get_overrides(vp_handle)
+        return vp_overrides.transparency
+
+    def set_linetype(self, vp_handle: str, value: str) -> None:
+        """Set the linetype override.
+
+        Raises:
+            ValueError: linetype without a LTYPE table entry
+        """
+        if value not in self._layer.doc.linetypes:  # type: ignore
+            raise ValueError(
+                f"invalid linetype: {value}, a linetype table entry is required"
+            )
+        vp_overrides = self._acquire_overrides(vp_handle)
+        vp_overrides.linetype = value
+
+    def get_linetype(self, vp_handle: str) -> str:
+        """Returns the linetype override or the original layer value if no
+        override exist.
+        """
+        vp_overrides = self._get_overrides(vp_handle)
+        return vp_overrides.linetype
+
+    def get_lineweight(self, vp_handle: str) -> int:
+        """Returns the lineweight override or the original layer value if no
+        override exist.
+        """
+        vp_overrides = self._get_overrides(vp_handle)
+        return vp_overrides.lineweight
+
+    def set_lineweight(self, vp_handle: str, value: int) -> None:
+        """Set the lineweight override.
+
+        Raises:
+            ValueError: invalid lineweight value
+        """
+        if not is_valid_layer_lineweight(value):
+            raise ValueError(
+                f"invalid lineweight: {value}, a linetype table entry is required"
+            )
+        vp_overrides = self._acquire_overrides(vp_handle)
+        vp_overrides.lineweight = value
+
+    def discard(self, vp_handle: str = None) -> None:
+        """Discard all attribute overrides for the given :class:`Viewport`
+        handle or for all :class:`Viewport` entities if the handle is ``None``.
+        """
+        if vp_handle is None:
+            self._overrides.clear()
+            return
+        try:
+            del self._overrides[vp_handle]
+        except KeyError:
+            pass
+
+
+def default_ovr_settings(layer) -> OverrideAttributes:
+    """Returns the default settings of the layer."""
+    return OverrideAttributes(
+        aci=layer.color,
+        rgb=layer.rgb,
+        transparency=layer.transparency,
+        linetype=layer.dxf.linetype,
+        lineweight=layer.dxf.lineweight,
+    )
+
+
+def is_layer_frozen_in_vp(layer, vp_handle) -> bool:
+    """Returns ``True`` if layer is frozen in VIEWPORT defined by the vp_handle."""
+    vp = cast("Viewport", layer.doc.entitydb.get(vp_handle))
+    if vp is not None:
+        return layer.dxf.name in vp.frozen_layers
+    return False
+
+
+def load_layer_overrides(layer: Layer) -> Dict[str, OverrideAttributes]:
+    """Load all VIEWPORT overrides from the layer extension dictionary."""
+
+    def get_ovr(vp_handle: str):
+        ovr = overrides.get(vp_handle)
+        if ovr is None:
+            ovr = default_ovr_settings(layer)
+            overrides[vp_handle] = ovr
+        return ovr
+
+    def set_alpha(vp_handle: str, value: int):
+        ovr = get_ovr(vp_handle)
+        ovr.transparency = clr.transparency2float(value)
+
+    def set_color(vp_handle: str, value: int):
+        ovr = get_ovr(vp_handle)
+        type_, data = clr.decode_raw_color(value)
+        if type_ == clr.COLOR_TYPE_ACI:
+            ovr.aci = data
+        elif type_ == clr.COLOR_TYPE_RGB:
+            ovr.rgb = data
+
+    def set_ltype(vp_handle: str, lt_handle: str):
+        ltype = entitydb.get(lt_handle)
+        if ltype is not None:
+            ovr = get_ovr(vp_handle)
+            ovr.linetype = ltype.dxf.name
+
+    def set_lw(vp_handle: str, value: int):
+        ovr = get_ovr(vp_handle)
+        ovr.lineweight = value
+
+    def set_xdict_state():
+        xdict = layer.get_extension_dict()
+        for key, code, setter in [
+            (const.OVR_ALPHA_KEY, const.OVR_ALPHA_CODE, set_alpha),
+            (const.OVR_COLOR_KEY, const.OVR_COLOR_CODE, set_color),
+            (const.OVR_LTYPE_KEY, const.OVR_LTYPE_CODE, set_ltype),
+            (const.OVR_LW_KEY, const.OVR_LW_CODE, set_lw),
+        ]:
+            xrec = cast("XRecord", xdict.get(key))
+            if xrec is not None:
+                for vp_handle, value in _load_ovr_values(xrec, code):
+                    setter(vp_handle, value)
+
+    assert layer.doc is not None, "valid DXF document required"
+    entitydb: EntityDB = layer.doc.entitydb
+    assert entitydb is not None, "valid entity database required"
+
+    overrides: Dict[str, OverrideAttributes] = dict()
+    if not layer.has_extension_dict:
+        return overrides
+
+    set_xdict_state()
+    return overrides
+
+
+def _load_ovr_values(xrec: "XRecord", group_code):
+    tags = xrec.tags
+    handles = [value for code, value in tags.find_all(const.OVR_VP_HANDLE_CODE)]
+    values = [value for code, value in tags.find_all(group_code)]
+    return zip(handles, values)
+
+
+def store_layer_overrides(
+    layer: Layer, overrides: Dict[str, OverrideAttributes]
+) -> None:
+    """Store all VIEWPORT overrides in the layer extension dictionary.
+    Replaces all existing overrides!
+    """
+    from ezdxf.lldxf.types import DXFTag
+
+    def get_xdict():
+        if layer.has_extension_dict:
+            return layer.get_extension_dict()
+        else:
+            return layer.new_extension_dict()
+
+    def set_xdict_tags(key: str, tags: List[DXFTag]):
+        xdict = get_xdict()
+        xrec = xdict.get(key)
+        if xrec is None:
+            xrec = xdict.add_xrecord(key)
+            xrec.dxf.cloning = 1
+        xrec.reset(tags)
+
+    def del_xdict_tags(key: str):
+        if not layer.has_extension_dict:
+            return
+        xdict = layer.get_extension_dict()
+        xrec = xdict.get(key)
+        if xrec is not None:
+            xrec.destroy()
+            xdict.discard(key)
+
+    def make_tags(
+        data: List[Tuple[Any, str]], name: str, code: int
+    ) -> List[DXFTag]:
+        tags: List[DXFTag] = []
+        for value, vp_handle in data:
+            tags.extend(
+                [
+                    DXFTag(102, name),
+                    DXFTag(const.OVR_VP_HANDLE_CODE, vp_handle),
+                    DXFTag(code, value),
+                    DXFTag(102, "}"),
+                ]
+            )
+        return tags
+
+    def collect_alphas():
+        for vp_handle, ovr in vp_exist.items():
+            if ovr.transparency != default.transparency:
+                yield clr.float2transparency(ovr.transparency), vp_handle
+
+    def collect_colors():
+        for vp_handle, ovr in vp_exist.items():
+            if ovr.aci != default.aci or ovr.rgb != default.rgb:
+                if ovr.rgb is None:
+                    raw_color = clr.encode_raw_color(ovr.aci)
+                else:
+                    raw_color = clr.encode_raw_color(ovr.rgb)
+                yield raw_color, vp_handle
+
+    def collect_linetypes():
+        for vp_handle, ovr in vp_exist.items():
+            if ovr.linetype != default.linetype:
+                ltype = layer.doc.linetypes.get(ovr.linetype)
+                if ltype is not None:
+                    yield ltype.dxf.handle, vp_handle
+
+    def collect_lineweights():
+        for vp_handle, ovr in vp_exist.items():
+            if ovr.lineweight != default.lineweight:
+                yield ovr.lineweight, vp_handle
+
+    assert layer.doc is not None, "valid DXF document required"
+    entitydb = layer.doc.entitydb
+    vp_exist = {
+        vp_handle: ovr
+        for vp_handle, ovr in overrides.items()
+        if (vp_handle in entitydb) and entitydb[vp_handle].is_alive
+    }
+    default = default_ovr_settings(layer)
+    alphas = list(collect_alphas())
+    if alphas:
+        tags = make_tags(alphas, const.OVR_APP_ALPHA, const.OVR_ALPHA_CODE)
+        set_xdict_tags(const.OVR_ALPHA_KEY, tags)
+    else:
+        del_xdict_tags(const.OVR_ALPHA_KEY)
+
+    colors = list(collect_colors())
+    if colors:
+        tags = make_tags(colors, const.OVR_APP_COLOR, const.OVR_COLOR_CODE)
+        set_xdict_tags(const.OVR_COLOR_KEY, tags)
+    else:
+        del_xdict_tags(const.OVR_COLOR_KEY)
+
+    linetypes = list(collect_linetypes())
+    if linetypes:
+        tags = make_tags(linetypes, const.OVR_APP_LTYPE, const.OVR_LTYPE_CODE)
+        set_xdict_tags(const.OVR_LTYPE_KEY, tags)
+    else:
+        del_xdict_tags(const.OVR_LTYPE_KEY)
+
+    lineweights = list(collect_lineweights())
+    if lineweights:
+        tags = make_tags(lineweights, const.OVR_APP_LW, const.OVR_LW_CODE)
+        set_xdict_tags(const.OVR_LW_KEY, tags)
+    else:
+        del_xdict_tags(const.OVR_LW_KEY)

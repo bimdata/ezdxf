@@ -14,8 +14,10 @@ from ezdxf.math import (
     bezier_to_bspline,
     split_bezier,
     quadratic_bezier_from_3p,
-    cubic_bezier_from_3p,
     close_vectors,
+    cubic_bezier_bbox,
+    quadratic_bezier_bbox,
+    intersection_ray_cubic_bezier_2d,
 )
 
 
@@ -185,3 +187,77 @@ def test_quadratic_bezier_from_3_points():
 def test_cubic_bezier_from_3_points():
     cbez = quadratic_bezier_from_3p((0, 0), (3, 2), (6, 0))
     assert cbez.point(0.5).isclose((3, 2))
+
+
+class TestBezierCurveBoundingBox:
+    def test_linear_curve(self):
+        bbox = cubic_bezier_bbox(Bezier4P([(0, 0), (1, 1), (2, 2), (3, 3)]))
+        assert bbox.extmin == (0, 0, 0)
+        assert bbox.extmax == (3, 3, 0)
+
+    def test_reverse_linear_curve(self):
+        bbox = cubic_bezier_bbox(Bezier4P([(3, 3), (2, 2), (-2, -2), (-3, -3)]))
+        assert bbox.extmin == (-3, -3, 0)
+        assert bbox.extmax == (3, 3, 0)
+
+    def test_cubic_bezier_curve_with_one_extrema(self):
+        curve = Bezier4P([(0, 0), (0, 1), (2, 1), (2, 0)])
+        bbox = cubic_bezier_bbox(curve)
+        assert bbox.extmax.y == pytest.approx(0.75)
+
+    def test_cubic_bezier_curve_with_two_extrema(self):
+        curve = Bezier4P([(0, 0), (0, 1), (2, -1), (2, 0)])
+        bbox = cubic_bezier_bbox(curve)
+        assert bbox.extmin.y == pytest.approx(-0.28867513459481287)
+        assert bbox.extmax.y == pytest.approx(+0.28867513459481287)
+
+    def test_closed_3d_cubic_bezier_curve(self):
+        curve = Bezier4P([(0, 0, -1), (2, 3, 0), (-2, 3, 0), (0, 0, -1)])
+        bbox = cubic_bezier_bbox(curve)
+        assert bbox.extmin.x == pytest.approx(-0.5773502691896258)
+        assert bbox.extmin.z == pytest.approx(-1.0)
+        assert bbox.extmax.x == pytest.approx(+0.5773502691896258)
+        assert bbox.extmax.y == pytest.approx(+2.25)
+        assert bbox.extmax.z == pytest.approx(-0.25)
+
+    def test_quadratic_bezier_curve_box(self):
+        curve = Bezier3P([(0, 0), (1, 1), (2, 0)])
+        bbox = quadratic_bezier_bbox(curve)
+        assert bbox.extmax.y == pytest.approx(0.5)
+
+
+class TestRayCubicBezierCurve2dIntersection:
+    @pytest.fixture(scope="class")
+    def curve(self):
+        return Bezier4P([(0, -2), (2, 6), (4, -6), (6, 2)])
+
+    def test_no_intersection(self, curve):
+        assert (
+            len(intersection_ray_cubic_bezier_2d((0, -6), (1, -6), curve)) == 0
+        )
+
+    def test_one_intersection_point(self, curve):
+        points = intersection_ray_cubic_bezier_2d((3, -6), (3, 6), curve)
+        assert len(points) == 1
+        assert points[0].isclose((3, 0))
+
+    def test_two_intersection_points(self, curve):
+        points = intersection_ray_cubic_bezier_2d(
+            (-1.4, -2.5), (7.1, 3.9), curve
+        )
+        assert len(points) == 2
+        expected = (
+            (0.18851028511733303, -1.3039451970881237),
+            (2.5249135145844264, 0.4552289992165126),
+        )
+        assert all(p.isclose(e) for e, p in zip(expected, points)) is True
+
+    def test_three_intersection_points(self, curve):
+        points = intersection_ray_cubic_bezier_2d((0, 0), (1, 0), curve)
+        assert len(points) == 3
+        expected = (
+            (0.6762099922755492, 0.0),
+            (3.0, 0.0),
+            (5.323790007724451, 0.0),
+        )
+        assert all(p.isclose(e) for e, p in zip(expected, points)) is True

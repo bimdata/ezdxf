@@ -68,7 +68,7 @@ BaseLayout
 
     .. automethod:: purge
 
-    .. automethod:: query(query: str = '*') -> EntityQuery
+    .. automethod:: query
 
     .. automethod:: groupby
 
@@ -139,6 +139,8 @@ BaseLayout
     .. automethod:: add_rational_spline
 
     .. automethod:: add_hatch
+
+    .. automethod:: add_helix
 
     .. automethod:: add_mpolygon
 
@@ -307,7 +309,7 @@ Paperspace
 
     .. automethod:: reset_paper_limits
 
-    .. automethod:: get_paper_limits() -> Tuple[Vec2, Vec2]
+    .. automethod:: get_paper_limits
 
 
 BlockLayout

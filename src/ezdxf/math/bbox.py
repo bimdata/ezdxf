@@ -1,13 +1,12 @@
-# Copyright (c) 2019-2021, Manfred Moitzi
+# Copyright (c) 2019-2022, Manfred Moitzi
 # License: MIT License
-from typing import TYPE_CHECKING, Iterable, Tuple, Optional, List, Iterator
+from __future__ import annotations
+from typing import Iterable, Tuple, Optional, List, Iterator
 import abc
 import warnings
 
-from ezdxf.math import Vec3, Vec2
+from ezdxf.math import Vec3, Vec2, UVec, AnyVec
 
-if TYPE_CHECKING:
-    from ezdxf.math import Vertex, AnyVec
 
 __all__ = ["BoundingBox2d", "BoundingBox", "AbstractBoundingBox"]
 
@@ -15,9 +14,9 @@ __all__ = ["BoundingBox2d", "BoundingBox", "AbstractBoundingBox"]
 class AbstractBoundingBox:
     __slots__ = ("extmin", "extmax")
 
-    def __init__(self, vertices: Iterable["Vertex"] = None):
-        self.extmax: Optional["AnyVec"] = None
-        self.extmin: Optional["AnyVec"] = None
+    def __init__(self, vertices: Iterable[UVec] = None):
+        self.extmax: Optional[AnyVec] = None
+        self.extmin: Optional[AnyVec] = None
         if vertices is not None:
             try:
                 self.extmin, self.extmax = self.extends_detector(vertices)
@@ -41,15 +40,15 @@ class AbstractBoundingBox:
         else:
             return f"{name}()"
 
-    def __iter__(self) -> Iterator["AnyVec"]:
+    def __iter__(self) -> Iterator[AnyVec]:
         if self.has_data:
             yield self.extmin
             yield self.extmax
 
     @abc.abstractmethod
     def extends_detector(
-        self, vertices: Iterable["Vertex"]
-    ) -> Tuple["AnyVec", "AnyVec"]:
+        self, vertices: Iterable[UVec]
+    ) -> Tuple[AnyVec, AnyVec]:
         pass
 
     @property
@@ -58,7 +57,7 @@ class AbstractBoundingBox:
         ...
 
     @abc.abstractmethod
-    def inside(self, vertex: "Vertex") -> bool:
+    def inside(self, vertex: UVec) -> bool:
         ...
 
     @abc.abstractmethod
@@ -82,7 +81,7 @@ class AbstractBoundingBox:
         """
         return self.inside(other.extmin) and self.inside(other.extmax)
 
-    def any_inside(self, vertices: Iterable["Vertex"]) -> bool:
+    def any_inside(self, vertices: Iterable[UVec]) -> bool:
         """Returns ``True`` if any vertex is inside this bounding box.
 
         Vertices at the box border are inside!
@@ -91,7 +90,7 @@ class AbstractBoundingBox:
             return any(self.inside(v) for v in vertices)
         return False
 
-    def all_inside(self, vertices: Iterable["Vertex"]) -> bool:
+    def all_inside(self, vertices: Iterable[UVec]) -> bool:
         """Returns ``True`` if all vertices are inside this bounding box.
 
         Vertices at the box border are inside!
@@ -121,11 +120,11 @@ class AbstractBoundingBox:
         """Returns center of bounding box."""
         return self.extmin.lerp(self.extmax)
 
-    def extend(self, vertices: Iterable["Vertex"]) -> None:
+    def extend(self, vertices: Iterable[UVec]) -> None:
         """Extend bounds by `vertices`.
 
         Args:
-            vertices: iterable of Vertex objects
+            vertices: iterable of vertices
 
         """
         v = list(vertices)
@@ -139,7 +138,7 @@ class AbstractBoundingBox:
         """Returns a new bounding box as union of this and `other` bounding
         box.
         """
-        vertices: List["AnyVec"] = []
+        vertices: List[AnyVec] = []
         if self.has_data:
             vertices.extend(self)
         if other.has_data:
@@ -179,23 +178,27 @@ class BoundingBox(AbstractBoundingBox):
         vertices: iterable of ``(x, y, z)`` tuples or :class:`Vec3` objects
 
     """
-
     __slots__ = ("extmin", "extmax")
 
     @property
     def is_empty(self) -> bool:
-        """Returns ``True`` if the bounding box is empty. The bounding box has a
-        size of 0 in any or all dimensions or is undefined.
+        """Returns ``True`` if the bounding box is empty or the bounding box
+        has a size of 0 in any or all dimensions or is undefined.
+
+        .. versionchanged:: 0.18
+
         """
         if self.has_data:
             sx, sy, sz = self.size
             return sx * sy * sz == 0.0
         return True
 
-    def extends_detector(self, vertices: Iterable["Vertex"]) -> Tuple[Vec3, Vec3]:
+    def extends_detector(
+        self, vertices: Iterable[UVec]
+    ) -> Tuple[Vec3, Vec3]:
         return extends3d(vertices)
 
-    def inside(self, vertex: "Vertex") -> bool:
+    def inside(self, vertex: UVec) -> bool:
         """Returns ``True`` if `vertex` is inside this bounding box.
 
         Vertices at the box border are inside!
@@ -214,6 +217,8 @@ class BoundingBox(AbstractBoundingBox):
             bbox1 = BoundingBox([(0, 0, 0), (1, 1, 1)])
             bbox2 = BoundingBox([(1, 1, 1), (2, 2, 2)])
             assert bbox1.has_intersection(bbox2) is False
+
+        .. versionadded: 0.18
 
         """
         # Source: https://gamemath.com/book/geomtests.html#intersection_two_aabbs
@@ -258,7 +263,7 @@ class BoundingBox(AbstractBoundingBox):
             bbox2 = BoundingBox([(1, 1, 1), (2, 2, 2)])
             assert bbox1.has_overlap(bbox2) is True
 
-        .. versionadded:: 0.17.2
+        .. versionadded: 0.18
 
         """
         # Source: https://gamemath.com/book/geomtests.html#intersection_two_aabbs
@@ -316,6 +321,9 @@ class BoundingBox(AbstractBoundingBox):
         """Returns the bounding box of the intersection cube of both
         3D bounding boxes. Returns an empty bounding box if the intersection
         volume is 0.
+
+        .. versionadded: 0.18
+
         """
         new_bbox = self.__class__()
         if not self.has_intersection(other):
@@ -348,7 +356,6 @@ class BoundingBox2d(AbstractBoundingBox):
         vertices: iterable of ``(x, y[, z])`` tuples or :class:`Vec3` objects
 
     """
-
     __slots__ = ("extmin", "extmax")
 
     @property
@@ -361,10 +368,12 @@ class BoundingBox2d(AbstractBoundingBox):
             return sx * sy == 0.0
         return True
 
-    def extends_detector(self, vertices: Iterable["Vertex"]) -> Tuple[Vec2, Vec2]:
+    def extends_detector(
+        self, vertices: Iterable[UVec]
+    ) -> Tuple[Vec2, Vec2]:
         return extends2d(vertices)
 
-    def inside(self, vertex: "Vertex") -> bool:
+    def inside(self, vertex: UVec) -> bool:
         """Returns ``True`` if `vertex` is inside this bounding box.
 
         Vertices at the box border are inside!
@@ -469,7 +478,7 @@ class BoundingBox2d(AbstractBoundingBox):
         return self.has_overlap(other)
 
 
-def extends3d(vertices: Iterable["Vertex"]) -> Tuple[Vec3, Vec3]:
+def extends3d(vertices: Iterable[UVec]) -> Tuple[Vec3, Vec3]:
     minx, miny, minz = None, None, None
     maxx, maxy, maxz = None, None, None
     for v in vertices:
@@ -496,7 +505,7 @@ def extends3d(vertices: Iterable["Vertex"]) -> Tuple[Vec3, Vec3]:
     return Vec3(minx, miny, minz), Vec3(maxx, maxy, maxz)
 
 
-def extends2d(vertices: Iterable["Vertex"]) -> Tuple[Vec2, Vec2]:
+def extends2d(vertices: Iterable[UVec]) -> Tuple[Vec2, Vec2]:
     minx, miny = None, None
     maxx, maxy = None, None
     for v in vertices:

@@ -21,6 +21,7 @@ __all__ = [
     "BandedMatrixLU",
     "banded_matrix",
     "quadratic_equation",
+    "cubic_equation",
     "binomial_coefficient",
 ]
 
@@ -75,7 +76,7 @@ def binomial_coefficient(k: int, i: int) -> float:
 
 
 class Matrix:
-    """Basic matrix implementation without any optimization for speed of
+    """Basic matrix implementation without any optimization for speed or
     memory usage. Matrix data is stored in row major order, this means in a
     list of rows, where each row is a list of floats. Direct access to the
     data is accessible by the attribute :attr:`Matrix.matrix`.
@@ -113,8 +114,9 @@ class Matrix:
             try:
                 self.matrix = [list(row) for row in items]
             except TypeError:
-                self.matrix = Matrix.reshape(items,
-                    shape).matrix  # type: ignore
+                self.matrix = Matrix.reshape(
+                    items, shape  # type: ignore
+                ).matrix
 
     def __iter__(self) -> Iterator[float]:
         for row in self.matrix:
@@ -414,9 +416,69 @@ class Matrix:
         return LUDecomposition(self.matrix).determinant()
 
 
-def quadratic_equation(a: float, b: float, c: float) -> Tuple[float, float]:
-    discriminant = math.sqrt(b ** 2 - 4 * a * c)
+def quadratic_equation(
+    a: float, b: float, c: float, abs_tol=1e-12
+) -> Sequence[float]:
+    """Returns the solution for the quadratic equation ``a*x^2 + b*x + c = 0``.
+
+    Returns 0-2 solutions as a tuple of floats.
+    """
+    if abs(a) < abs_tol:
+        if abs(b) < abs_tol:
+            return (-c,)
+        return (-c / b,)
+    try:
+        discriminant = math.sqrt(b**2 - 4 * a * c)
+    except ValueError:  # domain error, sqrt of a negative number
+        return tuple()
     return ((-b + discriminant) / (2.0 * a)), ((-b - discriminant) / (2.0 * a))
+
+
+# noinspection PyPep8Naming
+def cubic_equation(a: float, b: float, c: float, d: float) -> Sequence[float]:
+    """Returns the solution for the cubic equation ``a*x^3 + b*x^2 + c*x + d = 0``.
+
+    Returns 0-3 solutions as a tuple of floats.
+    """
+    if abs(a) < 1e-12:
+        try:
+            return quadratic_equation(b, c, d)
+        except ArithmeticError:  # complex solution
+            return tuple()
+    A = b / a
+    B = c / a
+    C = d / a
+    AA = A * A
+    A3 = A / 3.0
+
+    Q = (3.0 * B - AA) / 9.0
+    R = (9.0 * A * B - 27.0 * C - 2.0 * (AA * A)) / 54.0
+    QQQ = Q * Q * Q
+    D = QQQ + (R * R)  # polynomial discriminant
+
+    if D >= 0.0:  # complex or duplicate roots
+        sqrtD = math.sqrt(D)
+        exp = 1.0 / 3.0
+        S = math.copysign(1.0, R + sqrtD) * math.pow(abs(R + sqrtD), exp)
+        T = math.copysign(1.0, R - sqrtD) * math.pow(abs(R - sqrtD), exp)
+        ST = S + T
+        if S - T:  # is complex
+            return (-A3 + ST,)  # real root
+        else:
+            ST_2 = ST / 2.0
+            return (
+                -A3 + ST,  # real root
+                -A3 - ST_2,  # real part of complex root
+                -A3 - ST_2,  # real part of complex root
+            )
+
+    th = math.acos(R / math.sqrt(-QQQ))
+    sqrtQ2 = math.sqrt(-Q) * 2.0
+    return (
+        sqrtQ2 * math.cos(th / 3.0) - A3,
+        sqrtQ2 * math.cos((th + 2.0 * math.pi) / 3.0) - A3,
+        sqrtQ2 * math.cos((th + 4.0 * math.pi) / 3.0) - A3,
+    )
 
 
 def gauss_vector_solver(
@@ -458,9 +520,7 @@ def gauss_vector_solver(
     return _backsubstitution(A, B)
 
 
-def gauss_matrix_solver(
-    A: IterableMatrixData, B: IterableMatrixData
-) -> Matrix:
+def gauss_matrix_solver(A: IterableMatrixData, B: IterableMatrixData) -> Matrix:
     """Solves the linear equation system given by a nxn Matrix A . x = B,
     right-hand side quantities as nxm Matrix B by the `Gauss-Elimination`_
     algorithm, which is faster than the `Gauss-Jordan`_ algorithm.

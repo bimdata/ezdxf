@@ -1,5 +1,6 @@
 # Copyright (c) 2020-2022, Manfred Moitzi
 # License: MIT License
+from __future__ import annotations
 from typing import (
     TYPE_CHECKING,
     List,
@@ -12,8 +13,10 @@ from typing import (
 import math
 from ezdxf.math import (
     Vec3,
+    UVec,
     Z_AXIS,
     OCS,
+    UCS,
     Matrix44,
     BoundingBox,
     ConstructionEllipse,
@@ -24,6 +27,10 @@ from ezdxf.math import (
     reverse_bezier_curves,
     bulge_to_arc,
     linear_vertex_spacing,
+    inscribe_circle_tangent_length,
+    cubic_bezier_arc_parameters,
+    cubic_bezier_bbox,
+    quadratic_bezier_bbox,
 )
 
 from ezdxf.query import EntityQuery
@@ -33,10 +40,11 @@ from .commands import Command
 from . import converter
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import Vertex, Layout, EntityQuery
+    from ezdxf.eztypes import Layout, EntityQuery
 
 __all__ = [
     "bbox",
+    "precise_bbox",
     "fit_paths_into_box",
     "transform_paths",
     "transform_paths_to_ocs",
@@ -57,6 +65,10 @@ __all__ = [
     "have_close_control_vertices",
     "lines_to_curve3",
     "lines_to_curve4",
+    "fillet",
+    "polygonal_fillet",
+    "chamfer",
+    "chamfer2",
 ]
 
 MAX_DISTANCE = 0.01
@@ -117,26 +129,60 @@ def transform_paths_to_ocs(paths: Iterable[Path], ocs: OCS) -> List[Path]:
     return transform_paths(paths, t)
 
 
-def bbox(
-    paths: Iterable[Path], flatten=0.01, segments: int = 16
-) -> BoundingBox:
+def bbox(paths: Iterable[Path], *, fast=False) -> BoundingBox:
     """Returns the :class:`~ezdxf.math.BoundingBox` for the given paths.
 
     Args:
         paths: iterable of :class:`~ezdxf.path.Path` objects
-        flatten: value != 0  for bounding box calculation from the flattened
-            path and value == 0 for bounding box from the control vertices.
-            Default value is 0.01 as max flattening distance.
-        segments: minimal segment count for flattening
+        fast: calculates the precise bounding box of Bèzier curves if
+            ``False``, otherwise uses the control points of Bézier curves to
+            determine their bounding box.
+
+    .. versionchanged:: 0.18
+
+        Uses a new algorithm to determine exact Bézier curve bounding boxes.
+        Added argument `fast` and removed the arguments `flatten` and
+        `segments`.
 
     """
     box = BoundingBox()
     for p in paths:
-        if flatten:
-            box.extend(p.flattening(distance=abs(flatten), segments=segments))
-        else:
+        if fast:
             box.extend(p.control_vertices())
+        else:
+            bb = precise_bbox(p)
+            if bb.has_data:
+                box.extend((bb.extmin, bb.extmax))
     return box
+
+
+def precise_bbox(path: Path) -> BoundingBox:
+    """Returns the precise :class:`~ezdxf.math.BoundingBox` for the given
+    :class:`~ezdxf.path.Path`.
+
+    """
+    if len(path) == 0:  # empty path
+        return BoundingBox()
+    start = path.start
+    points: List[Vec3] = [start]
+    for cmd in path:
+        if cmd.type == Command.LINE_TO:
+            points.append(cmd.end)
+        elif cmd.type == Command.CURVE4_TO:
+            bb = cubic_bezier_bbox(
+                Bezier4P((start, cmd.ctrl1, cmd.ctrl2, cmd.end))  # type: ignore
+            )
+            points.append(bb.extmin)
+            points.append(bb.extmax)
+        elif cmd.type == Command.CURVE3_TO:
+            bb = quadratic_bezier_bbox(Bezier3P((start, cmd.ctrl, cmd.end)))  # type: ignore
+            points.append(bb.extmin)
+            points.append(bb.extmax)
+        elif cmd.type == Command.MOVE_TO:
+            points.append(cmd.end)
+        start = cmd.end
+
+    return BoundingBox(points)
 
 
 def fit_paths_into_box(
@@ -146,7 +192,7 @@ def fit_paths_into_box(
     source_box: BoundingBox = None,
 ) -> List[Path]:
     """Scale the given `paths` to fit into a box of the given `size`,
-    so that all path vertices are inside this borders.
+    so that all path vertices are inside these borders.
     If `source_box` is ``None`` the default source bounding box is calculated
     from the control points of the `paths`.
 
@@ -166,7 +212,7 @@ def fit_paths_into_box(
     if len(paths) == 0:
         return paths
     if source_box is None:
-        current_box = bbox(paths, flatten=0)
+        current_box = bbox(paths, fast=True)
     else:
         current_box = source_box
     if not current_box.has_data or current_box.size == (0, 0, 0):
@@ -227,8 +273,8 @@ def render_lwpolylines(
     *,
     distance: float = MAX_DISTANCE,
     segments: int = MIN_SEGMENTS,
-    extrusion: "Vertex" = Z_AXIS,
-    dxfattribs=None
+    extrusion: UVec = Z_AXIS,
+    dxfattribs=None,
 ) -> EntityQuery:
     """Render the given `paths` into `layout` as
     :class:`~ezdxf.entities.LWPolyline` entities.
@@ -271,8 +317,8 @@ def render_polylines2d(
     *,
     distance: float = 0.01,
     segments: int = 4,
-    extrusion: "Vertex" = Z_AXIS,
-    dxfattribs=None
+    extrusion: UVec = Z_AXIS,
+    dxfattribs=None,
 ) -> EntityQuery:
     """Render the given `paths` into `layout` as 2D
     :class:`~ezdxf.entities.Polyline` entities.
@@ -317,8 +363,8 @@ def render_hatches(
     distance: float = MAX_DISTANCE,
     segments: int = MIN_SEGMENTS,
     g1_tol: float = G1_TOL,
-    extrusion: "Vertex" = Z_AXIS,
-    dxfattribs=None
+    extrusion: UVec = Z_AXIS,
+    dxfattribs=None,
 ) -> EntityQuery:
     """Render the given `paths` into `layout` as
     :class:`~ezdxf.entities.Hatch` entities.
@@ -366,8 +412,8 @@ def render_mpolygons(
     *,
     distance: float = MAX_DISTANCE,
     segments: int = MIN_SEGMENTS,
-    extrusion: "Vertex" = Z_AXIS,
-    dxfattribs=None
+    extrusion: UVec = Z_AXIS,
+    dxfattribs=None,
 ) -> EntityQuery:
     """Render the given `paths` into `layout` as
     :class:`~ezdxf.entities.MPolygon` entities. The MPOLYGON entity supports
@@ -412,7 +458,7 @@ def render_polylines3d(
     *,
     distance: float = MAX_DISTANCE,
     segments: int = MIN_SEGMENTS,
-    dxfattribs=None
+    dxfattribs=None,
 ) -> EntityQuery:
     """Render the given `paths` into `layout` as 3D
     :class:`~ezdxf.entities.Polyline` entities.
@@ -450,7 +496,7 @@ def render_lines(
     *,
     distance: float = MAX_DISTANCE,
     segments: int = MIN_SEGMENTS,
-    dxfattribs=None
+    dxfattribs=None,
 ) -> EntityQuery:
     """Render the given `paths` into `layout` as
     :class:`~ezdxf.entities.Line` entities.
@@ -486,7 +532,7 @@ def render_splines_and_polylines(
     paths: Iterable[Path],
     *,
     g1_tol: float = G1_TOL,
-    dxfattribs=None
+    dxfattribs=None,
 ) -> EntityQuery:
     """Render the given `paths` into `layout` as :class:`~ezdxf.entities.Spline`
     and 3D :class:`~ezdxf.entities.Polyline` entities.
@@ -771,9 +817,7 @@ def _all_lines_to_curve(path: Path, count: int = 4) -> Path:
             else:
                 vertices = linear_vertex_spacing(start, cmd.end, count)
                 if count == 3:
-                    new_path.curve3_to(
-                        vertices[2], ctrl=vertices[1]
-                    )
+                    new_path.curve3_to(vertices[2], ctrl=vertices[1])
                 else:  # count == 4
                     new_path.curve4_to(
                         vertices[3],
@@ -784,3 +828,172 @@ def _all_lines_to_curve(path: Path, count: int = 4) -> Path:
             new_path.append_path_element(cmd)
         start = cmd.end
     return new_path
+
+
+def _get_local_fillet_ucs(p0, p1, p2, radius) -> Tuple[Vec3, float, UCS]:
+    dir1 = (p0 - p1).normalize()
+    dir2 = (p2 - p1).normalize()
+    if dir1.isclose(dir2) or dir1.isclose(-dir2):
+        raise ZeroDivisionError
+
+    # arc start- and end points:
+    angle = dir1.angle_between(dir2)
+    tangent_length = inscribe_circle_tangent_length(dir1, dir2, radius)
+    # starting point of the fillet arc
+    arc_start_point = p1 + (dir1 * tangent_length)
+
+    # create local coordinate system:
+    # origin = center of the fillet arc
+    # x-axis = arc_center -> arc_start_point
+    local_z_axis = dir2.cross(dir1)
+    # radius_vec points from arc_start_point to the center of the fillet arc
+    radius_vec = local_z_axis.cross(-dir1).normalize(radius)
+    arc_center = arc_start_point + radius_vec
+    ucs = UCS(origin=arc_center, ux=-radius_vec, uz=local_z_axis)
+    return arc_start_point, math.pi - angle, ucs
+
+
+def fillet(points: Sequence[Vec3], radius: float) -> Path:
+    """
+    Returns a :class:`Path` with circular fillets of given `radius` between
+    straight line segments.
+
+    Args:
+        points: coordinates of the line segments
+        radius: fillet radius
+
+    .. versionadded:: 0.18
+
+    """
+    if len(points) < 3:
+        raise ValueError("at least 3 not coincident points required")
+    if radius <= 0:
+        raise ValueError(f"invalid radius: {radius}")
+    lines = [(p0, p1) for p0, p1 in zip(points, points[1:])]
+    p = Path(points[0])
+    for (p0, p1), (p2, p3) in zip(lines, lines[1:]):
+        try:
+            start_point, angle, ucs = _get_local_fillet_ucs(p0, p1, p3, radius)
+        except ZeroDivisionError:
+            p.line_to(p1)
+            continue
+
+        # add path elements:
+        p.line_to(start_point)
+        for params in cubic_bezier_arc_parameters(0, angle):
+            # scale arc parameters by radius:
+            bez_points = tuple(ucs.points_to_wcs(v * radius for v in params))
+            p.curve4_to(bez_points[-1], bez_points[1], bez_points[2])
+    p.line_to(points[-1])
+    return p
+
+
+def _segment_count(angle: float, count: int) -> int:
+    count = max(4, count)
+    return max(int(angle / (math.tau / count)), 1)
+
+
+def polygonal_fillet(
+    points: Sequence[Vec3], radius: float, count: int = 32
+) -> Path:
+    """
+    Returns a :class:`Path` with polygonal fillets of given `radius` between
+    straight line segments. The `count` argument defines the vertex count of the
+    fillet for a full circle.
+
+    Args:
+        points: coordinates of the line segments
+        radius: fillet radius
+        count: polygon vertex count for a full circle, minimum is 4
+
+    .. versionadded:: 0.18
+
+    """
+    if len(points) < 3:
+        raise ValueError("at least 3 not coincident points required")
+    if radius <= 0:
+        raise ValueError(f"invalid radius: {radius}")
+    lines = [(p0, p1) for p0, p1 in zip(points, points[1:])]
+    p = Path(points[0])
+    for (p0, p1), (p2, p3) in zip(lines, lines[1:]):
+        try:
+            _, angle, ucs = _get_local_fillet_ucs(p0, p1, p3, radius)
+        except ZeroDivisionError:
+            p.line_to(p1)
+            continue
+        segments = _segment_count(angle, count)
+        delta = angle / segments
+        # add path elements:
+        for i in range(segments + 1):
+            radius_vec = Vec3.from_angle(i * delta, radius)
+            p.line_to(ucs.to_wcs(radius_vec))
+
+    p.line_to(points[-1])
+    return p
+
+
+def chamfer(points: Sequence[Vec3], length: float) -> Path:
+    """
+    Returns a :class:`Path` with chamfers of given `length` between
+    straight line segments.
+
+    Args:
+        points: coordinates of the line segments
+        length: chamfer length
+
+    .. versionadded:: 0.18
+
+    """
+    if len(points) < 3:
+        raise ValueError("at least 3 not coincident points required")
+    lines = [(p0, p1) for p0, p1 in zip(points, points[1:])]
+    p = Path(points[0])
+    for (p0, p1), (p2, p3) in zip(lines, lines[1:]):
+        # p1 is p2 !
+        try:
+            dir1 = (p0 - p1).normalize()
+            dir2 = (p3 - p2).normalize()
+            if dir1.isclose(dir2) or dir1.isclose(-dir2):
+                raise ZeroDivisionError
+            angle = dir1.angle_between(dir2) / 2.0
+            a = abs((length / 2.0) / math.sin(angle))
+        except ZeroDivisionError:
+            p.line_to(p1)
+            continue
+        p.line_to(p1 + (dir1 * a))
+        p.line_to(p2 + (dir2 * a))
+    p.line_to(points[-1])
+    return p
+
+
+def chamfer2(points: Sequence[Vec3], a: float, b: float) -> Path:
+    """
+    Returns a :class:`Path` with chamfers at the given distances `a` and `b`
+    from the segment points between straight line segments.
+
+    Args:
+        points: coordinates of the line segments
+        a: distance of the chamfer start point to the segment point
+        b: distance of the chamfer end point to the segment point
+
+    .. versionadded:: 0.18
+
+    """
+    if len(points) < 3:
+        raise ValueError("at least 3 non-coincident points required")
+    lines = [(p0, p1) for p0, p1 in zip(points, points[1:])]
+    p = Path(points[0])
+    for (p0, p1), (p2, p3) in zip(lines, lines[1:]):
+        # p1 is p2 !
+        try:
+            dir1 = (p0 - p1).normalize()
+            dir2 = (p3 - p2).normalize()
+            if dir1.isclose(dir2) or dir1.isclose(-dir2):
+                raise ZeroDivisionError
+        except ZeroDivisionError:
+            p.line_to(p1)
+            continue
+        p.line_to(p1 + (dir1 * a))
+        p.line_to(p2 + (dir2 * b))
+    p.line_to(points[-1])
+    return p

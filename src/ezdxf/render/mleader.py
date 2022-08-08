@@ -739,6 +739,7 @@ class LeaderType(enum.IntEnum):
     splines = 2
 
 
+# noinspection PyArgumentList
 class ConnectionSide(enum.Enum):
     """
     The leader connection side.
@@ -846,7 +847,7 @@ class MultiLeaderBuilder(abc.ABC):
         )
         self.set_mleader_style(style)
         self._multileader.context.landing_gap_size = (
-            self._mleader_style.dxf.landing_gap
+            self._mleader_style.dxf.landing_gap_size
         )
 
     @abc.abstractmethod
@@ -896,6 +897,9 @@ class MultiLeaderBuilder(abc.ABC):
         """Reset base properties by :class:`~ezdxf.entities.MLeaderStyle`
         properties. This also resets the content!
         """
+        def copy_style_to_context():
+            self.context.char_height = style_dxf.char_height
+            self.context.landing_gap_size = style_dxf.landing_gap_size
 
         self._mleader_style = style
         multileader_dxf = self._multileader.dxf
@@ -904,6 +908,7 @@ class MultiLeaderBuilder(abc.ABC):
         for key in keys:
             if multileader_dxf.is_supported(key):
                 multileader_dxf.set(key, style_dxf.get_default(key))
+        copy_style_to_context()
         multileader_dxf.block_scale_vector = Vec3(
             style_dxf.block_scale_x,
             style_dxf.block_scale_y,
@@ -921,7 +926,7 @@ class MultiLeaderBuilder(abc.ABC):
         """Set the properties how to connect the leader line to the content.
 
         The landing gap is the space between the content and the start of the
-        the leader line. The "dogleg" is the first line segment of the leader
+        leader line. The "dogleg" is the first line segment of the leader
         in the "horizontal" direction of the content.
 
         """
@@ -1033,12 +1038,10 @@ class MultiLeaderBuilder(abc.ABC):
         supported by the builder classes.
 
         """
-        if size:
-            self._multileader.dxf.arrow_head_size = size
-        else:
-            self._multileader.dxf.arrow_head_size = (
-                self._mleader_style.dxf.arrow_head_size
-            )
+        if size == 0.0:
+            size = self._mleader_style.dxf.arrow_head_size
+        self._multileader.dxf.arrow_head_size = size
+        self.context.arrow_head_size = size
         if name:
             self._multileader.dxf.arrow_head_handle = ARROWS.arrow_handle(
                 self._doc.blocks, name

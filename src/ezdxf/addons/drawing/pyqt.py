@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2021, Matthew Broadway
+# Copyright (c) 2020-2022, Matthew Broadway
 # License: MIT License
 import math
 from abc import ABCMeta
@@ -8,7 +8,7 @@ from functools import lru_cache
 from ezdxf.addons.xqt import QtCore as qc, QtGui as qg, QtWidgets as qw
 
 from ezdxf.addons.drawing.backend import Backend, prepare_string_for_rendering
-from ezdxf.addons.drawing.config import Configuration, LinePolicy, HatchPolicy
+from ezdxf.addons.drawing.config import Configuration, LinePolicy
 from ezdxf.tools.fonts import FontMeasurements
 from ezdxf.addons.drawing.type_hints import Color
 from ezdxf.addons.drawing.properties import Properties
@@ -16,8 +16,6 @@ from ezdxf.addons.drawing.line_renderer import AbstractLineRenderer
 from ezdxf.tools import fonts
 from ezdxf.math import Vec3, Matrix44
 from ezdxf.path import Path, Command
-from ezdxf.render.linetypes import LineTypeRenderer as EzdxfLineTypeRenderer
-from ezdxf.tools.pattern import PatternAnalyser
 
 PatternKey = Tuple[str, float]
 
@@ -85,18 +83,15 @@ class PyQtBackend(Backend):
         if config.min_lineweight is None:
             config = config.with_changes(min_lineweight=0.24)
         super().configure(config)
+        # LinePolicy.ACCURATE is handled by the frontend since v0.18.1
         if config.line_policy == LinePolicy.SOLID:
             self._line_renderer = InternalLineRenderer(
                 self, config, solid_only=True
             )
-        elif config.line_policy == LinePolicy.APPROXIMATE:
+        else:
             self._line_renderer = InternalLineRenderer(
                 self, config, solid_only=False
             )
-        elif config.line_policy == LinePolicy.ACCURATE:
-            self._line_renderer = EzdxfLineRenderer(self, config)
-        else:
-            raise ValueError(config.line_policy)
 
     def set_scene(self, scene: qw.QGraphicsScene):
         self._scene = scene
@@ -136,50 +131,11 @@ class PyQtBackend(Backend):
         return pen
 
     def _get_brush(self, properties: Properties) -> qg.QBrush:
+        # Hatch patterns are handled by the frontend since v0.18.1
         filling = properties.filling
         if filling:
-            if filling.type == filling.PATTERN:
-                if (
-                    self.config.hatch_policy
-                    == HatchPolicy.SHOW_APPROXIMATE_PATTERN
-                ):
-                    # Default pattern scaling is not supported by PyQt:
-                    key: PatternKey = (filling.name, filling.angle)
-                    qt_pattern = self._pattern_cache.get(key)  # type: ignore
-                    if qt_pattern is None:
-                        qt_pattern = self._get_qt_pattern(filling.pattern)
-                        self._pattern_cache[key] = qt_pattern
-                elif self.config.hatch_policy == HatchPolicy.SHOW_SOLID:
-                    qt_pattern = qc.Qt.SolidPattern  # type: ignore
-                elif self.config.hatch_policy == HatchPolicy.SHOW_OUTLINE:
-                    return self._no_fill
-                else:
-                    raise ValueError(self.config.hatch_policy)
-            else:
-                qt_pattern = qc.Qt.SolidPattern  # type: ignore
-
-            return qg.QBrush(self._get_color(properties.color), qt_pattern)  # type: ignore
-        else:
-            return self._no_fill
-
-    @staticmethod
-    def _get_qt_pattern(pattern) -> int:
-        pattern = PatternAnalyser(pattern)
-        # knowledge of dark or light background would by handy:
-        qt_pattern = qc.Qt.Dense4Pattern
-        if pattern.all_angles(0):
-            qt_pattern = qc.Qt.HorPattern
-        elif pattern.all_angles(90):
-            qt_pattern = qc.Qt.VerPattern
-        elif pattern.has_angle(0) and pattern.has_angle(90):
-            qt_pattern = qc.Qt.CrossPattern
-        if pattern.all_angles(45):
-            qt_pattern = qc.Qt.BDiagPattern
-        elif pattern.all_angles(135):
-            qt_pattern = qc.Qt.FDiagPattern
-        elif pattern.has_angle(45) and pattern.has_angle(135):
-            qt_pattern = qc.Qt.DiagCrossPattern
-        return qt_pattern  # type: ignore
+            return qg.QBrush(self._get_color(properties.color), qc.Qt.SolidPattern)  # type: ignore
+        return self._no_fill
 
     def _set_item_data(self, item: qw.QGraphicsItem) -> None:
         parent_stack = tuple(e for e, props in self.entity_stack[:-1])
@@ -209,6 +165,21 @@ class PyQtBackend(Backend):
         else:
             item = self._line_renderer.draw_line(start, end, properties)  # type: ignore
             self._set_item_data(item)
+
+    def draw_solid_lines(
+        self,
+        lines: Iterable[Tuple[Vec3, Vec3]],
+        properties: Properties,
+    ):
+        """Fast method to draw a bunch of solid lines with the same properties."""
+        pen = self._get_pen(properties)
+        add_line = self._scene.addLine
+        set_item_data = self._set_item_data
+        for s, e in lines:
+            if s.isclose(e):
+                self.draw_point(s, properties)
+            else:
+                set_item_data(add_line(s.x, s.y, e.x, e.y, pen))
 
     def draw_path(self, path: Path, properties: Properties) -> None:
         item = self._line_renderer.draw_path(path, properties)  # type: ignore
@@ -563,47 +534,3 @@ class InternalLineRenderer(PyQtLineRenderer):
             self.get_pen(properties),
             self.no_fill,
         )
-
-
-class EzdxfLineRenderer(PyQtLineRenderer):
-    """Replicate AutoCAD linetype rendering oriented on drawing units and
-    various ltscale factors. This rendering method break lines into small
-    segments which causes a longer rendering time!
-    """
-
-    def draw_line(self, start: Vec3, end: Vec3, properties: Properties, z=0):
-        pattern = self.pattern(properties)
-        pen = self.get_pen(properties)
-        if len(pattern) < 2:
-            return self.scene.addLine(start.x, start.y, end.x, end.y, pen)
-        else:
-            add_line = self.scene.addLine
-            renderer = EzdxfLineTypeRenderer(pattern)
-            return [
-                add_line(s.x, s.y, e.x, e.y, pen)
-                for s, e in renderer.line_segment(start, end)
-                # PyQt has problems with very short lines:
-                if not s.isclose(e)
-            ]
-
-    def draw_path(self, path, properties: Properties, z=0):
-        pattern = self.pattern(properties)
-        pen = self.get_pen(properties)
-        if len(pattern) < 2:
-            qt_path = qg.QPainterPath()
-            _extend_qt_path(qt_path, path)
-            return self.scene.addPath(qt_path, pen, self.no_fill)
-        else:
-            add_line = self.scene.addLine
-            renderer = EzdxfLineTypeRenderer(pattern)
-            segments = renderer.line_segments(
-                path.flattening(
-                    self._config.max_flattening_distance, segments=16
-                )
-            )
-            return [
-                add_line(s.x, s.y, e.x, e.y, pen)
-                for s, e in segments
-                # PyQt has problems with very short lines:
-                if not s.isclose(e)
-            ]
