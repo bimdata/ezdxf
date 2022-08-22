@@ -313,7 +313,11 @@ class Frontend:
         else:
             draw_method = self._dispatch.get(entity.dxftype(), None)
             if draw_method is not None:
-                draw_method(entity, properties)
+                try : 
+                    draw_method(entity, properties)
+                except TypeError as e :
+                    self.skip_entity(entity, e)
+                                  
             # Composite entities (INSERT, DIMENSION, ...) have to implement the
             # __virtual_entities__() protocol.
             # Unsupported DXF types which have proxy graphic, are wrapped into
