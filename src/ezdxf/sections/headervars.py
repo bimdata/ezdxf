@@ -11,6 +11,7 @@ from ezdxf.lldxf.const import (
     DXF2013,
     DXF2018,
 )
+CONST_GUID = "{00000000-0000-0000-0000-000000000000}"
 
 HEADER_VAR_MAP = {
     "$ACADVER": HeaderVarDef(
@@ -1930,7 +1931,7 @@ HEADER_VAR_MAP = {
         mindxf=DXF2000,
         maxdxf=DXF2018,
         priority=20600,
-        default="{6d50f5e5-c3bb-4eb1-8520-1109eb28619f}",
+        default=CONST_GUID,
     ),
     "$VERSIONGUID": HeaderVarDef(
         name="$VERSIONGUID",
@@ -1939,7 +1940,7 @@ HEADER_VAR_MAP = {
         mindxf=DXF2000,
         maxdxf=DXF2018,
         priority=20700,
-        default="{FAEB1C32-E019-11D5-929B-00C0DF256EC4}",
+        default=CONST_GUID,
     ),
     "$EXTNAMES": HeaderVarDef(
         name="$EXTNAMES",
@@ -1968,6 +1969,14 @@ HEADER_VAR_MAP = {
         priority=21000,
         default=0,
     ),
+    # 0 = Disables SORTENTS
+    # 1 = Sorts for object selection
+    # 2 = Sorts for object snap
+    # 4 = Sorts for redraws; obsolete
+    # 8 = Sorts for MSLIDE command slide creation; obsolete
+    # 16 = Sorts for REGEN commands
+    # 32 = Sorts for plotting
+    # 64 = Sorts for PostScript output; obsolete
     "$SORTENTS": HeaderVarDef(
         name="$SORTENTS",
         code=280,

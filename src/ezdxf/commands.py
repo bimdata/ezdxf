@@ -145,6 +145,13 @@ class Audit(Command):
             action="store_true",
             help='save recovered files with extension ".rec.dxf" ',
         )
+        parser.add_argument(
+            "-x",
+            "--explore",
+            action="store_true",
+            help="filters invalid DXF tags, this may load corrupted files but "
+            "data loss is very likely",
+        )
 
     @staticmethod
     def run(args):
@@ -164,8 +171,11 @@ class Audit(Command):
             msg = f"auditing file: {filename}"
             print(msg)
             logger.info(msg)
+            if args.explore:
+                logger.info("explore mode - skipping invalid tags")
+            loader = recover.explore if args.explore else recover.readfile
             try:
-                doc, auditor = recover.readfile(filename)
+                doc, auditor = loader(filename)
             except IOError:
                 msg = "Not a DXF file or a generic I/O error."
                 print(msg)
@@ -279,9 +289,10 @@ class Draw(Command):
             help="show all supported export formats and exit",
         )
         parser.add_argument(
+            "-l",
             "--layout",
             default="Model",
-            help="select the layout to draw",
+            help='select the layout to draw, default is "Model"',
         )
         parser.add_argument(
             "--all-layers-visible",
@@ -305,12 +316,6 @@ class Draw(Command):
             help="target render resolution, default is 300",
         )
         parser.add_argument(
-            "--ltype",
-            default="approximate",
-            choices=["approximate", "accurate"],
-            help=HELP_LTYPE,
-        )
-        parser.add_argument(
             "-v",
             "--verbose",
             action="store_true",
@@ -328,7 +333,8 @@ class Draw(Command):
 
         from ezdxf.addons.drawing import RenderContext, Frontend
         from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
-        from ezdxf.addons.drawing.config import Configuration, LinePolicy
+        from ezdxf.addons.drawing.config import Configuration
+
         verbose = args.verbose
         # Print all supported export formats:
         if args.formats:
@@ -367,12 +373,6 @@ class Draw(Command):
                 layer_properties.is_visible = True
 
         config = Configuration.defaults()
-        config = config.with_changes(
-            line_policy=LinePolicy.ACCURATE
-            if args.ltype == "accurate"
-            else config.line_policy
-        )
-
         if args.all_entities_visible:
 
             class AllVisibleFrontend(Frontend):
@@ -386,7 +386,7 @@ class Draw(Command):
             frontend = Frontend(ctx, out, config=config)
         t0 = time.perf_counter()
         if verbose:
-            print("drawing modelspace...")
+            print(f"drawing layout '{layout.name}' ...")
         frontend.draw_layout(layout, finalize=True)
         t1 = time.perf_counter()
         if verbose:
@@ -424,15 +424,10 @@ class View(Command):
             help="DXF file to view",
         )
         parser.add_argument(
+            "-l",
             "--layout",
             default="Model",
-            help="select the layout to draw",
-        )
-        parser.add_argument(
-            "--ltype",
-            default="approximate",
-            choices=["approximate", "accurate"],
-            help=HELP_LTYPE,
+            help='select the layout to draw, default is "Model"',
         )
         # disable lineweight at all by default:
         parser.add_argument(
@@ -451,13 +446,10 @@ class View(Command):
             print(str(e))
             sys.exit(1)
         from ezdxf.addons.drawing.qtviewer import CadViewer
-        from ezdxf.addons.drawing.config import Configuration, LinePolicy
+        from ezdxf.addons.drawing.config import Configuration
 
         config = Configuration.defaults()
         config = config.with_changes(
-            line_policy=LinePolicy.ACCURATE
-            if args.ltype == "accurate"
-            else config.line_policy,
             lineweight_scaling=args.lwscale,
         )
 
@@ -501,6 +493,13 @@ class Pillow(Command):
             "(.png, .jpg, .tif, .bmp, ...)",
         )
         parser.add_argument(
+            "-l",
+            "--layout",
+            type=str,
+            default="Model",
+            help='name of the layout to draw, default is "Model"',
+        )
+        parser.add_argument(
             "-i",
             "--image_size",
             type=str,
@@ -535,6 +534,14 @@ class Pillow(Command):
             help="minimal margin around the image in pixels, default is 10",
         )
         parser.add_argument(
+            "-t",
+            "--text-mode",
+            type=int,
+            choices=[0, 1, 2, 3],
+            default=2,
+            help="text mode: 0=ignore, 1=placeholder, 2=outline, 3=filled, default is 2",
+        )
+        parser.add_argument(
             "--dpi",
             type=int,
             default=300,
@@ -554,7 +561,10 @@ class Pillow(Command):
         from ezdxf import bbox
         from ezdxf.addons.drawing import RenderContext, Frontend
         from ezdxf.addons.drawing.config import Configuration, LinePolicy
-        from ezdxf.addons.drawing.pillow import PillowBackend
+        from ezdxf.addons.drawing.pillow import (
+            PillowBackend,
+            PillowBackendException,
+        )
         from ezdxf.addons.drawing.properties import LayoutProperties
 
         verbose = args.verbose
@@ -565,9 +575,14 @@ class Pillow(Command):
             sys.exit(1)
         print(f'loading file "{filename}"...')
         doc, _ = load_document(filename)
-        msp = doc.modelspace()
+        try:
+            layout = doc.layout(args.layout)
+        except KeyError:
+            print(f'layout "{args.layout}" not found')
+            sys.exit(4)
+
         bg = args.background
-        layout_properties = LayoutProperties.from_layout(msp)
+        layout_properties = LayoutProperties.from_layout(layout)
         if bg is not None:
             if not bg.startswith("#"):
                 bg = "#" + bg
@@ -586,10 +601,15 @@ class Pillow(Command):
         )
         if verbose:
             print(f"detecting extents...\n")
-        extents = bbox.extents(msp, fast=True)
+        bbox_cache = bbox.Cache()
+        if layout.is_any_paperspace:
+            # get entity bounding boxes in modelspace for faster paperspace
+            # rendering
+            bbox.extents(doc.modelspace(), fast=True, cache=bbox_cache)
+        extents = bbox.extents(layout, fast=True, bbox_cache=bbox_cache)
         img_x, img_y = parse_image_size(args.image_size)
         if verbose:
-            print(f"    units: {units.unit_name(msp.units)}")
+            print(f"    units: {units.unit_name(layout.units)}")
             print(
                 f"    modelspace size: {extents.size.x:.3f} x {extents.size.y:.3f}"
             )
@@ -600,19 +620,24 @@ class Pillow(Command):
                 f"    max extents: ({extents.extmax.x:.3f}, {extents.extmax.y:.3f})"
             )
             print(f"\nimage size: {img_x} x {img_y}")
-        out = PillowBackend(
-            extents,
-            image_size=(img_x, img_y),
-            oversampling=args.oversampling,
-            margin=args.margin,
-            dpi=args.dpi,
-            text_placeholder=False,
-        )
+        try:
+            out = PillowBackend(
+                extents,
+                image_size=(img_x, img_y),
+                oversampling=args.oversampling,
+                margin=args.margin,
+                dpi=args.dpi,
+                text_mode=args.text_mode,
+            )
+        except PillowBackendException as e:
+            print(str(e))
+            sys.exit(5)
+
         t0 = time.perf_counter()
         if verbose:
-            print("drawing modelspace...")
-        Frontend(ctx, out, config=config).draw_layout(
-            msp, layout_properties=layout_properties
+            print(f'drawing layout "{layout.name}"...')
+        Frontend(ctx, out, config=config, bbox_cache=bbox_cache).draw_layout(
+            layout, layout_properties=layout_properties
         )
         t1 = time.perf_counter()
         if verbose:
@@ -803,8 +828,13 @@ class Config(Command):
             "-p",
             "--print",
             action="store_true",
-            help="print configuration, to store the configuration use: "
-            '"ezdxf config -p > my.ini"',
+            help="print configuration",
+        )
+        parser.add_argument(
+            "-w",
+            "--write",
+            metavar="FILE",
+            help="write configuration",
         )
         parser.add_argument(
             "--home",
@@ -829,6 +859,13 @@ class Config(Command):
             options.write_home_config()
         if args.print:
             options.print()
+        if args.write:
+            filepath = Path(args.write).expanduser()
+            try:
+                options.write_file(str(filepath))
+                print(f"configuration written to: {filepath}")
+            except IOError as e:
+                print(str(e))
 
 
 def load_every_document(filename: str):

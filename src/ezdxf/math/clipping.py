@@ -1,44 +1,243 @@
 #  Copyright (c) 2021-2022, Manfred Moitzi
 #  License: MIT License
+from __future__ import annotations
 from typing import (
     Iterable,
     List,
+    Sequence,
     Optional,
     Iterator,
     Union,
     Tuple,
+    Callable,
 )
-
+from typing_extensions import Protocol
 from ezdxf.math import (
     Vec2,
     UVec,
     intersection_line_line_2d,
+    is_point_in_polygon_2d,
     has_clockwise_orientation,
-    point_to_line_relation,
     TOLERANCE,
+    BoundingBox2d,
 )
 import enum
 
 __all__ = [
-    "clip_polygon_2d",
     "greiner_hormann_union",
     "greiner_hormann_difference",
     "greiner_hormann_intersection",
+    "cohen_sutherland_line_clipping_2d",
+    "Clipping",
+    "ClippingPolygon2d",
+    "ClippingRect2d",
 ]
+
+
+class Clipping(Protocol):
+    def clip_polygon(self, polygon: Iterable[Vec2]) -> Sequence[Vec2]:
+        """Returns the clipped polygon."""
+        ...
+
+    def clip_polyline(
+        self, polyline: Iterable[Vec2]
+    ) -> Sequence[Sequence[Vec2]]:
+        """Returns the parts of the clipped polyline."""
+        ...
+
+    def clip_line(self, start: Vec2, end: Vec2) -> Sequence[Vec2]:
+        """Returns the clipped line."""
+        ...
+
+    def is_inside(self, point: Vec2) -> bool:
+        """Returns ``True`` if `point is inside the clipping path."""
+        ...
+
+
+def _clip_polyline(
+    polyline: Iterable[Vec2],
+    line_clipper: Callable[[Vec2, Vec2], Sequence[Vec2]],
+) -> Sequence[Sequence[Vec2]]:
+    """Returns the parts of the clipped polyline."""
+    vertices = list(polyline)
+    if len(vertices) < 2:
+        return []
+    result: List[Vec2] = []
+    parts: List[List[Vec2]] = []
+    start = vertices[0]
+    for end in vertices[1:]:
+        clipped_line = line_clipper(start, end)
+        start = end
+        if len(clipped_line) == 2:
+            if result:
+                clip_start, clip_end = clipped_line
+                if result[-1].isclose(clip_start):
+                    result.append(clip_end)
+                    continue
+                parts.append(result)
+            result = list(clipped_line)
+    if result:
+        parts.append(result)
+    return parts
+
+
+class ClippingPolygon2d:
+    """The clipping path is an arbitrary polygon.
+
+    .. versionadded: 0.18.1
+
+    """
+
+    def __init__(self, vertices: Iterable[Vec2], ccw_check=True):
+        clip = list(vertices)
+        if len(clip) > 1:
+            if clip[0].isclose(clip[-1]):
+                clip.pop()
+        if len(clip) < 3:
+            raise ValueError(
+                "more than 3 vertices as clipping polygon required"
+            )
+        if ccw_check and has_clockwise_orientation(clip):
+            clip.reverse()
+        self._clipping_polygon: List[Vec2] = clip
+
+    def clip_polyline(
+        self, polyline: Iterable[Vec2]
+    ) -> Sequence[Sequence[Vec2]]:
+        """Returns the parts of the clipped polyline."""
+        return _clip_polyline(polyline, self.clip_line)
+
+    def clip_line(self, start: Vec2, end: Vec2) -> Sequence[Vec2]:
+        """Returns the clipped line."""
+
+        def is_inside(point: Vec2) -> bool:
+            # is point left of line:
+            return (clip_end.x - clip_start.x) * (point.y - clip_start.y) - (
+                clip_end.y - clip_start.y
+            ) * (point.x - clip_start.x) >= 0.0
+
+        def edge_intersection() -> Vec2:
+            return intersection_line_line_2d(
+                (edge_start, edge_end), (clip_start, clip_end)
+            )
+
+        # The clipping polygon is always treated as a closed polyline!
+        clip_start = self._clipping_polygon[-1]
+        edge_start = start
+        edge_end = end
+        for clip_end in self._clipping_polygon:
+            if is_inside(edge_start):
+                if not is_inside(edge_end):
+                    edge_end = edge_intersection()
+            elif is_inside(edge_end):
+                if not is_inside(edge_start):
+                    edge_start = edge_intersection()
+            else:
+                return tuple()
+            clip_start = clip_end
+        return edge_start, edge_end
+
+    def clip_polygon(self, polygon: Iterable[Vec2]) -> Sequence[Vec2]:
+        """Returns the clipped polygon."""
+
+        def is_inside(point: Vec2) -> bool:
+            # is point left of line:
+            return (clip_end.x - clip_start.x) * (point.y - clip_start.y) - (
+                clip_end.y - clip_start.y
+            ) * (point.x - clip_start.x) > 0.0
+
+        def edge_intersection() -> Vec2:
+            return intersection_line_line_2d(
+                (edge_start, edge_end), (clip_start, clip_end)
+            )
+
+        # The clipping polygon is always treated as a closed polyline!
+        clip_start = self._clipping_polygon[-1]
+        clipped = list(polygon)
+        for clip_end in self._clipping_polygon:
+            # next clipping edge to test: clip_start -> clip_end
+            if not clipped:  # no subject vertices left to test
+                break
+
+            vertices = clipped.copy()
+            if len(vertices) > 1 and vertices[0].isclose(vertices[-1]):
+                vertices.pop()
+
+            clipped.clear()
+            edge_start = vertices[-1]
+            for edge_end in vertices:
+                # next polygon edge to test: edge_start -> edge_end
+                if is_inside(edge_end):
+                    if not is_inside(edge_start):
+                        clipped.append(edge_intersection())
+                    clipped.append(edge_end)
+                elif is_inside(edge_start):
+                    clipped.append(edge_intersection())
+                edge_start = edge_end
+            clip_start = clip_end
+        return clipped
+
+    def is_inside(self, point: Vec2) -> bool:
+        """Returns ``True`` if `point` is inside the clipping polygon."""
+        return is_point_in_polygon_2d(point, self._clipping_polygon) >= 0
+
+
+class ClippingRect2d:
+    """The clipping path is a rectangle parallel to the x- and y-axis.
+
+    This class will get an optimized implementation in the future.
+
+    .. versionadded: 0.18.1
+
+    """
+
+    def __init__(self, bottom_left: Vec2, top_right: Vec2):
+        self._bbox = BoundingBox2d((bottom_left, top_right))
+        bottom_left = self._bbox.extmin
+        top_right = self._bbox.extmax
+        self._clipping_polygon = ClippingPolygon2d(
+            [
+                bottom_left,
+                Vec2(top_right.x, bottom_left.y),
+                top_right,
+                Vec2(bottom_left.x, top_right.y),
+            ],
+            ccw_check=False,
+        )
+
+    def clip_polygon(self, polygon: Iterable[Vec2]) -> Sequence[Vec2]:
+        """Returns the clipped polygon."""
+        return self._clipping_polygon.clip_polygon(polygon)
+
+    def clip_polyline(
+        self, polyline: Iterable[Vec2]
+    ) -> Sequence[Sequence[Vec2]]:
+        """Returns the parts of the clipped polyline."""
+        return _clip_polyline(polyline, self.clip_line)
+
+    def clip_line(self, start: Vec2, end: Vec2) -> Sequence[Vec2]:
+        """Returns the clipped line."""
+        return cohen_sutherland_line_clipping_2d(
+            self._bbox.extmin, self._bbox.extmax, start, end
+        )
+
+    def is_inside(self, point: Vec2) -> bool:
+        """Returns ``True`` if `point` is inside the clipping rectangle."""
+        return self._bbox.inside(point)
 
 
 def clip_polygon_2d(
     clip: Iterable[UVec],
     subject: Iterable[UVec],
     ccw_check: bool = True,
-) -> List[Vec2]:
+) -> Sequence[Vec2]:
     """Clip the `subject` polygon by the **convex** clipping polygon `clip`.
 
     Implements the `Sutherland–Hodgman`_ algorithm for clipping polygons.
 
     Args:
         clip: the convex clipping polygon as iterable of vertices
-        subject: the polygon to clip as a iterable of vertices
+        subject: the polygon to clip as an iterable of vertices
         ccw_check: check if the clipping polygon is in counter-clockwise
             orientation if ``True``, set to ``False`` if the ccw check is done
             by the caller
@@ -51,51 +250,8 @@ def clip_polygon_2d(
     .. _Sutherland–Hodgman: https://de.wikipedia.org/wiki/Algorithmus_von_Sutherland-Hodgman
 
     """
-
-    def polygon(vertices: Iterable[UVec]) -> List[Vec2]:
-        _vertices = Vec2.list(vertices)
-        if len(_vertices) > 1:
-            if _vertices[0].isclose(_vertices[-1]):
-                _vertices.pop()
-        return _vertices
-
-    def is_inside(point: Vec2) -> bool:
-        return (
-            point_to_line_relation(point, clip_start, clip_end) == -1
-        )  # left of line
-
-    def edge_intersection() -> Vec2:
-        return intersection_line_line_2d(
-            (edge_start, edge_end), (clip_start, clip_end)
-        )
-
-    clipping_polygon = polygon(clip)
-    if ccw_check and has_clockwise_orientation(clipping_polygon):
-        clipping_polygon.reverse()
-    if len(clipping_polygon) > 2:
-        clip_start = clipping_polygon[-1]
-    else:
-        raise ValueError("invalid clipping polygon")
-    clipped = polygon(subject)
-
-    for clip_end in clipping_polygon:
-        # next clipping edge to test: clip_start -> clip_end
-        if not clipped:  # no subject vertices left to test
-            break
-        vertices = list(clipped)
-        clipped.clear()
-        edge_start = vertices[-1]
-        for edge_end in vertices:
-            # next polygon edge to test: edge_start -> edge_end
-            if is_inside(edge_end):
-                if not is_inside(edge_start):
-                    clipped.append(edge_intersection())
-                clipped.append(edge_end)
-            elif is_inside(edge_start):
-                clipped.append(edge_intersection())
-            edge_start = edge_end
-        clip_start = clip_end
-    return clipped
+    clipper = ClippingPolygon2d(Vec2.generate(clip), ccw_check)
+    return clipper.clip_polygon(Vec2.generate(subject))
 
 
 # Based on the paper "Efficient Clipping of Arbitrary Polygons" by
@@ -107,7 +263,7 @@ def clip_polygon_2d(
 class _Node:
     def __init__(
         self,
-        vtx: Union[Vec2, "_Node"],
+        vtx: Union[Vec2, _Node],
         alpha: float = 0.0,
         intersect=False,
         entry=True,
@@ -150,7 +306,7 @@ class IntersectionError(Exception):
     pass
 
 
-class _Polygon:
+class GHPolygon:
     first: _Node = None  # type: ignore
     max_x: float = 1e6
 
@@ -169,6 +325,15 @@ class _Polygon:
             node.next = first
             node.prev = last
             last.next = node
+
+    @staticmethod
+    def build(vertices: Iterable[UVec]) -> GHPolygon:
+        """Build a new GHPolygon from an iterable of vertices."""
+        polygon = GHPolygon()
+        _vertices = Vec2.list(vertices)
+        for v in _vertices:
+            polygon.add(_Node(v))
+        return polygon
 
     @staticmethod
     def insert(vertex: _Node, start: _Node, end: _Node):
@@ -220,16 +385,16 @@ class _Polygon:
                 return True
         return False
 
-    def union(self, clip: "_Polygon") -> List[List[Vec2]]:
+    def union(self, clip: GHPolygon) -> List[List[Vec2]]:
         return self.clip(clip, False, False)
 
-    def intersection(self, clip: "_Polygon") -> List[List[Vec2]]:
+    def intersection(self, clip: GHPolygon) -> List[List[Vec2]]:
         return self.clip(clip, True, True)
 
-    def difference(self, clip: "_Polygon") -> List[List[Vec2]]:
+    def difference(self, clip: GHPolygon) -> List[List[Vec2]]:
         return self.clip(clip, False, True)
 
-    def clip(self, clip: "_Polygon", s_entry, c_entry) -> List[List[Vec2]]:
+    def clip(self, clip: GHPolygon, s_entry, c_entry) -> List[List[Vec2]]:
         """Clip this polygon using another one as a clipper.
 
         This is where the algorithm is executed. It allows you to make
@@ -307,7 +472,7 @@ class _Polygon:
         clipped_polygons: List[List[Vec2]] = []
         while self.unprocessed():
             current: _Node = self.first_intersect  # type: ignore
-            clipped = _Polygon()
+            clipped = GHPolygon()
             clipped.add(_Node(current))
             while True:
                 current.set_checked()
@@ -340,8 +505,8 @@ def next_vertex_node(v: _Node) -> _Node:
     return c
 
 
-def is_inside_polygon(vertex: Vec2, polygon: "_Polygon") -> bool:
-    """Returns ``True`´ if  `vertex` is inside `polygon` (odd-even rule).
+def is_inside_polygon(vertex: Vec2, polygon: GHPolygon) -> bool:
+    """Returns ``True`` if  `vertex` is inside `polygon` (odd-even rule).
 
     This function calculates the "winding" number for a point, which
     represents the number of times a ray emitted from the point to
@@ -467,16 +632,8 @@ def greiner_hormann(
     .. versionadded:: 0.18
 
     """
-
-    def build(vertices) -> _Polygon:
-        polygon = _Polygon()
-        _vertices = Vec2.list(vertices)
-        for v in _vertices:
-            polygon.add(_Node(v))
-        return polygon
-
-    polygon1 = build(p1)
-    polygon2 = build(p2)
+    polygon1 = GHPolygon.build(p1)
+    polygon2 = GHPolygon.build(p2)
 
     if op == BooleanOperation.UNION:
         return polygon1.union(polygon2)
@@ -485,3 +642,89 @@ def greiner_hormann(
     elif op == BooleanOperation.INTERSECTION:
         return polygon1.intersection(polygon2)
     raise ValueError(f"unknown or unsupported boolean operation: {op}")
+
+
+LEFT = 0x1
+RIGHT = 0x2
+BOTTOM = 0x4
+TOP = 0x8
+
+
+def cohen_sutherland_line_clipping_2d(
+    w_min: Vec2, w_max: Vec2, p0: Vec2, p1: Vec2
+) -> Sequence[Vec2]:
+    """Cohen-Sutherland 2D line clipping algorithm, source:
+    https://en.wikipedia.org/wiki/Cohen%E2%80%93Sutherland_algorithm
+
+    Args:
+        w_min: bottom-left corner of the clipping rectangle
+        w_max: top-right corner of the clipping rectangle
+        p0: start-point of the line to clip
+        p1: end-point of the line to clip
+
+    """
+
+    def encode(x: float, y: float) -> int:
+        code: int = 0
+        if x < x_min:
+            code |= LEFT
+        elif x > x_max:
+            code |= RIGHT
+        if y < y_min:
+            code |= BOTTOM
+        elif y > y_max:
+            code |= TOP
+        return code
+
+    x0, y0 = p0
+    x1, y1 = p1
+    x_min, y_min = w_min
+    x_max, y_max = w_max
+    code0 = encode(x0, y0)
+    code1 = encode(x1, y1)
+    x = x0
+    y = y0
+    while True:
+        if not (code0 | code1):  # ACCEPT
+            # bitwise OR is 0: both points inside window; trivially accept and
+            # exit loop:
+            return Vec2(x0, y0), Vec2(x1, y1)
+        if code0 & code1:  # REJECT
+            # bitwise AND is not 0: both points share an outside zone (LEFT,
+            # RIGHT, TOP, or BOTTOM), so both must be outside window;
+            # exit loop
+            return tuple()
+
+        # failed both tests, so calculate the line segment to clip
+        # from an outside point to an intersection with clip edge
+        # At least one endpoint is outside the clip rectangle; pick it
+        code = code1 if code1 > code0 else code0
+
+        # Now find the intersection point;
+        # use formulas:
+        # slope = (y1 - y0) / (x1 - x0)
+        # x = x0 + (1 / slope) * (ym - y0), where ym is y_min or y_max
+        # y = y0 + slope * (xm - x0), where xm is x_min or x_max
+        # No need to worry about divide-by-zero because, in each case, the
+        # code bit being tested guarantees the denominator is non-zero
+        if code & TOP:  # point is above the clip window
+            x = x0 + (x1 - x0) * (y_max - y0) / (y1 - y0)
+            y = y_max
+        elif code & BOTTOM:  # point is below the clip window
+            x = x0 + (x1 - x0) * (y_min - y0) / (y1 - y0)
+            y = y_min
+        elif code & RIGHT:  # point is to the right of clip window
+            y = y0 + (y1 - y0) * (x_max - x0) / (x1 - x0)
+            x = x_max
+        elif code & LEFT:  # point is to the left of clip window
+            y = y0 + (y1 - y0) * (x_min - x0) / (x1 - x0)
+            x = x_min
+
+        if code == code0:
+            x0 = x
+            y0 = y
+            code0 = encode(x0, y0)
+        else:
+            x1 = x
+            y1 = y
+            code1 = encode(x1, y1)

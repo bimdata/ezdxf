@@ -58,7 +58,10 @@ def default_logging_callback(entity, reason):
 
 
 def explode_block_reference(
-    block_ref: "Insert", target_layout: "BaseLayout"
+    block_ref: "Insert",
+    target_layout: "BaseLayout",
+    *,
+    redraw_order=False,
 ) -> EntityQuery:
     """Explode a block reference into DXF primitives.
 
@@ -74,6 +77,7 @@ def explode_block_reference(
     Args:
         block_ref: Block reference entity (INSERT)
         target_layout: explicit target layout for exploded DXF entities
+        redraw_order: create entities in ascending redraw order if ``True``
 
     .. warning::
 
@@ -90,7 +94,9 @@ def explode_block_reference(
         raise DXFStructureError("Block reference has to be assigned to a DXF document.")
 
     def _explode_single_block_ref(block_ref):
-        for entity in virtual_block_reference_entities(block_ref):
+        for entity in virtual_block_reference_entities(
+            block_ref, redraw_order=redraw_order
+        ):
             dxftype = entity.dxftype()
             target_layout.add_entity(entity)
             if dxftype == "DIMENSION":
@@ -153,23 +159,28 @@ def attrib_to_text(attrib: "Attrib") -> "Text":
 
 def virtual_block_reference_entities(
     block_ref: "Insert",
-    skipped_entity_callback: Optional[Callable[["DXFGraphic", str], None]] = None,
+    *,
+    skipped_entity_callback: Optional[
+        Callable[["DXFGraphic", str], None]
+    ] = None,
+    redraw_order=False,
 ) -> Iterable["DXFGraphic"]:
     """Yields 'virtual' parts of block reference `block_ref`. This method is meant
-    to examine the the block reference entities without the need to explode the
+    to examine the block reference entities without the need to explode the
     block reference. The `skipped_entity_callback()` will be called for all
     entities which are not processed, signature:
     :code:`skipped_entity_callback(entity: DXFGraphic, reason: str)`,
     `entity` is the original (untransformed) DXF entity of the block definition,
     the `reason` string is an explanation why the entity was skipped.
 
-    This entities are located at the 'exploded' positions, but are not stored in
+    These entities are located at the 'exploded' positions, but are not stored in
     the entity database, have no handle and are not assigned to any layout.
 
     Args:
         block_ref: Block reference entity (INSERT)
         skipped_entity_callback: called whenever the transformation of an entity
             is not supported and so was skipped.
+        redraw_order: yield entities in ascending redraw order if ``True``
 
     .. warning::
 
@@ -185,7 +196,9 @@ def virtual_block_reference_entities(
     skipped_entity_callback = skipped_entity_callback or default_logging_callback
 
     def disassemble(layout) -> Iterable["DXFGraphic"]:
-        for entity in layout:
+        for entity in (
+            layout.entities_in_redraw_order() if redraw_order else layout
+        ):
             # Do not explode ATTDEF entities. Already available in Insert.attribs
             if entity.dxftype() == "ATTDEF":
                 continue

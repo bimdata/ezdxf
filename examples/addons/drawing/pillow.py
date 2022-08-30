@@ -10,7 +10,7 @@ import ezdxf
 from ezdxf import recover, bbox
 from ezdxf.addons.drawing import RenderContext, Frontend
 from ezdxf.addons.drawing.config import Configuration, LinePolicy
-from ezdxf.addons.drawing.pillow import PillowBackend, PillowDelayedDraw
+from ezdxf.addons.drawing.pillow import PillowBackend, TextMode
 
 
 def main():
@@ -44,6 +44,13 @@ def main():
         help="oversampling factor, default is 2, use 0 or 1 to disable oversampling",
     )
     parser.add_argument(
+        "-l",
+        "--layout",
+        type=str,
+        default="Model",
+        help='name of the layout to draw, default is "Model"',
+    )
+    parser.add_argument(
         "--dpi",
         type=int,
         default=300,
@@ -56,15 +63,11 @@ def main():
     )
     parser.add_argument(
         "-t",
-        "--text-placeholder",
-        action="store_true",
-        help="draw a filled rectangle as placeholder for text",
-    )
-    parser.add_argument(
-        "-d",
-        "--delayed",
-        action="store_true",
-        help="delayed draw",
+        "--text-mode",
+        type=int,
+        choices=[0, 1, 2, 3],
+        default=2,
+        help="text mode: 0=ignore, 1=placeholder, 2=outline, 3=filled, default is 2",
     )
     parser.add_argument(
         "--trace",
@@ -98,13 +101,17 @@ def main():
     if auditor.has_fixes:
         print(f"Fixed {len(auditor.fixes)} errors.")
 
-    msp = doc.modelspace()
+    try:
+        layout = doc.layout(args.layout)
+    except KeyError:
+        print(f'layout "{args.layout}" not found')
+        sys.exit(4)
     outfile = args.out
     img_x, img_y = parse_image_size(args.image_size)
     print(f"Image size: {img_x}x{img_y}")
     print(f"DPI: {args.dpi}")
     print(f"Oversampling factor: {args.oversampling}")
-    print(f"Draw text placeholder: {args.text_placeholder}")
+    print(f"text mode: {TextMode(args.text_mode).name}")
     # The current implementation is optimized to use as less memory as possible,
     # therefore the extents of the layout are required beforehand, otherwise the
     # backend would have to store all drawing commands to determine the required
@@ -118,37 +125,29 @@ def main():
     if args.trace:
         tracemalloc.start()
     try:
-        if args.delayed:
-            print("Using the PillowDelayedDraw() backend")
-            out = PillowDelayedDraw(
-                image_size=(img_x, img_y),
-                oversampling=args.oversampling,
-                dpi=args.dpi,
-            )
-        else:
-            print("Using PillowBackend()")
-            print(f"detecting model space extents (fast={args.fast}) ...")
-            t0 = perf_counter()
-            extents = bbox.extents(msp, fast=args.fast)
-            print(f"... in {perf_counter() - t0:.1f}s")
-            print(f"EXTMIN: ({extents.extmin.x:.3f}, {extents.extmin.y:.3f})")
-            print(f"EXTMAX: ({extents.extmax.x:.3f}, {extents.extmax.y:.3f})")
-            print(f"SIZE: ({extents.size.x:.3f}, {extents.size.y:.3f})")
-            out = PillowBackend(
-                extents,
-                image_size=(img_x, img_y),
-                oversampling=args.oversampling,
-                dpi=args.dpi,
-                text_placeholder=args.text_placeholder,
-            )
+        print(f"detecting model space extents (fast={args.fast}) ...")
+        t0 = perf_counter()
+        bbox_cache = bbox.Cache()
+        extents = bbox.extents(layout, fast=args.fast, cache=bbox_cache)
+        print(f"... in {perf_counter() - t0:.1f}s")
+        print(f"EXTMIN: ({extents.extmin.x:.3f}, {extents.extmin.y:.3f})")
+        print(f"EXTMAX: ({extents.extmax.x:.3f}, {extents.extmax.y:.3f})")
+        print(f"SIZE: ({extents.size.x:.3f}, {extents.size.y:.3f})")
+        out = PillowBackend(
+            extents,
+            image_size=(img_x, img_y),
+            oversampling=args.oversampling,
+            dpi=args.dpi,
+            text_mode=args.text_mode,
+        )
     except ValueError as e:
         # invalid image size or empty drawing
         print(str(e))
         sys.exit(1)
 
-    print("drawing model space ...")
+    print(f"drawing layout \"{layout.name}\"  ...")
     t0 = perf_counter()
-    Frontend(ctx, out, config=config).draw_layout(msp)
+    Frontend(ctx, out, config=config, bbox_cache=bbox_cache).draw_layout(layout)
     print(f"... in {perf_counter() - t0:.1f}s")
     if outfile is not None:
         t0 = perf_counter()

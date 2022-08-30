@@ -7,11 +7,19 @@ Version 0.18.1b0 - dev
 
 - Release notes: https://ezdxf.mozman.at/release-v0-18.html
 - NEW: improved hatch pattern support for the `drawing` add-on
+- NEW: `drawing` add-on got basic `VIEWPORT` rendering (only top-views), 
+  supported by the `PyQtBackend` and the `PillowBackend`  
 - NEW: `ezdxf.render.forms.turtle()` function to create 2D polyline vertices by 
   turtle-graphic like commands
 - NEW: sub-command `ezdxf pillow` to draw and convert DXF files by `Pillow`
+- NEW: `ezdxf.path.triangulate()`, tessellate (nested) paths into triangle-faces
+- CHANGE: replaced function `clip_polygon_2d()`, by clipping the classes 
+  `ClippingPolygon2d()` and `ClippingRect2d()` 
 - BUGFIX: CPython implementation of `Vec2()` was not immutable at inplace 
   operations `+=`, `-=`, `*=` and `/=` like the Cython implementation
+- BUGFIX: fixed bounding box calculation for `LinePrimitive()`
+- BUGFIX: [#729](https://github.com/mozman/ezdxf/issues/729)
+  fixes `$FINGERPRINTGUID` and `$VERSIONGUID` handling
 
 Version 0.18 - 2022-07-29
 -------------------------

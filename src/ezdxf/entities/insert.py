@@ -76,7 +76,7 @@ ABS_TOL = 1e-9
 
 # DXF files as XREF:
 # The INSERT entity is used to attach XREFS.
-# The model space is the block content, if the the whole document is used as
+# The model space is the block content, if the whole document is used as
 # BLOCK (XREF), but this is only supported for the DWG format.
 # AutoCAD does not support DXF files as XREFS, they are ignored, but the DXF
 # file is valid! BricsCAD shows DXF files as XREFS, but does not allow to attach
@@ -568,7 +568,9 @@ class Insert(LinkedEntities):
         self.dxf.discard("rotation")
         self.dxf.discard("extrusion")
 
-    def explode(self, target_layout: BaseLayout = None) -> EntityQuery:
+    def explode(
+        self, target_layout: BaseLayout = None, *, redraw_order=False
+    ) -> EntityQuery:
         """Explode block reference entities into target layout, if target
         layout is ``None``, the target layout is the layout of the block
         reference. This method destroys the source block reference entity.
@@ -591,6 +593,7 @@ class Insert(LinkedEntities):
         Args:
             target_layout: target layout for exploded entities, ``None`` for
                 same layout as source entity.
+            redraw_order: create entities in ascending redraw order if ``True``
 
         """
         if target_layout is None:
@@ -599,21 +602,25 @@ class Insert(LinkedEntities):
                 raise DXFStructureError(
                     "INSERT without layout assignment, specify target layout."
                 )
-        return explode_block_reference(self, target_layout=target_layout)
+        return explode_block_reference(
+            self, target_layout=target_layout, redraw_order=redraw_order
+        )
 
     def __virtual_entities__(self) -> Iterable[DXFGraphic]:
         """Implements the SupportsVirtualEntities protocol.
 
         This protocol is for consistent internal usage and does not replace
-        the method :meth:`virtual_entities`!
+        the method :meth:`virtual_entities`! Ignores the redraw order!
         """
         return self.virtual_entities()
 
     def virtual_entities(
         self,
+        *,
         skipped_entity_callback: Optional[
             Callable[[DXFGraphic, str], None]
         ] = None,
+        redraw_order=False,
     ) -> Iterable[DXFGraphic]:
         """
         Yields "virtual" entities of a block reference. This method is meant to
@@ -648,10 +655,13 @@ class Insert(LinkedEntities):
         Args:
             skipped_entity_callback: called whenever the transformation of an
                 entity is not supported and so was skipped
+            redraw_order: yield entities in ascending redraw order if ``True``
 
         """
         for e in virtual_block_reference_entities(
-            self, skipped_entity_callback=skipped_entity_callback
+            self,
+            skipped_entity_callback=skipped_entity_callback,
+            redraw_order=redraw_order,
         ):
             e.set_source_block_reference(self)
             yield e
@@ -766,5 +776,5 @@ class Insert(LinkedEntities):
         """Support for the "ReferencedBlocks" protocol."""
         block = self.block()
         if block is not None:
-            return block.block_record_handle,
+            return (block.block_record_handle,)
         return tuple()

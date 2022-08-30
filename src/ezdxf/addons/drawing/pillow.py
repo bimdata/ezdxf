@@ -1,12 +1,22 @@
 #  Copyright (c) 2022, Manfred Moitzi
 #  License: MIT License
 from __future__ import annotations
-
+from typing import Iterable, Tuple, Optional
 import sys
 import enum
-from typing import Iterable, Tuple, List, Any
+import itertools
+import functools
 import math
-from ezdxf.math import Vec3, Vec2, Matrix44, AbstractBoundingBox, BoundingBox
+from ezdxf.math import (
+    Vec3,
+    Vec2,
+    Matrix44,
+    AbstractBoundingBox,
+    AnyVec,
+)
+from ezdxf.math.clipping import ClippingRect2d
+import ezdxf.path
+from ezdxf.render import hatching
 from ezdxf.addons.drawing.backend import Backend, prepare_string_for_rendering
 from ezdxf.addons.drawing.properties import Properties
 from ezdxf.addons.drawing.type_hints import Color
@@ -24,12 +34,24 @@ except ImportError:
     )
     sys.exit(1)
 
-# reuse the TextRenderer() from the matplotlib backend to create TextPath()
-# objects
-from matplotlib.font_manager import FontProperties
-from .matplotlib import TextRenderer
+# Replace MplTextRender() by QtTextRenderer():
+# from ezdxf.addons.xqt import QtWidgets as qw
+# app = qw.QApplication(sys.argv)
+# from .qt_text_renderer import QtTextRenderer as TextRenderer
+from .mpl_text_renderer import MplTextRenderer as TextRenderer
 
 INCH_TO_MM = 25.6
+
+
+class TextMode(enum.IntEnum):
+    IGNORE = 0
+    PLACEHOLDER = 1
+    OUTLINE = 2
+    FILLED = 3
+
+
+class PillowBackendException(Exception):
+    pass
 
 
 class PillowBackend(Backend):
@@ -41,16 +63,12 @@ class PillowBackend(Backend):
         margin: int = 10,
         dpi: int = 300,
         oversampling: int = 1,
-        text_placeholder=True,
+        text_mode=TextMode.OUTLINE,
     ):
         """Backend which uses `Pillow` for image export.
 
         For linetype support configure the line_policy in the frontend as
         ACCURATE.
-
-        Current limitations:
-
-            - holes in hatches are not supported
 
         Args:
             region: output region of the layout in DXF drawing units
@@ -69,19 +87,25 @@ class PillowBackend(Backend):
             oversampling: multiplier of the final image size to define the
                 render canvas size (e.g. 1, 2, 3, ...), the final image will
                 be scaled down by the LANCZOS method
-            text_placeholder: draws a rectangle as text placeholder if ``True``
+            text_mode: text rendering mode
+                - IGNORE do not draw text
+                - PLACEHOLDER draws text as filled rectangles
+                - OUTLINE draws text as outlines (recommended)
+                - FILLED draws text fillings (has some issues!)
 
         """
         super().__init__()
-        self.region = Vec2(region.size)
+        self.region = Vec2(0, 0)
+        if region.has_data:
+            self.region = Vec2(region.size)
         if self.region.x <= 0.0 or self.region.y <= 0.0:
-            raise ValueError("drawing region is empty")
+            raise PillowBackendException("drawing region is empty")
         self.extmin = Vec2(region.extmin)
         self.margin_x = float(margin)
         self.margin_y = float(margin)
         self.dpi = int(dpi)
         self.oversampling = max(int(oversampling), 1)
-        self.text_placeholder = text_placeholder
+        self.text_mode = text_mode
         # The lineweight is stored im mm,
         # line_pixel_factor * lineweight is the width in pixels
         self.line_pixel_factor = self.dpi / INCH_TO_MM  # pixel per mm
@@ -106,14 +130,31 @@ class PillowBackend(Backend):
                 self.resolution = (img_x - 2.0 * self.margin_x) / self.region.x
                 self.margin_y = (img_y - self.resolution * self.region.y) * 0.5
 
+        # angle for solid fill hatching, see method draw_filled_paths()
+        self.solid_fill_hatching_angle = 0.0
+        # distance to fill solid areas by hatching:
+        self.solid_fill_one_pixel = 1.0 / (self.resolution * self.oversampling)
+        # hatch baseline for solid fill by hatching:
+        self.solid_fill_baseline = self._solid_fill_hatch_baseline(
+            self.solid_fill_one_pixel
+        )
         self.image_size = Vec2(image_size)
         self.bg_color: Color = "#000000"
         self.image_mode = "RGBA"
-        self.text_renderer = TextRenderer(FontProperties(), True)
+        self.text_renderer = TextRenderer(use_cache=True)
 
         # dummy values for declaration, both are set in clear()
         self.image = Image.new("RGBA", (10, 10))
         self.draw = ImageDraw.Draw(self.image)
+
+        # VIEWPORT support
+        self.clipper: Optional[ClippingRect2d] = None
+        self.viewport_scaling: float = 1.0
+
+    def _solid_fill_hatch_baseline(self, one_px: float):
+        direction = Vec2.from_deg_angle(self.solid_fill_hatching_angle)
+        offset = direction.orthogonal() * one_px
+        return hatching.HatchBaseLine(Vec2(0, 0), direction, offset)
 
     def configure(self, config: Configuration) -> None:
         super().configure(config)
@@ -133,10 +174,21 @@ class PillowBackend(Backend):
         self.bg_color = color
         self.clear()
 
+    def set_clipping_path(
+        self, clipping_path: ezdxf.path.Path = None, scale: float = 1.0
+    ) -> bool:
+        if clipping_path:
+            bbox = ezdxf.path.bbox((clipping_path,), fast=True)
+            self.clipper = ClippingRect2d(bbox.extmin, bbox.extmax)
+        else:
+            self.clipper = None
+        self.viewport_scaling = scale
+        return True  # confirm clipping support
+
     def width(self, lineweight: float) -> int:
         return max(int(lineweight * self.line_pixel_factor), 1)
 
-    def pixel_loc(self, point: Vec3) -> Tuple[float, float]:
+    def pixel_loc(self, point: AnyVec) -> Tuple[float, float]:
         # Source: https://pillow.readthedocs.io/en/stable/handbook/concepts.html#coordinate-system
         # The Python Imaging Library uses a Cartesian pixel coordinate system,
         # with (0,0) in the upper left corner. Note that the coordinates refer
@@ -151,9 +203,17 @@ class PillowBackend(Backend):
         )
 
     def draw_point(self, pos: Vec3, properties: Properties) -> None:
+        if self.clipper and not self.clipper.is_inside(Vec2(pos)):
+            return
         self.draw.point([self.pixel_loc(pos)], fill=properties.color)
 
     def draw_line(self, start: Vec3, end: Vec3, properties: Properties) -> None:
+        if self.clipper:
+            result = self.clipper.clip_line(Vec2(start), Vec2(end))
+            if len(result) == 2:
+                start, end = result
+            else:
+                return
         self.draw.line(
             [self.pixel_loc(start), self.pixel_loc(end)],
             fill=properties.color,
@@ -163,6 +223,10 @@ class PillowBackend(Backend):
     def draw_filled_polygon(
         self, points: Iterable[Vec3], properties: Properties
     ) -> None:
+        if self.clipper:
+            points = self.clipper.clip_polygon(Vec2.generate(points))
+            if not len(points) < 3:
+                return
         points = [self.pixel_loc(p) for p in points]
         if len(points) > 2:
             self.draw.polygon(
@@ -171,6 +235,33 @@ class PillowBackend(Backend):
                 outline=properties.color,
             )
 
+    def draw_filled_paths(
+        self,
+        paths: Iterable[ezdxf.path.Path],
+        holes: Iterable[ezdxf.path.Path],
+        properties: Properties,
+    ) -> None:
+        # Uses the hatching module to draw filled paths by hatching paths with
+        # solid lines with an offset of one pixel.
+        all_paths = list(itertools.chain(paths, holes))
+        draw_line = functools.partial(
+            self.draw.line, fill=properties.color, width=self.oversampling
+        )
+        clip = None
+        if self.clipper:
+            clip = self.clipper.clip_line
+        for line in hatching.hatch_paths(self.solid_fill_baseline, all_paths):
+            if clip:  # todo: clip paths -> polygons
+                result = clip(line.start, line.end)
+                if len(result) == 2:
+                    draw_line(
+                        (self.pixel_loc(result[0]), self.pixel_loc(result[1]))
+                    )
+            else:
+                draw_line(
+                    (self.pixel_loc(line.start), self.pixel_loc(line.end))
+                )
+
     def draw_text(
         self,
         text: str,
@@ -178,7 +269,9 @@ class PillowBackend(Backend):
         properties: Properties,
         cap_height: float,
     ) -> None:
-        if self.text_placeholder:
+        if self.text_mode == TextMode.IGNORE:
+            return
+        if self.text_mode == TextMode.PLACEHOLDER:
             # draws a placeholder rectangle as text
             width = self.get_text_line_width(text, cap_height, properties.font)
             height = cap_height
@@ -187,23 +280,32 @@ class PillowBackend(Backend):
             )
             points = list(transform.transform_vertices(points))
             self.draw_filled_polygon(points, properties)
-        else:  # render Text as Path() objects
-            tr = self.text_renderer
-            text = self._prepare_text(text)
-            font_properties = tr.get_font_properties(properties.font)
+            return
+
+        tr = self.text_renderer
+        text = self._prepare_text(text)
+        font_properties = tr.get_font_properties(properties.font)
+        scale = tr.get_scale(cap_height, font_properties)
+        m = Matrix44.scale(scale) @ transform
+        if self.text_mode == TextMode.OUTLINE:
             ezdxf_path = tr.get_ezdxf_path(text, font_properties)
             if len(ezdxf_path) == 0:
                 return
-            scale = tr.get_scale(cap_height, font_properties)
-            m = Matrix44.scale(scale) @ transform
             ezdxf_path = ezdxf_path.transform(m)
             for path in ezdxf_path.sub_paths():
                 self.draw_path(path, properties)
+        else:  # render Text as filled polygons
+            ezdxf_path = tr.get_ezdxf_path(text, font_properties)
+            if len(ezdxf_path) == 0:
+                return
+            self.draw_filled_paths(
+                (p for p in ezdxf_path.transform(m).sub_paths()), [], properties
+            )
 
     def get_font_measurements(
         self, cap_height: float, font: FontFace = None
     ) -> FontMeasurements:
-        if self.text_placeholder:
+        if self.text_mode == TextMode.PLACEHOLDER:
             return MonospaceFont(cap_height).measurements
         return self.text_renderer.get_font_measurements(
             self.text_renderer.get_font_properties(font)
@@ -221,7 +323,7 @@ class PillowBackend(Backend):
         if not text.strip():
             return 0.0
         text = self._prepare_text(text)
-        if self.text_placeholder:
+        if self.text_mode == TextMode.PLACEHOLDER:
             return MonospaceFont(cap_height).text_width(text) * 0.8
         return self.text_renderer.get_text_line_width(text, cap_height, font)
 
@@ -241,16 +343,6 @@ class PillowBackend(Backend):
             image = self.image.resize((x, y), resample=Image.LANCZOS)
         return image
 
-    def crop(self):
-        image = self.resize()
-        left, upper, right, lower = image.getbbox()
-        print(f"{left=}, {upper=}, {right=}, {lower=}")
-        left = max(left-self.margin_x, 0)
-        right += self.margin_x
-        upper = max(0, upper - self.margin_y)
-        lower = lower + self.margin_y
-        print(f"{left=}, {upper=}, {right=}, {lower=}")
-
 
 SUPPORT_TRANSPARENCY = [".png", ".tif", ".tiff"]
 
@@ -258,189 +350,3 @@ SUPPORT_TRANSPARENCY = [".png", ".tif", ".tiff"]
 def supports_transparency(filename: str) -> bool:
     filename = filename.lower()
     return any(filename.endswith(ftype) for ftype in SUPPORT_TRANSPARENCY)
-
-
-# noinspection PyArgumentList
-class Commands(enum.Enum):
-    POINT = enum.auto()
-    LINE = enum.auto()
-    POLYGON = enum.auto()
-
-
-class PillowDelayedDraw(Backend):
-    """Alternative Backend for Pillow.
-
-    This backend does not need to know the layout extents in advance.
-    The layout extents are calculated on the fly while drawing commands
-    are queued. The pending drawing commands are executed during image export.
-
-    This backend is a proof of concept and not really much faster than the
-    regular PillowBackend, it needs more memory and only draws rectangles as
-    text placeholders.
-
-    """
-    def __init__(
-        self,
-        image_size: Tuple[int, int] = (0, 0),
-        resolution: float = 1.0,
-        margin: int = 10,
-        dpi: int = 300,
-        oversampling: int = 1,
-    ):
-        super().__init__()
-        self.image_size = Vec2(image_size)
-        self.margin_x = float(margin)
-        self.margin_y = float(margin)
-        self.dpi = int(dpi)
-        self.oversampling = max(int(oversampling), 1)
-        # The lineweight is stored im mm,
-        # line_pixel_factor * lineweight is the width in pixels
-        self.line_pixel_factor = self.dpi / INCH_TO_MM  # pixel per mm
-        # resolution: pixels per DXF drawing units, same resolution in all
-        # directions
-        self.resolution = float(resolution)
-        self.bg_color: Color = "#000000"
-        self.commands: List[Tuple[Any, ...]] = list()
-        self.extents = BoundingBox()
-
-    def clear(self) -> None:
-        self.commands.clear()
-        self.extents = BoundingBox()
-
-    def configure(self, config: Configuration) -> None:
-        super().configure(config)
-        self.line_pixel_factor *= self.config.lineweight_scaling
-
-    def set_background(self, color: Color) -> None:
-        self.bg_color = color
-
-    def width(self, lineweight: float) -> int:
-        return max(int(lineweight * self.line_pixel_factor), 1)
-
-    def draw_point(self, pos: Vec3, properties: Properties) -> None:
-        self.extents.extend((pos,))
-        self.commands.append((Commands.POINT, pos, properties.color))
-
-    def draw_line(self, start: Vec3, end: Vec3, properties: Properties) -> None:
-        self.extents.extend((start, end))
-        self.commands.append(
-            (
-                Commands.LINE,
-                start,
-                end,
-                properties.color,
-                self.width(properties.lineweight),
-            )
-        )
-
-    def draw_filled_polygon(
-        self, points: Iterable[Vec3], properties: Properties
-    ) -> None:
-        vertices = tuple(points)
-        if len(vertices) > 2:
-            self.extents.extend(vertices)
-            self.commands.append((Commands.POLYGON, vertices, properties.color))
-
-    def draw_text(
-        self,
-        text: str,
-        transform: Matrix44,
-        properties: Properties,
-        cap_height: float,
-    ) -> None:
-        # draws a placeholder rectangle as text
-        width = self.get_text_line_width(text, cap_height, properties.font)
-        height = cap_height
-        points = Vec3.generate(
-            [(0, 0), (width, 0), (width, height), (0, height)]
-        )
-        points = transform.transform_vertices(points)
-        self.draw_filled_polygon(points, properties)
-
-    def get_font_measurements(
-        self, cap_height: float, font: FontFace = None
-    ) -> FontMeasurements:
-        return MonospaceFont(cap_height).measurements
-
-    def get_text_line_width(
-        self, text: str, cap_height: float, font: FontFace = None
-    ) -> float:
-        return MonospaceFont(cap_height).text_width(text) * 0.8
-
-    def execute(self) -> Image:
-        self._init_canvas_parameters()
-        image = self._make_image()
-        draw = ImageDraw.Draw(image)
-        for data in self.commands:
-            cmd = data[0]
-            if cmd == Commands.LINE:
-                _, start, end, color, width = data
-                draw.line(
-                    [self.pixel_loc(start), self.pixel_loc(end)],
-                    fill=color,
-                    width=width,
-                )
-            elif cmd == Commands.POLYGON:
-                _, points, color = data
-                draw.polygon(
-                    [self.pixel_loc(p) for p in points],
-                    fill=color,
-                    outline=color,
-                )
-            else:  # Commands.POINT:
-                _, pos, color = data
-                draw.point([self.pixel_loc(pos)], fill=color)
-        return image
-
-    def pixel_loc(self, point: Vec3) -> Tuple[float, float]:
-        ex, ey, _ = self.extents.extmin  # type: ignore
-        x = (point.x - ex) * self.resolution + self.margin_x
-        y = (point.y - ey) * self.resolution + self.margin_y
-        return (
-            x * self.oversampling,
-            (self.image_size.y - y) * self.oversampling,
-        )
-
-    def _make_image(self):
-        x = int(self.image_size.x) * self.oversampling
-        y = int(self.image_size.y) * self.oversampling
-        return Image.new("RGBA", (x, y), color=self.bg_color)
-
-    def _init_canvas_parameters(self):
-        canvas_size = self.extents.size
-        if self.image_size == Vec2(0, 0):
-            self.image_size = Vec2(
-                math.ceil(
-                    canvas_size.x * self.resolution + 2.0 * self.margin_x
-                ),
-                math.ceil(
-                    canvas_size.y * self.resolution + 2.0 * self.margin_y
-                ),
-            )
-        else:
-            img_x, img_y = self.image_size
-            if img_y < 1:
-                raise ValueError(f"invalid image size: {self.image_size}")
-            img_ratio = img_x / img_y
-            region_ratio = canvas_size.x / canvas_size.y
-            if img_ratio >= region_ratio:  # image fills the height
-                self.resolution = (img_y - 2.0 * self.margin_y) / canvas_size.y
-                self.margin_x = (img_x - self.resolution * canvas_size.x) * 0.5
-            else:  # image fills the width
-                self.resolution = (img_x - 2.0 * self.margin_x) / canvas_size.x
-                self.margin_y = (img_y - self.resolution * canvas_size.y) * 0.5
-
-    def export(self, filename: str, **kwargs) -> None:
-        if not self.extents.has_data:
-            return  # empty drawing
-        image = self.execute()
-        if self.oversampling > 1:
-            x = int(self.image_size.x)
-            y = int(self.image_size.y)
-            image = image.resize((x, y), resample=Image.LANCZOS)
-
-        if not supports_transparency(filename):
-            # remove alpha channel if not supported
-            image = image.convert("RGB")
-        dpi = kwargs.pop("dpi", self.dpi)
-        image.save(filename, dpi=(dpi, dpi), **kwargs)

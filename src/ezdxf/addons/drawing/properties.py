@@ -1,8 +1,7 @@
 # Copyright (c) 2020-2021, Matthew Broadway
-# Copyright (c) 2020-2021, Manfred Moitzi
+# Copyright (c) 2020-2022, Manfred Moitzi
 # License: MIT License
-import re
-from uuid import uuid4
+from __future__ import annotations
 from typing import (
     TYPE_CHECKING,
     Dict,
@@ -13,16 +12,32 @@ from typing import (
     Set,
     cast,
     Sequence,
+    Callable,
+    Iterable,
 )
+import re
+import copy
 
+from ezdxf import options
 from ezdxf.addons import acadctb
 from ezdxf.addons.drawing.config import Configuration
 from ezdxf.addons.drawing.type_hints import Color, RGB
 from ezdxf.colors import luminance, DXF_DEFAULT_COLORS, int2rgb
-from ezdxf.entities import Attrib, Insert, Face3d, Linetype
+from ezdxf.entities import (
+    Attrib,
+    Insert,
+    Face3d,
+    Linetype,
+    Viewport,
+    Layer,
+    LayerOverrides,
+    Textstyle,
+    DXFGraphic,
+)
 from ezdxf.entities.ltype import CONTINUOUS_PATTERN
 from ezdxf.entities.polygon import DXFPolygon
 from ezdxf.enums import InsertUnits, Measurement
+from ezdxf.filemanagement import find_support_file
 from ezdxf.lldxf import const
 from ezdxf.lldxf.validator import make_table_key as layer_key
 from ezdxf.tools import fonts
@@ -30,14 +45,9 @@ from ezdxf.tools.pattern import scale_pattern, HatchPatternType
 from ezdxf.entities import DXFGraphic
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import (
-        DXFGraphic,
-        Layout,
-        Table,
-        Layer,
-        Drawing,
-        Textstyle,
-    )
+    from ezdxf.document import Drawing
+    from ezdxf.sections.table import Table
+    from ezdxf.layouts import Layout
 
 __all__ = [
     "Properties",
@@ -118,7 +128,7 @@ class Filling:
         self.gradient_color1: Optional[Color] = None
         self.gradient_color2: Optional[Color] = None
         self.gradient_centered: float = 0.0  # todo: what's the meaning?
-        # TODO: remove HATCH pattern definition, backends do have to
+        # TODO: remove HATCH pattern definition, backends do not
         #   render hatch patterns since v0.18.1:
         self.pattern_scale: float = 1.0
         self.pattern: HatchPatternType = []
@@ -171,7 +181,7 @@ class Properties:
         self.is_visible = True
 
         # The 'layer' attribute stores the resolved layer of an entity:
-        # Entities inside of a block references get properties from the layer
+        # Entities inside a block references get properties from the layer
         # of the INSERT entity, if they reside on the layer '0'.
         # To get the "real" layer of an entity, you have to use `entity.dxf.layer`
         self.layer: str = "0"
@@ -270,19 +280,17 @@ class LayoutProperties:
         return self._has_dark_background
 
     @staticmethod
-    def modelspace(units=InsertUnits.Unitless) -> "LayoutProperties":
-        return LayoutProperties("Model", MODEL_SPACE_BG_COLOR, units=units)
-
-    @staticmethod
-    def paperspace(
-        name: str = "", units=InsertUnits.Unitless
-    ) -> "LayoutProperties":
-        return LayoutProperties(name, PAPER_SPACE_BG_COLOR, units=units)
+    def modelspace(units=InsertUnits.Unitless) -> LayoutProperties:
+        return LayoutProperties(
+            "Model",
+            MODEL_SPACE_BG_COLOR,
+            units=units,
+        )
 
     @staticmethod
     def from_layout(
-        layout: "Layout", units: Optional[int] = None
-    ) -> "LayoutProperties":
+        layout: Layout, units: Optional[int] = None
+    ) -> LayoutProperties:
         """Setup default layout properties."""
         if layout.name == "Model":
             bg = MODEL_SPACE_BG_COLOR
@@ -314,46 +322,56 @@ class LayoutProperties:
             )
 
 
+LayerPropsOverride = Callable[[Sequence[LayerProperties]], None]
+
+
 class RenderContext:
     def __init__(
         self,
-        doc: Optional["Drawing"] = None,
+        doc: Optional[Drawing] = None,
         *,
         ctb: str = "",
         export_mode: bool = False,
     ):
         """Represents the render context for the DXF document `doc`.
-        A given `ctb` file (plot style file)  overrides the default properties.
+        A given `ctb` file (plot style file) overrides the default properties of
+        all layout, which means the plot style table stored in the layout is
+        always ignored.
 
         Args:
-            doc: The document that is being drawn
-            ctb: A path to a plot style table to use
+            doc: DXF document
+            ctb: path to a plot style table
             export_mode: Whether to render the document as it would look when
                 exported (plotted) by a CAD application to a file such as pdf,
                 or whether to render the document as it would appear inside a
                 CAD application.
         """
         self._saved_states: List[Properties] = []
-        self.line_pattern: Dict[str, Sequence[float]] = (
-            _load_line_pattern(doc.linetypes) if doc else dict()
-        )
-        self.current_layout_properties = LayoutProperties.modelspace()
+        self.line_pattern: Dict[str, Sequence[float]] = dict()
         self.current_block_reference_properties: Optional[Properties] = None
-        self.plot_styles = self._load_plot_style_table(ctb)
         self.export_mode = export_mode
-        # Always consider: entity layer may not exist
-        # Layer name as key is normalized, most likely name.lower(), but may
-        # change in the future.
+        self.override_ctb = ctb
         self.layers: Dict[str, LayerProperties] = dict()
-        # Text-style -> font mapping
         self.fonts: Dict[str, fonts.FontFace] = dict()
-        self.units = InsertUnits.Unitless
+        self.units = InsertUnits.Unitless  # modelspace units
         self.linetype_scale: float = 1.0  # overall modelspace linetype scaling
         self.measurement = Measurement.Imperial
-        self.pdsize = 0
-        self.pdmode = 0
+        self.pdsize: float = 0
+        self.pdmode: int = 0
+        self._hatch_pattern_cache: Dict[str, HatchPatternType] = dict()
+        self.current_layout_properties = LayoutProperties.modelspace()
+        self.plot_styles = self._load_plot_style_table(self.override_ctb)
+
+        # callable to override layer properties:
+        self._layer_properties_override: Optional[LayerPropsOverride] = None
+
         if doc:
+            self.set_current_layout(doc.modelspace())
+            self.line_pattern = _load_line_pattern(doc.linetypes)
             self.linetype_scale = doc.header.get("$LTSCALE", 1.0)
+            self.pdsize = doc.header.get("$PDSIZE", 1.0)
+            self.pdmode = doc.header.get("$PDMODE", 0)
+            self._setup_text_styles(doc)
             try:
                 self.units = InsertUnits(doc.header.get("$INSUNITS", 0))
             except ValueError:
@@ -364,17 +382,42 @@ class RenderContext:
                 )
             except ValueError:
                 self.measurement = Measurement.Imperial
-            self.pdsize = doc.header.get("$PDSIZE", 1.0)
-            self.pdmode = doc.header.get("$PDMODE", 0)
-            self._setup_layers(doc)
-            self._setup_text_styles(doc)
             if self.units == InsertUnits.Unitless:
                 if self.measurement == Measurement.Metric:
                     self.units = InsertUnits.Meters
                 else:
                     self.units = InsertUnits.Inches
-        self.current_layout_properties.units = self.units
-        self._hatch_pattern_cache: Dict[str, HatchPatternType] = dict()
+        self.current_layout_properties.units = self.units  # default modelspace
+
+    def set_layer_properties_override(self, func: LayerPropsOverride = None):
+        """The function `func` is called with the current layer properties as
+        argument after resetting them, so the function can override the layer
+        properties.
+        """
+        self._layer_properties_override = func
+
+    def _override_layer_properties(self, layers: Sequence[LayerProperties]):
+        if self._layer_properties_override:
+            self._layer_properties_override(layers)
+
+    def set_current_layout(self, layout: Layout, ctb: str = ""):
+        # the given ctb has the highest priority
+        if ctb == "":
+            # next is the override ctb
+            ctb = self.override_ctb
+        if ctb == "":
+            # last is the ctb stored in the layout
+            ctb = layout.get_plot_style_filename()
+        self.current_layout_properties = LayoutProperties.from_layout(layout)
+        self.plot_styles = self._load_plot_style_table(ctb)
+        self.layers = dict()
+        if layout.doc:
+            self.layers = self._setup_layers(layout.doc)
+            self._override_layer_properties(list(self.layers.values()))
+
+    def copy(self):
+        """Returns a shallow copy."""
+        return copy.copy(self)
 
     def update_configuration(self, config: Configuration) -> Configuration:
         """Where the user has not specified a value, populate configuration
@@ -389,18 +432,67 @@ class RenderContext:
             changes["measurement"] = self.measurement
         return config.with_changes(**changes)
 
-    def _setup_layers(self, doc: "Drawing"):
+    def _setup_layers(self, doc: Drawing) -> Dict[str, LayerProperties]:
+        layers: Dict[str, LayerProperties] = dict()
         for layer in doc.layers:
-            self.add_layer(cast("Layer", layer))
+            layer_properties = self.resolve_layer_properties(cast(Layer, layer))
+            layers[layer_key(layer_properties.layer)] = layer_properties
+        return layers
 
-    def _setup_text_styles(self, doc: "Drawing"):
+    def _setup_text_styles(self, doc: Drawing):
         for text_style in doc.styles:
             self.add_text_style(cast("Textstyle", text_style))
 
-    def add_layer(self, layer: "Layer") -> None:
-        """Setup layer properties."""
+    def _setup_vp_layers(self, vp: Viewport) -> Dict[str, LayerProperties]:
+        doc = vp.doc
+        assert doc is not None
+        frozen_layer_names = {layer_key(name) for name in vp.frozen_layers}
+        vp_handle = vp.dxf.handle
+        layers: Dict[str, LayerProperties] = dict()
+        for layer in doc.layers:
+            layer = cast(Layer, layer)
+            overrides = layer.get_vp_overrides()
+            if overrides.has_overrides(vp_handle):
+                layer = layer.copy()
+                self._apply_layer_overrides(vp_handle, layer, overrides)
+            layer_properties = self.resolve_layer_properties(layer)
+            key = layer_key(layer_properties.layer)
+            layers[key] = layer_properties
+            if key in frozen_layer_names:
+                layer_properties.is_visible = False
+        return layers
+
+    @staticmethod
+    def _apply_layer_overrides(
+        vp_handle: str,
+        layer: Layer,
+        overrides: LayerOverrides,
+    ) -> None:
+        layer.color = overrides.get_color(vp_handle)
+        rgb_color = overrides.get_rgb(vp_handle)
+        if rgb_color is not None:
+            layer.rgb = rgb_color
+        layer.transparency = overrides.get_transparency(vp_handle)
+        layer.dxf.linetype = overrides.get_linetype(vp_handle)
+        layer.dxf.lineweight = overrides.get_lineweight(vp_handle)
+
+    def from_viewport(self, vp: Viewport) -> RenderContext:
+        if vp.doc is None:
+            return self
+        vp_ctx = self.copy()
+        ctb = vp_ctx.override_ctb
+        if ctb == "":
+            ctb = vp.dxf.get("plot_style_name")
+        if ctb:
+            vp_ctx.plot_styles = vp_ctx._load_plot_style_table(ctb)
+        layers = vp_ctx._setup_vp_layers(vp)
+        vp_ctx.layers = layers
+        vp_ctx._override_layer_properties(list(layers.values()))
+        return vp_ctx
+
+    def resolve_layer_properties(self, layer: Layer) -> LayerProperties:
+        """Resolve layer properties."""
         properties = LayerProperties()
-        name = layer_key(layer.dxf.name)
         # Store real layer name (mixed case):
         properties.layer = layer.dxf.name
         properties.color = self._true_layer_color(layer)
@@ -427,9 +519,9 @@ class RenderContext:
         properties.is_visible = layer.is_on() and not layer.is_frozen()
         if self.export_mode:
             properties.is_visible &= bool(layer.dxf.plot)
-        self.layers[name] = properties
+        return properties
 
-    def add_text_style(self, text_style: "Textstyle"):
+    def add_text_style(self, text_style: Textstyle):
         """Setup text style properties."""
         name = table_key(text_style.dxf.name)
         font_file = text_style.dxf.font
@@ -445,7 +537,7 @@ class RenderContext:
             font_face = fonts.FontFace()
         self.fonts[name] = font_face
 
-    def _true_layer_color(self, layer: "Layer") -> Color:
+    def _true_layer_color(self, layer: Layer) -> Color:
         if layer.dxf.hasattr("true_color"):
             return rgb_to_hex(layer.rgb)  # type: ignore
         else:
@@ -467,6 +559,7 @@ class RenderContext:
         # Each layout can have a different plot style table stored in
         # Layout.dxf.current_style_sheet.
         # HEADER var $STYLESHEET stores the default ctb-file name.
+        filename = find_support_file(filename, options.support_dirs)
         try:
             ctb = acadctb.load(filename)
         except IOError:
@@ -482,26 +575,6 @@ class RenderContext:
                 entry.color = int2rgb(DXF_DEFAULT_COLORS[aci])
         return ctb
 
-    def set_layers_state(self, layers: Set[str], state=True):
-        """Set layer state of `layers` to on/off.
-
-        Args:
-             layers: set of layer names
-             state: `True` turn this `layers` on and others off,
-                    `False` turn this `layers` off and others on
-        """
-        layers = {layer_key(name) for name in layers}
-        for name, layer in self.layers.items():
-            if name in layers:
-                layer.is_visible = state
-            else:
-                layer.is_visible = not state
-
-    def set_current_layout(self, layout: "Layout"):
-        self.current_layout_properties = LayoutProperties.from_layout(
-            layout, units=self.units
-        )
-
     @property
     def inside_block_reference(self) -> bool:
         """Returns ``True`` if current processing state is inside of a block
@@ -516,7 +589,7 @@ class RenderContext:
     def pop_state(self) -> None:
         self.current_block_reference_properties = self._saved_states.pop()
 
-    def resolve_all(self, entity: "DXFGraphic") -> Properties:
+    def resolve_all(self, entity: DXFGraphic) -> Properties:
         """Resolve all properties of `entity`."""
         p = Properties()
         p.layer = self.resolve_layer(entity)
@@ -543,11 +616,11 @@ class RenderContext:
     def resolve_units(self) -> InsertUnits:
         return self.current_layout_properties.units
 
-    def resolve_linetype_scale(self, entity: "DXFGraphic") -> float:
+    def resolve_linetype_scale(self, entity: DXFGraphic) -> float:
         return entity.dxf.ltscale * self.linetype_scale
 
     def resolve_visible(
-        self, entity: "DXFGraphic", *, resolved_layer: Optional[str] = None
+        self, entity: DXFGraphic, *, resolved_layer: Optional[str] = None
     ) -> bool:
         """Resolve the visibility state of `entity`. Returns ``True`` if
         `entity` is visible.
@@ -557,6 +630,11 @@ class RenderContext:
             return not bool(entity.dxf.invisible)
         elif isinstance(entity, Face3d):
             return any(entity.get_edges_visibility())
+        elif isinstance(entity, Viewport):
+            # The layer visibility of the VIEWPORT entity does not affect the
+            # content of the Viewport. If the layer is off the viewport borders
+            # are invisible.
+            return entity.is_visible
 
         entity_layer = resolved_layer or layer_key(self.resolve_layer(entity))
         layer_properties = self.layers.get(entity_layer)
@@ -567,7 +645,7 @@ class RenderContext:
         else:
             return not bool(entity.dxf.invisible)
 
-    def resolve_layer(self, entity: "DXFGraphic") -> str:
+    def resolve_layer(self, entity: DXFGraphic) -> str:
         """Resolve the layer of `entity`, this is only relevant for entities
         inside of block references.
         """
@@ -577,7 +655,7 @@ class RenderContext:
         return layer
 
     def resolve_color(
-        self, entity: "DXFGraphic", *, resolved_layer: Optional[str] = None
+        self, entity: DXFGraphic, *, resolved_layer: Optional[str] = None
     ) -> Color:
         """Resolve the rgb-color of `entity` as hex color string:
         "#RRGGBB" or "#RRGGBBAA".
@@ -681,7 +759,7 @@ class RenderContext:
             return rgb_to_hex(self.plot_styles[aci].color)
 
     def resolve_linetype(
-        self, entity: "DXFGraphic", *, resolved_layer: str = None
+        self, entity: DXFGraphic, *, resolved_layer: str = None
     ) -> Tuple[str, Sequence[float]]:
         """Resolve the linetype of `entity`. Returns a tuple of the linetype
         name as upper-case string and the simplified linetype pattern as tuple
@@ -719,7 +797,7 @@ class RenderContext:
         return name, pattern
 
     def resolve_lineweight(
-        self, entity: "DXFGraphic", *, resolved_layer: str = None
+        self, entity: DXFGraphic, *, resolved_layer: str = None
     ) -> float:
         """Resolve the lineweight of `entity` in mm.
 
@@ -769,7 +847,7 @@ class RenderContext:
         # todo: is this value stored anywhere (e.g. HEADER section)?
         return 0.25
 
-    def resolve_font(self, entity: "DXFGraphic") -> Optional[fonts.FontFace]:
+    def resolve_font(self, entity: DXFGraphic) -> Optional[fonts.FontFace]:
         """Resolve the text style of `entity` to a font name.
         Returns ``None`` for the default font.
         """
@@ -777,7 +855,7 @@ class RenderContext:
         style = entity.dxf.get("style", "Standard")
         return self.fonts.get(table_key(style))
 
-    def resolve_filling(self, entity: "DXFGraphic") -> Optional[Filling]:
+    def resolve_filling(self, entity: DXFGraphic) -> Optional[Filling]:
         """Resolve filling properties (SOLID, GRADIENT, PATTERN) of `entity`."""
 
         def setup_gradient():
@@ -898,7 +976,7 @@ def transparency_to_alpha(value: float) -> int:
     return int(round((1.0 - value) * 255))
 
 
-def _load_line_pattern(linetypes: "Table") -> Dict[str, Sequence[float]]:
+def _load_line_pattern(linetypes: Table) -> Dict[str, Sequence[float]]:
     """Load linetypes defined in a DXF document into  as dictionary,
     key is the upper case linetype name, value is the simplified line pattern,
     see :func:`compile_line_pattern`.
@@ -909,3 +987,22 @@ def _load_line_pattern(linetypes: "Table") -> Dict[str, Sequence[float]]:
         name = linetype.dxf.name.upper()
         pattern[name] = linetype.simplified_line_pattern()
     return pattern
+
+
+def set_layers_state(
+    layers: Sequence[LayerProperties], layer_names: Iterable[str], state=True
+):
+    """Set layer state of `layers` to on/off.
+
+    Args:
+        layers: layer properties
+        layer_names: iterable of layer names
+        state: `True` turn this `layers` on and others off,
+            `False` turn this `layers` off and others on
+    """
+    unique_layer_names = {layer_key(name) for name in layer_names}
+    for layer in layers:
+        if layer_key(layer.layer) in unique_layer_names:
+            layer.is_visible = state
+        else:
+            layer.is_visible = not state

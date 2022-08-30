@@ -1,6 +1,8 @@
-# Copyright (c) 2019-2021 Manfred Moitzi
+# Copyright (c) 2019-2022 Manfred Moitzi
 # License: MIT License
-from typing import TYPE_CHECKING, List, Iterable
+from __future__ import annotations
+from typing import TYPE_CHECKING, List, Iterable, Tuple
+import math
 from ezdxf.lldxf import validator
 from ezdxf.lldxf import const
 from ezdxf.lldxf.attributes import (
@@ -20,7 +22,16 @@ from ezdxf.lldxf.const import (
     DXFValueError,
     DXFTableEntryError,
 )
-from ezdxf.math import Vec3, Vec2, NULLVEC, X_AXIS, Y_AXIS
+from ezdxf.math import (
+    Vec3,
+    Vec2,
+    NULLVEC,
+    X_AXIS,
+    Y_AXIS,
+    Z_AXIS,
+    Matrix44,
+    BoundingBox2d,
+)
 from ezdxf.tools import set_flag_state
 from .dxfentity import base_class, SubclassProcessor
 from .dxfgfx import DXFGraphic, acdb_entity
@@ -43,7 +54,7 @@ acdb_viewport = DefSubclass(
         "width": DXFAttr(40, default=1),
         # Height in paper space units:
         "height": DXFAttr(41, default=1),
-        # Viewport status field:
+        # Viewport status field: (according to the DXF Reference)
         # -1 = On, but is fully off screen, or is one of the viewports that is not
         #      active because the $MAXACTVP count is currently being exceeded.
         #  0 = Off
@@ -51,6 +62,7 @@ acdb_viewport = DefSubclass(
         # stacking for the viewports, where 1 is the "active viewport", 2 is the
         # next, and so on:
         "status": DXFAttr(68, default=0),
+        # Viewport id: (according to the DXF Reference)
         # Special VIEWPORT id == 1, this viewport defines the area of the layout
         # which is currently shown in the layout tab by the CAD application.
         # I guess this is meant by "active viewport" and therefore it is most likely
@@ -59,7 +71,7 @@ acdb_viewport = DefSubclass(
         # BricsCAD set id to -1 if the viewport is off and 'status' (group code 68)
         # is not present.
         "id": DXFAttr(69, default=2),
-        # DXF reference: View center point (in DCS):
+        # DXF reference: View center point (in WCS):
         # Correction to the DXF reference:
         # This point represents the center point in model space (WCS) stored as
         # 2D point!
@@ -69,7 +81,7 @@ acdb_viewport = DefSubclass(
         "grid_spacing": DXFAttr(15, xtype=XType.point2d, default=Vec2(10, 10)),
         # View direction vector (WCS):
         "view_direction_vector": DXFAttr(
-            16, xtype=XType.point3d, default=NULLVEC
+            16, xtype=XType.point3d, default=Z_AXIS
         ),
         # View target point (in WCS):
         "view_target_point": DXFAttr(17, xtype=XType.point3d, default=NULLVEC),
@@ -258,7 +270,7 @@ class Viewport(DXFGraphic):
         super().__init__()
         self._frozen_layers: List[str] = []
 
-    def _copy_data(self, entity: "DXFEntity") -> None:
+    def _copy_data(self, entity: DXFEntity) -> None:
         assert isinstance(entity, Viewport)
         entity._frozen_layers = self._frozen_layers
 
@@ -279,24 +291,36 @@ class Viewport(DXFGraphic):
         return -1
 
     def freeze(self, layer_name: str) -> None:
-        """Freeze `layer_name` in this viewport. """
+        """Freeze `layer_name` in this viewport."""
         index = self._layer_index(layer_name)
         if index == -1:
             self._frozen_layers.append(layer_name)
 
     def is_frozen(self, layer_name: str) -> bool:
-        """Returns ``True`` if `layer_name` id frozen in this viewport. """
+        """Returns ``True`` if `layer_name` id frozen in this viewport."""
         return self._layer_index(layer_name) != -1
 
     def thaw(self, layer_name: str) -> None:
-        """Thaw `layer_name` in this viewport. """
+        """Thaw `layer_name` in this viewport."""
         index = self._layer_index(layer_name)
         if index != -1:
             del self._frozen_layers[index]
 
+    @property
+    def is_visible(self) -> bool:
+        # Special VIEWPORT id == 1, this viewport defines the "active viewport"
+        # which is the area currently shown in the layout tab by the CAD
+        # application.
+        # BricsCAD set id to -1 if the viewport is off and 'status' (group
+        # code 68) is not present.
+        # status: -1 is off-screen, 0 is off
+        if self.dxf.id < 2 or self.dxf.status < 1:
+            return False
+        return True
+
     def load_dxf_attribs(
         self, processor: SubclassProcessor = None
-    ) -> "DXFNamespace":
+    ) -> DXFNamespace:
         dxf = super().load_dxf_attribs(processor)
         if processor:
             tags = processor.fast_load_dxfattribs(
@@ -313,7 +337,7 @@ class Viewport(DXFGraphic):
                     )
         return dxf
 
-    def post_load_hook(self, doc: "Drawing"):
+    def post_load_hook(self, doc: Drawing):
         super().post_load_hook(doc)
         bag: List[str] = []
         db = doc.entitydb
@@ -376,7 +400,7 @@ class Viewport(DXFGraphic):
         self._frozen_layers = tags[26:]
         self.xdata.discard("ACAD")  # type: ignore
 
-    def export_entity(self, tagwriter: "TagWriter") -> None:
+    def export_entity(self, tagwriter: TagWriter) -> None:
         """Export entity specific data as DXF tags."""
         super().export_entity(tagwriter)
         if tagwriter.dxfversion == DXF12:
@@ -455,7 +479,7 @@ class Viewport(DXFGraphic):
                 ],
             )
 
-    def export_acdb_viewport_r12(self, tagwriter: "TagWriter"):
+    def export_acdb_viewport_r12(self, tagwriter: TagWriter):
         self.dxf.export_dxf_attribs(
             tagwriter,
             [
@@ -528,23 +552,98 @@ class Viewport(DXFGraphic):
             for name in self.frozen_layers
         ]
 
-    def boundary_path(self) -> List[Vec3]:
+    def clipping_rect_corners(self) -> List[Vec2]:
+        """Returns the default rectangular clipping path as list of
+        vertices. Use function :func:`ezdxf.path.make_path` to get also
+        non-rectangular shaped clipping paths if defined.
+        """
         center = self.dxf.center
         cx = center.x
         cy = center.y
         width2 = self.dxf.width / 2
         height2 = self.dxf.height / 2
-        # TODO: clipping path support for the Viewport entity
         return [
-            Vec3(cx - width2, cy - height2),
-            Vec3(cx + width2, cy - height2),
-            Vec3(cx + width2, cy + height2),
-            Vec3(cx - width2, cy + height2),
+            Vec2(cx - width2, cy - height2),
+            Vec2(cx + width2, cy - height2),
+            Vec2(cx + width2, cy + height2),
+            Vec2(cx - width2, cy + height2),
         ]
 
-    def has_clipping_path(self) -> bool:
+    def clipping_rect(self) -> Tuple[Vec2, Vec2]:
+        """Returns the lower left and the upper right corner of the clipping
+        rectangle.
+        """
+        center = self.dxf.center
+        cx = center.x
+        cy = center.y
+        width2 = self.dxf.width / 2
+        height2 = self.dxf.height / 2
+        return Vec2(cx - width2, cy - height2), Vec2(cx + width2, cy + height2)
+
+    @property
+    def has_extended_clipping_path(self) -> bool:
+        """Returns ``True`` if a non-rectangular clipping path is defined."""
         _flag = self.dxf.flags & const.VSF_NON_RECTANGULAR_CLIPPING
         if _flag:
             handle = self.dxf.clipping_boundary_handle
             return handle != "0"
         return False
+
+    def get_scale(self) -> float:
+        """Returns the scaling factor from modelspace to viewport."""
+        msp_height = self.dxf.view_height
+        if abs(msp_height) < 1e-12:
+            return 0.0
+        vp_height = self.dxf.height
+        return vp_height / msp_height
+
+    @property
+    def is_top_view(self) -> bool:
+        """Returns ``True`` if the viewport is a top view."""
+        view_direction: Vec3 = self.dxf.view_direction_vector
+        return view_direction.is_null or view_direction.isclose(Z_AXIS)
+
+    def get_transformation_matrix(self) -> Matrix44:
+        """Returns the transformation matrix from modelspace to viewport."""
+        # supports only top-view viewports yet!
+        scale = self.get_scale()
+        rotation_angle: float = self.dxf.view_twist_angle
+        msp_center_point: Vec3 = self.dxf.view_center_point
+        offset: Vec3 = self.dxf.center - (msp_center_point * scale)
+        m = Matrix44.scale(scale)
+        if rotation_angle:
+            m @= Matrix44.z_rotate(math.radians(rotation_angle))
+        return m @ Matrix44.translate(offset.x, offset.y, 0)
+
+    def get_aspect_ratio(self) -> float:
+        """Returns the aspect ratio of the viewport, return 0.0 if width or
+        height is zero.
+        """
+        try:
+            return self.dxf.width / self.dxf.height
+        except ZeroDivisionError:
+            return 0.0
+
+    def get_modelspace_limits(self) -> Tuple[float, float, float, float]:
+        """Returns the limits of the modelspace to view in drawing units
+        as tuple (min_x, min_y, max_x, max_y).
+        """
+        msp_center_point: Vec3 = self.dxf.view_center_point
+        msp_height: float = self.dxf.view_height
+        rotation_angle: float = self.dxf.view_twist_angle
+        ratio = self.get_aspect_ratio()
+        if ratio == 0.0:
+            raise ValueError("invalid viewport parameters width or height")
+
+        w2 = msp_height * ratio * 0.5
+        h2 = msp_height * 0.5
+        if rotation_angle:
+            frame = Vec2.list(((-w2, -h2), (w2, -h2), (w2, h2), (-w2, h2)))
+            angle = math.radians(rotation_angle)
+            bbox = BoundingBox2d(
+                v.rotate(angle) + msp_center_point for v in frame
+            )
+            return bbox.extmin.x, bbox.extmin.y, bbox.extmax.x, bbox.extmax.y  # type: ignore
+        else:
+            mx, my, _ = msp_center_point
+            return mx - w2, my - h2, mx + w2, my + h2

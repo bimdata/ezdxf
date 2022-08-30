@@ -5,6 +5,7 @@ from typing import (
     TYPE_CHECKING,
     List,
     Iterable,
+    Iterator,
     Tuple,
     Optional,
     Sequence,
@@ -12,6 +13,7 @@ from typing import (
 
 import math
 from ezdxf.math import (
+    Vec2,
     Vec3,
     UVec,
     Z_AXIS,
@@ -32,12 +34,12 @@ from ezdxf.math import (
     cubic_bezier_bbox,
     quadratic_bezier_bbox,
 )
-
+from ezdxf.math.triangulation import mapbox_earcut_2d
 from ezdxf.query import EntityQuery
 
 from .path import Path
 from .commands import Command
-from . import converter
+from . import converter, nesting
 
 if TYPE_CHECKING:
     from ezdxf.eztypes import Layout, EntityQuery
@@ -69,6 +71,8 @@ __all__ = [
     "polygonal_fillet",
     "chamfer",
     "chamfer2",
+    "triangulate",
+    "is_rectangular",
 ]
 
 MAX_DISTANCE = 0.01
@@ -202,7 +206,7 @@ def fit_paths_into_box(
 
     Args:
         paths: iterable of :class:`~ezdxf.path.Path` objects
-        size: target box size as tuple of x-, y- ond z-size values
+        size: target box size as tuple of x-, y- and z-size values
         uniform: ``True`` for uniform scaling
         source_box: pass precalculated source bounding box, or ``None`` to
             calculate the default source bounding box from the control vertices
@@ -997,3 +1001,55 @@ def chamfer2(points: Sequence[Vec3], a: float, b: float) -> Path:
         p.line_to(p2 + (dir2 * b))
     p.line_to(points[-1])
     return p
+
+
+def triangulate(
+    paths: Iterable[Path], max_flattening_distance: float = 0.01
+) -> Iterator[Sequence[Vec2]]:
+    """Tessellate nested 2D paths into triangle-faces. For 3D paths the
+    projection onto the xy-plane will be triangulated.
+
+    .. versionadded:: 0.18.1
+
+    """
+    for polygon in nesting.group_paths(single_paths(paths)):
+        exterior = polygon[0].flattening(max_flattening_distance)
+        holes = [p.flattening(max_flattening_distance) for p in polygon[1:]]
+        yield from mapbox_earcut_2d(exterior, holes)
+
+
+def is_rectangular(path: Path, aligned=True) -> bool:
+    """Returns ``True`` if `path` is a rectangular quadrilateral (square or
+    rectangle). If the argument `aligned` is ``True`` all sides of the
+    quadrilateral have to be parallel to the x- and y-axis.
+    """
+    points = path.control_vertices()
+    if len(points) < 4:
+        return False
+    if points[0].isclose(points[-1]):
+        points.pop()
+    if len(points) != 4:
+        return False
+
+    if aligned:
+        first_side = points[1] - points[0]
+        if not (abs(first_side.x) < 1e-12 or abs(first_side.y) < 1e-12):
+            return False
+
+    # horizontal sides
+    v1 = points[0].distance(points[1])
+    v2 = points[2].distance(points[3])
+    if not math.isclose(v1, v2):
+        return False
+    # vertical sides
+    v1 = points[1].distance(points[2])
+    v2 = points[3].distance(points[0])
+    if not math.isclose(v1, v2):
+        return False
+    # diagonals
+    v1 = points[0].distance(points[2])
+    v2 = points[1].distance(points[3])
+    if not math.isclose(v1, v2):
+        return False
+
+    return True

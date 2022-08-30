@@ -9,21 +9,31 @@ from typing import (
     Dict,
     TYPE_CHECKING,
     Callable,
+    Any,
+    Union,
 )
 from collections import defaultdict
 import enum
 import math
 import dataclasses
-from ezdxf.math import Vec2, AnyVec
-
+from ezdxf.math import (
+    Vec2,
+    Vec3,
+    Bezier3P,
+    Bezier4P,
+    intersection_ray_cubic_bezier_2d,
+    quadratic_to_cubic_bezier,
+)
+from ezdxf import const
+from ezdxf.path import Path, LineTo, MoveTo, Curve3To, Curve4To
 
 if TYPE_CHECKING:
-    from ezdxf.path import Path
     from ezdxf.entities.polygon import DXFPolygon
 
 MIN_HATCH_LINE_DISTANCE = 1e-4  # ??? what's a good choice
 NONE_VEC2 = Vec2(math.nan, math.nan)
 KEY_NDIGITS = 4
+SORT_NDIGITS = 10
 
 
 class IntersectionType(enum.IntEnum):
@@ -35,14 +45,20 @@ class IntersectionType(enum.IntEnum):
 
 
 class HatchingError(Exception):
+    """Base exception of the :mod:`hatching` module."""
+
     pass
 
 
 class HatchLineDirectionError(HatchingError):
+    """Hatching direction is undefined or a (0, 0) vector."""
+
     pass
 
 
 class DenseHatchingLinesError(HatchingError):
+    """Very small hatching distance which creates too many hatching lines."""
+
     pass
 
 
@@ -55,12 +71,13 @@ class Line:
 
 @dataclasses.dataclass(frozen=True)
 class Intersection:
+    """Represents an intersection."""
     type: IntersectionType = IntersectionType.NONE
     p0: Vec2 = NONE_VEC2
     p1: Vec2 = NONE_VEC2
 
 
-def side_of_line(distance: float, abs_tol=1e-9) -> int:
+def side_of_line(distance: float, abs_tol=1e-12) -> int:
     if abs(distance) < abs_tol:
         return 0
     if distance > 0.0:
@@ -70,9 +87,17 @@ def side_of_line(distance: float, abs_tol=1e-9) -> int:
 
 @dataclasses.dataclass(frozen=True)
 class HatchLine:
+    """Represents a single hatch line.
+
+    Args:
+        origin: the origin of the hatch line as :class:`~ezdxf.math.Vec2` instance
+        direction: the hatch line direction as :class:`~ezdxf.math.Vec2` instance, must not (0, 0)
+        distance: the normal distance to the base hatch line as float
+
+    """
     origin: Vec2
     direction: Vec2
-    distance: float  # normal distance to the hatch baseline
+    distance: float
 
     def intersect_line(
         self,
@@ -81,9 +106,20 @@ class HatchLine:
         dist_a: float,
         dist_b: float,
     ) -> Intersection:
-        """Returns the intersection of this hatch line with the line (a, b).
-        The arguments `dist_a` and `dist_b` are the normal distances of the
-        points a,b from the hatch baseline.
+        """Returns the :class:`Intersection` of this hatch line and the line
+        defined by the points `a` and `b`.
+        The arguments `dist_a` and `dist_b` are the signed normal distances of
+        the points `a` and `b` from the hatch baseline.
+        The normal distances from the baseline are easy to calculate by the
+        :meth:`HatchBaseLine.signed_distance` method and allow a fast
+        intersection calculation by a simple point interpolation.
+
+        Args:
+            a: start point of the line as :class:`~ezdxf.math.Vec2` instance
+            b: end point of the line as :class:`~ezdxf.math.Vec2` instance
+            dist_a: normal distance of point `a` to the hatch baseline as float
+            dist_b: normal distance of point `b` to the hatch baseline as float
+
         """
         # all distances are normal distances to the hatch baseline
         line_distance = self.distance
@@ -101,17 +137,44 @@ class HatchLine:
             return Intersection(IntersectionType.REGULAR, a.lerp(b, factor))
         return Intersection()  # no intersection
 
+    def intersect_cubic_bezier_curve(
+        self, curve: Bezier4P
+    ) -> Sequence[Intersection]:
+        """Returns 0 to 3 :class:`Intersection` points of this hatch line with
+        a cubic Bèzier curve.
+
+        Args:
+            curve: the cubic Bèzier curve as :class:`ezdxf.math.Bezier4P` instance
+
+        """
+        return [
+            Intersection(IntersectionType.REGULAR, p, NONE_VEC2)
+            for p in intersection_ray_cubic_bezier_2d(
+                self.origin, self.origin + self.direction, curve
+            )
+        ]
+
 
 class PatternRenderer:
     """
-    A hatch pattern has one or more hatch baselines with an origin,
-    direction, offset and line pattern.
-    The origin is the starting point of the hatch line and also the starting
-    point of the line pattern. The offset defines the origin of the adjacent
+    The hatch pattern of a DXF entity has one or more :class:`HatchBaseLine`
+    instances with an origin, direction, offset and line pattern.
+    The :class:`PatternRenderer` for a certain distance from the
+    baseline has to be acquired from the :class:`HatchBaseLine` by the
+    :meth:`~HatchBaseLine.pattern_renderer` method.
+
+    The origin of the hatch line is the starting point of the line
+    pattern. The offset defines the origin of the adjacent
     hatch line and doesn't have to be orthogonal to the hatch line direction.
 
-    Line pattern is a list of floats, where a value > 0.0 is a dash, a
-    value < 0.0 is a gap and value == 0.0 is a point.
+    **Line Pattern**
+
+    The line pattern is a sequence of floats, where a value > 0.0 is a dash, a
+    value < 0.0 is a gap and value of 0.0 is a point.
+
+    Args:
+        hatch_line: :class:`HatchLine`
+        pattern: the line pattern as sequence of float values
 
     """
 
@@ -125,6 +188,15 @@ class PatternRenderer:
         return self.origin + self.direction * (self.pattern_length * index)
 
     def render(self, start: Vec2, end: Vec2) -> Iterator[Tuple[Vec2, Vec2]]:
+        """Yields the pattern lines as pairs of :class:`~ezdxf.math.Vec2`
+        instances from the start- to the end point on the hatch line.
+        For points the start- and end point are the same :class:`~ezdxf.math.Vec2`
+        instance and can be tested by the ``is`` operator.
+
+        The start- and end points should be located collinear at the hatch line
+        of this instance, otherwise the points a projected onto this hatch line.
+
+        """
         if start.isclose(end):
             return
         length = self.pattern_length
@@ -201,6 +273,21 @@ class PatternRenderer:
 
 
 class HatchBaseLine:
+    """A hatch baseline defines the source line for hatching a geometry.
+    A complete hatch pattern of a DXF entity can consist of one or more hatch
+    baselines.
+
+    Args:
+        origin: the origin of the hatch line as :class:`~ezdxf.math.Vec2` instance
+        direction: the hatch line direction as :class:`~ezdxf.math.Vec2` instance, must not (0, 0)
+        offset: the offset of the hatch line origin to the next or to the previous hatch line
+        line_pattern: line pattern as sequence of floats, see also :class:`PatternRenderer`
+
+    Raises:
+        HatchLineDirectionError: hatch baseline has no direction, (0, 0) vector
+        DenseHatchingLinesError: hatching lines are too narrow
+
+    """
     def __init__(
         self,
         origin: Vec2,
@@ -212,7 +299,7 @@ class HatchBaseLine:
         try:
             self.direction = direction.normalize()
         except ZeroDivisionError:
-            raise HatchLineDirectionError("hatch line has no direction")
+            raise HatchLineDirectionError("hatch baseline has no direction")
         self.offset = offset
         self.normal_distance: float = (-offset).det(self.direction - offset)
         if abs(self.normal_distance) < MIN_HATCH_LINE_DISTANCE:
@@ -227,20 +314,22 @@ class HatchBaseLine:
         )
 
     def hatch_line(self, distance: float) -> HatchLine:
-        """Returns the hatch line at the given signed `distance`."""
+        """Returns the :class:`HatchLine` at the given signed `distance`."""
         factor = distance / self.normal_distance
         return HatchLine(
             self.origin + self.offset * factor, self.direction, distance
         )
 
     def signed_distance(self, point: Vec2) -> float:
-        """Returns the signed normal distance of the given point to the hatch
-        baseline.
+        """Returns the signed normal distance of the given `point` from this
+        hatch baseline.
         """
         # denominator (_end - origin).magnitude is 1.0 !!!
         return (self.origin - point).det(self._end - point)
 
     def pattern_renderer(self, distance: float) -> PatternRenderer:
+        """Returns the :class:`PatternRenderer` for the given signed `distance`.
+        """
         return PatternRenderer(self.hatch_line(distance), self.line_pattern)
 
 
@@ -308,17 +397,152 @@ def hatch_polygons(
     polygons: Sequence[Sequence[Vec2]],
     terminate: Callable[[], bool] = None,
 ) -> Iterator[Line]:
-    """Returns all hatch lines intersecting the given polygons.
+    """Yields all pattern lines for all hatch lines generated by the given
+    :class:`HatchBaseLine`, intersecting the given 2D polygons as :class:`Line`
+    instances.
+    The `polygons` should represent a single entity with or without holes, the
+    order of the polygons and their winding orientation (cw or ccw) is not
+    important. Entities which do not intersect or overlap should be handled
+    separately!
+
+    Each polygon is a sequence of :class:`~ezdxf.math.Vec2` instances, they are
+    treated as closed polygons even if the last vertex is not equal to the
+    first vertex.
+
+    The hole detection is done by a simple inside/outside counting algorithm and
+    far from perfect, but is able to handle ordinary polygons well.
+
+    The terminate function WILL BE CALLED PERIODICALLY AND should return
+    ``True`` to terminate execution. This can be used to implement a timeout,
+    which can be required if using a very small hatching distance, especially
+    if you get the data from untrusted sources.
+
+    Args:
+        baseline: :class:`HatchBaseLine`
+        polygons: multiple sequences of :class:`~ezdxf.path.Vec2` instances of
+            a single entity, the order of exterior- and hole paths and the
+            winding orientation (cw or ccw) of paths is not important
+        terminate: callback function which is called periodically and should
+            return ``True`` to terminate the hatching function
+
+    """
+    yield from _hatch_geometry(baseline, polygons, intersect_polygon, terminate)
+
+
+def intersect_path(
+    baseline: HatchBaseLine, path: Path
+) -> Iterator[Tuple[Intersection, float]]:
+    """Yields all intersection points of the hatch defined by the `baseline` and
+    the given single `path`.
+
+    Returns the intersection point and the normal-distance from the baseline,
+    intersection points with the same normal-distance lay on the same hatch
+    line.
+
+    """
+    for path_element in _path_elements(path):
+        if isinstance(path_element, Bezier4P):
+            distances = [
+                baseline.signed_distance(p) for p in path_element.control_points
+            ]
+            for hatch_line_distance in hatch_line_distances(
+                distances, baseline.normal_distance
+            ):
+                hatch_line = baseline.hatch_line(hatch_line_distance)
+                for ip in hatch_line.intersect_cubic_bezier_curve(path_element):
+                    yield ip, hatch_line_distance
+        else:  # line
+            a, b = Vec2.generate(path_element)
+            dist_a = baseline.signed_distance(a)
+            dist_b = baseline.signed_distance(b)
+            for hatch_line_distance in hatch_line_distances(
+                (dist_a, dist_b), baseline.normal_distance
+            ):
+                hatch_line = baseline.hatch_line(hatch_line_distance)
+                ip = hatch_line.intersect_line(a, b, dist_a, dist_b)
+                if (
+                    ip.type != IntersectionType.NONE
+                    and ip.type != IntersectionType.COLLINEAR
+                ):
+                    yield ip, hatch_line_distance
+
+
+def _path_elements(path: Path) -> Union[Bezier4P, Tuple[Vec2, Vec2]]:
+    if len(path) == 0:
+        return
+    start = path.start
+    path_start = start
+    for command in path.commands():
+        end = command.end
+        if isinstance(command, MoveTo):
+            if not path_start.isclose(start):
+                yield start, path_start  # close sub-path
+            path_start = end
+        elif isinstance(command, LineTo) and not start.isclose(end):
+            yield start, end
+        elif isinstance(command, Curve4To):
+            yield Bezier4P((start, command.ctrl1, command.ctrl2, end))
+        elif isinstance(command, Curve3To):
+            curve3 = Bezier3P((start, command.ctrl, end))
+            yield quadratic_to_cubic_bezier(curve3)
+        start = end
+
+    if not path_start.isclose(start):  # close path
+        yield start, path_start
+
+
+def hatch_paths(
+    baseline: HatchBaseLine,
+    paths: Sequence[Path],
+    terminate: Callable[[], bool] = None,
+) -> Iterator[Line]:
+    """Yields all pattern lines for all hatch lines generated by the given
+    :class:`HatchBaseLine`, intersecting the given 2D :class:`~ezdxf.path.Path`
+    instances as :class:`Line` instances. The paths are handled as projected
+    into the xy-plane the z-axis of path vertices will be ignored if present.
+
+    Same as the :func:`hatch_polygons` function, but for :class:`~ezdxf.path.Path`
+    instances instead of polygons build of vertices. This function **does not
+    flatten** the paths into vertices, instead the real intersections of the
+    Bézier curves and the hatch lines are calculated.
+
+    For more information see the docs of the :func:`hatch_polygons` function.
+
+    Args:
+        baseline: :class:`HatchBaseLine`
+        paths: sequence of :class:`~ezdxf.path.Path` instances of a single
+            entity, the order of exterior- and hole paths and the winding
+            orientation (cw or ccw) of the paths is not important
+        terminate: callback function which is called periodically and should
+            return ``True`` to terminate the hatching function
+
+    """
+    yield from _hatch_geometry(baseline, paths, intersect_path, terminate)
+
+
+IFuncType = Callable[[HatchBaseLine, Any], Iterator[Tuple[Intersection, float]]]
+
+
+def _hatch_geometry(
+    baseline: HatchBaseLine,
+    geometries: Sequence[Any],
+    intersection_func: IFuncType,
+    terminate: Callable[[], bool] = None,
+) -> Iterator[Line]:
+    """Returns all pattern lines intersecting the given geometries.
+
+    The intersection_func() should yield all intersection points between a
+    HatchBaseLine() and as given geometry.
 
     The terminate function should return ``True`` to terminate execution
     otherwise ``False``. Can be used to implement a timeout.
 
     """
     points: Dict[float, List[Intersection]] = defaultdict(list)
-    for polygon in polygons:
+    for geometry in geometries:
         if terminate and terminate():
             return
-        for ip, distance in intersect_polygon(baseline, polygon):
+        for ip, distance in intersection_func(baseline, geometry):
             assert ip.type != IntersectionType.NONE
             points[round(distance, KEY_NDIGITS)].append(ip)
 
@@ -348,7 +572,7 @@ def _line_segments(
 ) -> Iterator[Line]:
     if len(vertices) < 2:
         return
-    vertices.sort(key=lambda p: p.p0)
+    vertices.sort(key=lambda p: p.p0.round(SORT_NDIGITS))
     inside = False
     prev_point = NONE_VEC2
     for ip in vertices:
@@ -370,34 +594,58 @@ def _line_segments(
         prev_point = point
 
 
-def explode_hatch_pattern(
-    hatch: DXFPolygon, max_flattening_distance: float
-) -> Iterator[Tuple[AnyVec, AnyVec]]:
-    if hatch.pattern is None or hatch.dxf.solid_fill:
+def hatch_entity(
+    polygon: DXFPolygon, filter_text_boxes=True
+) -> Iterator[Tuple[Vec3, Vec3]]:
+    """Yields the hatch pattern of the given HATCH or MPOLYGON entity as 3D lines.
+    Each line is a pair of :class:`~ezdxf.math.Vec3` instances as start- and end
+    vertex, points are represented as lines of zero length, which means the
+    start vertex is equal to the end vertex.
+
+    The function yields nothing if `polygon` has a solid- or gradient filling
+    or does not have a usable pattern assigned.
+
+    Args:
+        polygon: :class:`~ezdxf.entities.Hatch` or :class:`~ezdxf.entities.MPolygon`
+            entity
+        filter_text_boxes: ignore text boxes if ``True``
+
+    """
+    if polygon.pattern is None or polygon.dxf.solid_fill:
         return
-    if len(hatch.pattern.lines) == 0:
+    if len(polygon.pattern.lines) == 0:
         return
-    ocs = hatch.ocs()
-    elevation = hatch.dxf.elevation.z
-    paths = hatch_paths(hatch)
-    polygons = [Vec2.list(p.flattening(max_flattening_distance)) for p in paths]
-    # All polygons in OCS!
-    for baseline in pattern_baselines(hatch):
-        for line in hatch_polygons(baseline, polygons):
+    ocs = polygon.ocs()
+    elevation = polygon.dxf.elevation.z
+    paths = hatch_boundary_paths(polygon, filter_text_boxes)
+    # All paths in OCS!
+    for baseline in pattern_baselines(polygon):
+        for line in hatch_paths(baseline, paths):
             line_pattern = baseline.pattern_renderer(line.distance)
             for s, e in line_pattern.render(line.start, line.end):
                 if ocs.transform:
                     yield ocs.to_wcs((s.x, s.y, elevation)), ocs.to_wcs(
                         (e.x, e.y, elevation)
                     )
-                yield s, e
+                yield Vec3(s), Vec3(e)
 
 
-def hatch_paths(polygon: DXFPolygon) -> List[Path]:
+def hatch_boundary_paths(
+    polygon: DXFPolygon, filter_text_boxes=True
+) -> List[Path]:
+    """Returns the hatch boundary paths as :class:`ezdxf.path.Path` instances
+    of HATCH and MPOLYGON entities. Ignores text boxes if argument
+    `filter_text_boxes` is ``True``.
+    """
     from ezdxf.path import from_hatch_boundary_path
 
     loops = []
     for boundary in polygon.paths.rendering_paths(polygon.dxf.hatch_style):
+        if (
+            filter_text_boxes
+            and boundary.path_type_flags & const.BOUNDARY_PATH_TEXTBOX
+        ):
+            continue
         path = from_hatch_boundary_path(boundary)
         for sub_path in path.sub_paths():
             if len(sub_path):
@@ -407,6 +655,9 @@ def hatch_paths(polygon: DXFPolygon) -> List[Path]:
 
 
 def pattern_baselines(polygon: DXFPolygon) -> Iterator[HatchBaseLine]:
+    """Yields the hatch pattern baselines of HATCH and MPOLYGON entities as
+    :class:`HatchBaseLine` instances.
+    """
     pattern = polygon.pattern
     if not pattern:
         return

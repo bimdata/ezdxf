@@ -310,6 +310,18 @@ Shortcut attribute:
 
     (Read/Write)  Export proxy graphics if ``True``, default is ``True``.
 
+Support Directories
++++++++++++++++++++
+
+Search directories for support files like `.ctb` or `.stb` files.
+
+Config file key: ``support_dirs``
+
+Shortcut attribute:
+
+.. attribute:: support_dirs
+
+    (Read/Write) Search directories as list of strings.
 
 Debugging Options
 -----------------
@@ -385,7 +397,7 @@ Disable C-Extension
 It is possible to deactivate the optional C-extensions if there are any issues
 with the C-extensions. This has to be done in a default config file or by
 environment variable before the first import of `ezdxf`. For ``pypy3`` the
-C-extensions are always disabled, because the JIT complied Python code is
+C-extensions are always disabled, because the JIT compiled Python code is
 much faster.
 
 .. important::

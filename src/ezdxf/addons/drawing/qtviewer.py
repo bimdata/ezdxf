@@ -1,24 +1,28 @@
 #!/usr/bin/env python3
-# Copyright (c) 2020-2021, Matthew Broadway
+# Copyright (c) 2020-2022, Matthew Broadway
 # License: MIT License
 # mypy: ignore_errors=True
 
 import math
 import os
 import time
-from typing import Iterable, Tuple, List
+from typing import Iterable, Tuple, List, Sequence, Set
 
 from ezdxf.addons.xqt import QtWidgets as qw, QtCore as qc, QtGui as qg
 from ezdxf.addons.xqt import Slot, QAction, Signal
 
 import ezdxf
+import ezdxf.bbox
 from ezdxf import recover
 from ezdxf.addons import odafc
 from ezdxf.addons.drawing import Frontend, RenderContext
-from ezdxf.addons.drawing.backend import BackendScaler
 from ezdxf.addons.drawing.config import Configuration
 
-from ezdxf.addons.drawing.properties import is_dark_color
+from ezdxf.addons.drawing.properties import (
+    is_dark_color,
+    set_layers_state,
+    LayerProperties,
+)
 from ezdxf.addons.drawing.pyqt import (
     _get_x_scale,
     PyQtBackend,
@@ -174,11 +178,14 @@ class CadViewer(qw.QMainWindow):
     def __init__(self, config: Configuration = Configuration.defaults()):
         super().__init__()
         self._config = config
-        self.doc = None
-        self._render_context = None
-        self._visible_layers = None
-        self._current_layout = None
+        # Avoid using Optional[...], otherwise mypy requires None checks
+        # everywhere!
+        self.doc: Drawing = None  # type: ignore
+        self._render_context: RenderContext = None  # type: ignore
+        self._visible_layers: Set[str] = set()
+        self._current_layout: str = "Model"
         self._reset_backend()
+        self._bbox_cache = ezdxf.bbox.Cache()
 
         self.view = CADGraphicsViewWithOverlay()
         self.view.setScene(qw.QGraphicsScene())
@@ -227,12 +234,9 @@ class CadViewer(qw.QMainWindow):
         self.resize(1600, 900)
         self.show()
 
-    def _reset_backend(self, scale: float = 1.0):
-        backend = PyQtBackend(use_text_cache=True)
-        if scale != 1.0:
-            backend = BackendScaler(backend, factor=scale)
+    def _reset_backend(self):
         # clear caches
-        self._backend = backend
+        self._backend = PyQtBackend(use_text_cache=True)
 
     def _select_doc(self):
         path, _ = qw.QFileDialog.getOpenFileName(
@@ -268,7 +272,6 @@ class CadViewer(qw.QMainWindow):
         auditor: Auditor,
         *,
         layout: str = "Model",
-        overall_scaling_factor: float = 1.0,
     ):
         error_count = len(auditor.errors)
         if error_count > 0:
@@ -281,15 +284,27 @@ class CadViewer(qw.QMainWindow):
             if ret == qw.QMessageBox.No:
                 auditor.print_error_report(auditor.errors)
                 return
+
         self.doc = document
-        self._render_context = RenderContext(document)
-        self._reset_backend(scale=overall_scaling_factor)
-        self._visible_layers = None
+        # initialize bounding box cache for faste paperspace drawing
+        self._bbox_cache = ezdxf.bbox.Cache()
+        self._render_context = self._make_render_context(document)
+        self._reset_backend()
+        self._visible_layers = set()
         self._current_layout = None
         self._populate_layouts()
         self._populate_layer_list()
         self.draw_layout(layout)
         self.setWindowTitle("CAD Viewer - " + str(document.filename))
+
+    def _make_render_context(self, doc) -> RenderContext:
+        def update_layers_state(layers: Sequence[LayerProperties]):
+            if self._visible_layers:
+                set_layers_state(layers, self._visible_layers, state=True)
+
+        render_context = RenderContext(doc)
+        render_context.set_layer_properties_override(update_layers_state)
+        return render_context
 
     def _populate_layer_list(self):
         self.layers.blockSignals(True)
@@ -313,12 +328,16 @@ class CadViewer(qw.QMainWindow):
         self.layers.blockSignals(False)
 
     def _populate_layouts(self):
+        def draw_layout(name: str):
+            def run():
+                self.draw_layout(name, reset_view=True)
+
+            return run
+
         self.select_layout_menu.clear()
         for layout_name in self.doc.layout_names_in_taborder():
             action = QAction(layout_name, self)
-            action.triggered.connect(
-                lambda: self.draw_layout(layout_name, reset_view=True)
-            )
+            action.triggered.connect(draw_layout(layout_name))
             self.select_layout_menu.addAction(action)
 
     def draw_layout(
@@ -353,20 +372,15 @@ class CadViewer(qw.QMainWindow):
 
     def create_frontend(self):
         return Frontend(
-            self._render_context,
-            self._backend,
-            self._config,
+            ctx=self._render_context,
+            out=self._backend,
+            config=self._config,
+            bbox_cache=self._bbox_cache
         )
 
     def _update_render_context(self, layout):
-        assert self._render_context
+        assert self._render_context is not None
         self._render_context.set_current_layout(layout)
-        # Direct modification of RenderContext.layers would be more flexible,
-        # but would also expose the internals.
-        if self._visible_layers is not None:
-            self._render_context.set_layers_state(
-                self._visible_layers, state=True
-            )
 
     def resizeEvent(self, event: qg.QResizeEvent) -> None:
         self.view.fit_to_scene()

@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2021, Matthew Broadway
+# Copyright (c) 2020-2022, Matthew Broadway
 # License: MIT License
 from abc import ABC, abstractmethod, ABCMeta
 from typing import (
@@ -7,9 +7,6 @@ from typing import (
     TYPE_CHECKING,
     Iterable,
     List,
-    Dict,
-    SupportsFloat,
-    Union,
 )
 
 from ezdxf.addons.drawing.config import Configuration
@@ -17,8 +14,8 @@ from ezdxf.addons.drawing.properties import Properties
 from ezdxf.addons.drawing.type_hints import Color
 from ezdxf.entities import DXFGraphic
 from ezdxf.tools.text import replace_non_printable_characters
-from ezdxf.math import Vec3, Matrix44
-from ezdxf.path import Path, transform_paths
+from ezdxf.math import Vec3, Matrix44, Vec2
+from ezdxf.path import Path
 
 if TYPE_CHECKING:
     from ezdxf.tools.fonts import FontFace, FontMeasurements
@@ -51,19 +48,11 @@ class BackendInterface(ABC):
     def draw_line(self, start: Vec3, end: Vec3, properties: Properties) -> None:
         raise NotImplementedError
 
+    @abstractmethod
     def draw_solid_lines(
         self, lines: Iterable[Tuple[Vec3, Vec3]], properties: Properties
     ) -> None:
-        """Fast method to draw a bunch of solid lines with the same properties.
-        """
-        # Must be overridden by the backend to gain a performance benefit.
-        # This is the default implementation to ensure compatibility with
-        # existing backends.
-        for s, e in lines:
-            if e.isclose(s):
-                self.draw_point(s, properties)
-            else:
-                self.draw_line(s, e, properties)
+        raise NotImplementedError
 
     @abstractmethod
     def draw_path(self, path: Path, properties: Properties) -> None:
@@ -114,6 +103,15 @@ class BackendInterface(ABC):
     def finalize(self) -> None:
         raise NotImplementedError
 
+    @abstractmethod
+    def set_clipping_path(self, path: Path = None, scale: float = 1.0) -> bool:
+        """Set the current clipping path.
+        Returns True if a clipping path is supported.
+        An empty path or None removes the clipping path.
+        The `scale` is the scaling factor from modelspace to viewport.
+        """
+        raise NotImplementedError
+
 
 class Backend(BackendInterface, metaclass=ABCMeta):
     def __init__(self):
@@ -139,6 +137,10 @@ class Backend(BackendInterface, metaclass=ABCMeta):
     def set_background(self, color: Color) -> None:
         raise NotImplementedError
 
+    def set_clipping_path(self, path: Path = None, scale: float = 1.0) -> bool:
+        """Clipping path is not supported by default."""
+        return False
+
     @abstractmethod
     def draw_point(self, pos: Vec3, properties: Properties) -> None:
         """Draw a real dimensionless point, because not all backends support
@@ -149,6 +151,20 @@ class Backend(BackendInterface, metaclass=ABCMeta):
     @abstractmethod
     def draw_line(self, start: Vec3, end: Vec3, properties: Properties) -> None:
         raise NotImplementedError
+
+    def draw_solid_lines(
+        self, lines: Iterable[Tuple[Vec3, Vec3]], properties: Properties
+    ) -> None:
+        """Fast method to draw a bunch of solid lines with the same properties.
+        """
+        # Must be overridden by the backend to gain a performance benefit.
+        # This is the default implementation to ensure compatibility with
+        # existing backends.
+        for s, e in lines:
+            if e.isclose(s):
+                self.draw_point(s, properties)
+            else:
+                self.draw_line(s, e, properties)
 
     def draw_path(self, path: Path, properties: Properties) -> None:
         """Draw an outline path (connected string of line segments and Bezier
@@ -269,71 +285,3 @@ def prepare_string_for_rendering(text: str, dxftype: str) -> str:
     else:
         raise TypeError(dxftype)
     return text
-
-
-class BackendScaler:
-    """Scales the input data by the given factor before passing the data to
-    wrapped Backend class.
-    """
-
-    def __init__(self, backend: Backend, factor: float):
-        self._backend = backend
-        self._factor = float(factor)
-        if self._factor < 1e-9:
-            raise ValueError("scaling factor too small or negative")
-        self._scaling_matrix = Matrix44.scale(
-            self._factor, self._factor, self._factor
-        )
-
-    @property
-    def factor(self) -> float:
-        return self._factor
-
-    def __getattr__(self, name: str):
-        # delegate to wrapped backend
-        return getattr(self._backend, name)
-
-    def draw_point(self, pos: Vec3, properties: Properties) -> None:
-        self._backend.draw_point(pos * self._factor, properties)
-
-    def draw_line(self, start: Vec3, end: Vec3, properties: Properties) -> None:
-        self._backend.draw_line(
-            start * self._factor, end * self._factor, properties
-        )
-
-    def draw_path(self, path: Path, properties: Properties) -> None:
-        self._backend.draw_path(
-            path.transform(self._scaling_matrix), properties
-        )
-
-    def draw_filled_paths(
-        self,
-        paths: Iterable[Path],
-        holes: Iterable[Path],
-        properties: Properties,
-    ) -> None:
-        paths = transform_paths(paths, self._scaling_matrix)
-        holes = transform_paths(holes, self._scaling_matrix)
-        self._backend.draw_filled_paths(paths, holes, properties)
-
-    def draw_filled_polygon(
-        self, points: Iterable[Vec3], properties: Properties
-    ) -> None:
-        factor = self._factor
-        self._backend.draw_filled_polygon(
-            (v * factor for v in points), properties
-        )
-
-    def draw_text(
-        self,
-        text: str,
-        transform: Matrix44,
-        properties: Properties,
-        cap_height: float,
-    ) -> None:
-        self._backend.draw_text(
-            text,
-            transform * self._scaling_matrix,
-            properties,
-            cap_height,  # scaling not necessary
-        )

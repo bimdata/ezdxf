@@ -155,9 +155,8 @@ Print help:
 .. code-block:: Text
 
     C:\> ezdxf draw -h
-    usage: ezdxf draw [-h] [--formats] [--layout LAYOUT] [--all-layers-visible]
-                      [--all-entities-visible] [-o OUT] [--dpi DPI]
-                      [--ltype {approximate,accurate}] [-v]
+    usage: ezdxf draw [-h] [--formats] [-l LAYOUT] [--all-layers-visible]
+                      [--all-entities-visible] [-o OUT] [--dpi DPI] [-v]
                       [FILE]
 
     positional arguments:
@@ -166,7 +165,8 @@ Print help:
     optional arguments:
       -h, --help            show this help message and exit
       --formats             show all supported export formats and exit
-      --layout LAYOUT       select the layout to draw
+      -l LAYOUT, --layout LAYOUT
+                            select the layout to draw, default is "Model"
       --all-layers-visible  draw all layers including the ones marked as invisible
       --all-entities-visible
                             draw all entities including the ones marked as
@@ -174,12 +174,6 @@ Print help:
                             invisible even if the layer is visible)
       -o OUT, --out OUT     output filename for export
       --dpi DPI             target render resolution, default is 300
-      --ltype {approximate,accurate}
-                            select the line type rendering method, default is
-                            approximate. Approximate uses the closest
-                            approximation available to the backend, the accurate
-                            method renders as accurately as possible but this
-                            approach is slower.
       -v, --verbose         give more output
 
 View
@@ -199,22 +193,15 @@ Print help:
 .. code-block:: Text
 
     C:\> ezdxf view -h
-    usage: ezdxf view [-h] [--layout LAYOUT]
-                      [--ltype {approximate,accurate}] [--lwscale LWSCALE]
-                      [FILE]
+    usage: ezdxf view [-h] [-l LAYOUT] [--lwscale LWSCALE] [FILE]
 
     positional arguments:
       FILE                  DXF file to view
 
     optional arguments:
       -h, --help            show this help message and exit
-      --layout LAYOUT       select the layout to draw
-      --ltype {approximate,accurate}
-                            select the line type rendering method, default
-                            is approximate. Approximate uses the closest
-                            approximation available to the backend, the
-                            accurate method renders as accurately as
-                            possible but this approach is slower.
+      -l LAYOUT, --layout LAYOUT
+                            select the layout to draw, default is "Model"
       --lwscale LWSCALE     set custom line weight scaling, default is 0 to
                             disable line weights at all
 
@@ -230,21 +217,17 @@ Convert the DXF file "gear.dxf" into a PNG file by the *Pillow* backend:
     C:\> ezdxf pillow -o gear.png gear.dxf
 
 Advantage over the `Draw`_ command is the speed and much less memory usage,
-disadvantages are:
-
-  - text is only rendered by outlines
-  - solid hatches are rendered without holes
-
-.. image:: gfx/pillow-sample.png
-   :align: center
+disadvantage is the lower text rendering quality. The speed advantages is lost
+for the text modes OUTLINE and FILLED, because the text-path rendering is done
+by `Matplotlib`, but the advantage of the lower memory consumption remains.
 
 Print help:
 
 .. code-block:: Text
 
-    C:\> ezdxf view -h
-    usage: ezdxf pillow [-h] [-o OUT] [-i IMAGE_SIZE] [-b BACKGROUND]
-                        [-r OVERSAMPLING] [-m MARGIN] [--dpi DPI] [-v]
+    C:\> ezdxf pillow -h
+    usage: ezdxf pillow [-h] [-o OUT] [-l LAYOUT] [-i IMAGE_SIZE] [-b BACKGROUND]
+                        [-r OVERSAMPLING] [-m MARGIN] [-t {0,1,2,3}] [--dpi DPI] [-v]
                         [FILE]
 
     positional arguments:
@@ -252,29 +235,32 @@ Print help:
 
     options:
       -h, --help            show this help message and exit
-      -o OUT, --out OUT     output filename, the filename extension defines the
-                            image format (.png, .jpg, .tif, .bmp, ...)
+      -o OUT, --out OUT     output filename, the filename extension defines the image format
+                            (.png, .jpg, .tif, .bmp, ...)
+      -l LAYOUT, --layout LAYOUT
+                            name of the layout to draw, default is "Model"
       -i IMAGE_SIZE, --image_size IMAGE_SIZE
-                            image size in pixels as "width,height", default is
-                            "1920,1080", supports also "x" as delimiter like
-                            "1920x1080". A single integer is used for both
-                            directions e.g. "2000" defines an image size of
-                            2000x2000. The image is centered for the smaller DXF
+                            image size in pixels as "width,height", default is "1920,1080",
+                            supports also "x" as delimiter like "1920x1080". A single
+                            integer is used for both directions e.g. "2000" defines an image
+                            size of 2000x2000. The image is centered for the smaller DXF
                             drawing extent.
       -b BACKGROUND, --background BACKGROUND
-                            override background color in hex format "RRGGBB" or
-                            "RRGGBBAA", e.g. use "FFFFFF00" to get a white
-                            transparent background and a black foreground color
-                            (ACI=7), because a light background gets a black
-                            foreground color or vice versa "00000000" for a black
+                            override background color in hex format "RRGGBB" or "RRGGBBAA",
+                            e.g. use "FFFFFF00" to get a white transparent background and a
+                            black foreground color (ACI=7), because a light background gets
+                            a black foreground color or vice versa "00000000" for a black
                             transparent background and a white foreground color.
       -r OVERSAMPLING, --oversampling OVERSAMPLING
-                            oversampling factor, default is 2, use 0 or 1 to
-                            disable oversampling
+                            oversampling factor, default is 2, use 0 or 1 to disable
+                            oversampling
       -m MARGIN, --margin MARGIN
                             minimal margin around the image in pixels, default is 10
-      --dpi DPI             output resolution in pixels/inch which is significant
-                            for the linewidth, default is 300
+      -t {0,1,2,3}, --text-mode {0,1,2,3}
+                            text mode: 0=ignore, 1=placeholder, 2=outline, 3=filled, default
+                            is 2
+      --dpi DPI             output resolution in pixels/inch which is significant for the
+                            linewidth, default is 300
       -v, --verbose         give more output
 
 Browse
@@ -494,22 +480,17 @@ Manage config files.
 .. code-block:: Text
 
     C:\> ezdxf config -h
-    usage: ezdxf config [-h] [-p] [--home] [--reset]
+    usage: ezdxf config [-h] [-p] [-w FILE] [--home] [--reset]
 
     optional arguments:
       -h, --help   show this help message and exit
-      -p, --print  print configuration, to store the configuration use:
-                   "ezdxf config -p > my.ini"
+      -p, --print  print configuration
+      -w FILE, --write FILE
+                   write configuration
       --home       create config file 'ezdxf.ini' in the user home directory
                    '~/.config/ezdxf', $XDG_CONFIG_HOME is supported if set
 
       --reset      factory reset, delete default config files 'ezdxf.ini'
-
-To create a new config file "my.ini" by printing the configuration into a file:
-
-.. code-block:: Text
-
-    C:\> ezdxf config -p > my.ini
 
 Info
 ----
