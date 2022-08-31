@@ -133,6 +133,7 @@ class MatplotlibBackend(Backend):
                     linewidth=self.get_lineweight(properties),
                     color=properties.color,
                     zorder=self._get_z(),
+                    gid=properties.output_id,
                 )
             )
 
@@ -155,7 +156,7 @@ class MatplotlibBackend(Backend):
             else:
                 _lines.append(((s.x, s.y), (e.x, e.y)))
 
-        self.ax.scatter(point_x, point_y, s=0.1, c=color, zorder=z)
+        self.ax.scatter(point_x, point_y, s=0.1, c=color, zorder=z, gid=properties.output_id,)
         self.ax.add_collection(
             LineCollection(
                 _lines,
@@ -163,6 +164,7 @@ class MatplotlibBackend(Backend):
                 color=color,
                 zorder=z,
                 capstyle="butt",
+                gid=properties.output_id,
             )
         )
 
@@ -178,6 +180,7 @@ class MatplotlibBackend(Backend):
                 fill=False,
                 color=properties.color,
                 zorder=self._get_z(),
+                gid=properties.output_id,
             )
         except ValueError as e:
             logger.info(f"ignored matplotlib error: {str(e)}")
