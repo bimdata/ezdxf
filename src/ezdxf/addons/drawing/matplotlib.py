@@ -104,7 +104,9 @@ class MatplotlibBackend(Backend):
         self.ax.scatter(
             [pos.x],
             [pos.y],
-            s=0.1,
+            s=self.config.pdsize * 0.1, 
+            linewidths=self.config.pdsize,
+            marker = ".",
             c=color,
             zorder=self._get_z(),
             gid=properties.output_id,
@@ -156,7 +158,7 @@ class MatplotlibBackend(Backend):
             else:
                 _lines.append(((s.x, s.y), (e.x, e.y)))
 
-        self.ax.scatter(point_x, point_y, s=0.1, c=color, zorder=z, gid=properties.output_id,)
+        self.ax.scatter(point_x, point_y, s=self.config.pdsize * 0.1, linewidths=self.config.pdsize, c=color, zorder=z, gid=properties.output_id, marker = ".")
         self.ax.add_collection(
             LineCollection(
                 _lines,
