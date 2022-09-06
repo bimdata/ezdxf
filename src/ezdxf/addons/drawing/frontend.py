@@ -355,8 +355,12 @@ class Frontend:
             path = make_path(entity)
         except AttributeError:  # API usage error
             raise TypeError(f"Unsupported DXF type {entity.dxftype()}")
-        self._designer.draw_path(path, properties)
+        except ZeroDivisionError as e:
+            # Curve geometries can be broken 
+            self.skip_entity(entity, e )
+            return
 
+        self._designer.draw_path(path, properties)
     def draw_point_entity(self, entity: DXFGraphic, properties: Properties) -> None:
         point = cast(Point, entity)
         pdmode = self.config.pdmode
