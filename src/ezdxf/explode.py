@@ -1,5 +1,6 @@
-# Copyright (c) 2020-2021, Manfred Moitzi
+# Copyright (c) 2020-2022, Manfred Moitzi
 # License: MIT License
+from __future__ import annotations
 import logging
 from typing import (
     TYPE_CHECKING,
@@ -9,7 +10,6 @@ from typing import (
     cast,
     Dict,
     List,
-    Any,
 )
 
 from ezdxf.entities import factory
@@ -58,8 +58,8 @@ def default_logging_callback(entity, reason):
 
 
 def explode_block_reference(
-    block_ref: "Insert",
-    target_layout: "BaseLayout",
+    block_ref: Insert,
+    target_layout: BaseLayout,
     *,
     redraw_order=False,
 ) -> EntityQuery:
@@ -118,7 +118,7 @@ def explode_block_reference(
         entitydb is not None
     ), "Exploding a block reference requires an entity database."
 
-    entities: List["DXFGraphic"] = []
+    entities: List[DXFGraphic] = []
     if block_ref.mcount > 1:
         for virtual_insert in block_ref.multi_insert():
             _explode_single_block_ref(virtual_insert)
@@ -145,7 +145,7 @@ IGNORE_FROM_ATTRIB = {
 }
 
 
-def attrib_to_text(attrib: "Attrib") -> "Text":
+def attrib_to_text(attrib: Attrib) -> Text:
     dxfattribs = attrib.dxfattribs(drop=IGNORE_FROM_ATTRIB)
     # ATTRIB has same owner as INSERT but does not reside in any EntitySpace()
     # and must not deleted from any layout.
@@ -158,13 +158,13 @@ def attrib_to_text(attrib: "Attrib") -> "Text":
 
 
 def virtual_block_reference_entities(
-    block_ref: "Insert",
+    block_ref: Insert,
     *,
     skipped_entity_callback: Optional[
-        Callable[["DXFGraphic", str], None]
+        Callable[[DXFGraphic, str], None]
     ] = None,
     redraw_order=False,
-) -> Iterable["DXFGraphic"]:
+) -> Iterable[DXFGraphic]:
     """Yields 'virtual' parts of block reference `block_ref`. This method is meant
     to examine the block reference entities without the need to explode the
     block reference. The `skipped_entity_callback()` will be called for all
@@ -195,7 +195,7 @@ def virtual_block_reference_entities(
 
     skipped_entity_callback = skipped_entity_callback or default_logging_callback
 
-    def disassemble(layout) -> Iterable["DXFGraphic"]:
+    def disassemble(layout) -> Iterable[DXFGraphic]:
         for entity in (
             layout.entities_in_redraw_order() if redraw_order else layout
         ):
@@ -234,11 +234,13 @@ def virtual_block_reference_entities(
                 else:
                     skipped_entity_callback(entity, "unsupported non-uniform scaling")
             except InsertTransformationError:
-                # INSERT entity can not represented in the target coordinate
+                # INSERT entity can not be represented in the target coordinate
                 # system defined by transformation matrix `m`.
                 # Yield transformed sub-entities of the INSERT entity:
                 yield from transform(
-                    virtual_block_reference_entities(entity, skipped_entity_callback)
+                    virtual_block_reference_entities(
+                        entity, skipped_entity_callback=skipped_entity_callback
+                    )
                 )
             except ZeroDivisionError:
                 skipped_entity_callback(entity, "impossible to normalize")
@@ -260,8 +262,8 @@ EXCLUDE_FROM_EXPLODE = {"POINT"}
 
 
 def explode_entity(
-    entity: "DXFGraphic", target_layout: "BaseLayout" = None
-) -> "EntityQuery":
+    entity: DXFGraphic, target_layout: BaseLayout = None
+) -> EntityQuery:
     """Explode parts of an entity as primitives into target layout, if target
     layout is ``None``, the target layout is the layout of the source entity.
 
@@ -309,8 +311,8 @@ def explode_entity(
 
 
 def virtual_boundary_path_entities(
-    polygon: "DXFPolygon",
-) -> List[List["DXFGraphic"]]:
+    polygon: DXFPolygon,
+) -> List[List[DXFGraphic]]:
     from ezdxf.entities import LWPolyline
 
     def polyline():
@@ -337,7 +339,7 @@ def virtual_boundary_path_entities(
 
 def _virtual_edge_path(
     path: EdgePath, dxfattribs: Dict, ocs: OCS, elevation: float
-) -> List["DXFGraphic"]:
+) -> List[DXFGraphic]:
     from ezdxf.entities import Line, Arc, Ellipse, Spline
 
     def pnt_to_wcs(v):
@@ -346,7 +348,7 @@ def _virtual_edge_path(
     def dir_to_wcs(v):
         return ocs.to_wcs(v)
 
-    edges: List["DXFGraphic"] = []
+    edges: List[DXFGraphic] = []
     for edge in path.edges:
         attribs = dict(dxfattribs)
         if isinstance(edge, LineEdge):
@@ -357,7 +359,7 @@ def _virtual_edge_path(
             attribs["center"] = edge.center
             attribs["radius"] = edge.radius
             attribs["elevation"] = elevation
-            # Arcs angles are always stored in counter clockwise orientation
+            # Arcs angles are always stored in counter-clockwise orientation
             # around the extrusion vector!
             attribs["start_angle"] = edge.start_angle
             attribs["end_angle"] = edge.end_angle
@@ -367,7 +369,7 @@ def _virtual_edge_path(
             attribs["center"] = pnt_to_wcs(edge.center)
             attribs["major_axis"] = dir_to_wcs(edge.major_axis)
             attribs["ratio"] = edge.ratio
-            # Ellipse angles are always stored in counter clockwise orientation
+            # Ellipse angles are always stored in counter-clockwise orientation
             # around the extrusion vector!
             attribs["start_param"] = edge.start_param
             attribs["end_param"] = edge.end_param

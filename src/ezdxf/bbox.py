@@ -1,7 +1,6 @@
-#  Copyright (c) 2021, Manfred Moitzi
+#  Copyright (c) 2021-2022, Manfred Moitzi
 #  License: MIT License
 from typing import TYPE_CHECKING, Iterable, Dict, Optional
-import warnings
 
 import ezdxf
 from ezdxf import disassemble
@@ -89,23 +88,11 @@ class Cache:
             return key
 
 
-def _resolve_fast_arg(fast: bool, kwargs) -> bool:
-    if "flatten" in kwargs:
-        warnings.warn(
-            "Argument 'flatten' replaced by argument 'fast', "
-            "'flatten' will be removed in v1.0!",
-            DeprecationWarning,
-        )
-        fast = not bool(kwargs["flatten"])
-    return fast
-
-
 def multi_recursive(
     entities: Iterable["DXFEntity"],
     *,
     fast=False,
     cache: Cache = None,
-    **kwargs,
 ) -> Iterable[BoundingBox]:
     """Yields all bounding boxes for the given `entities` **or** all bounding
     boxes for their sub entities. If an entity (INSERT) has sub entities, only
@@ -120,7 +107,6 @@ def multi_recursive(
         replaced argument `flatten` by argument `fast`
 
     """
-    fast = _resolve_fast_arg(fast, kwargs)
     flat_entities = disassemble.recursive_decompose(entities)
     primitives = disassemble.to_primitives(flat_entities)
     for primitive in primitives:
@@ -146,7 +132,6 @@ def extents(
     *,
     fast=False,
     cache: Cache = None,
-    **kwargs,
 ) -> BoundingBox:
     """Returns a single bounding box for all given `entities`.
 
@@ -167,7 +152,6 @@ def extents(
         added fast mode, replaced argument `flatten` by argument `fast`
 
     """
-    fast = _resolve_fast_arg(fast, kwargs)
     use_matplotlib = ezdxf.options.use_matplotlib  # save current state
     if fast:
         ezdxf.options.use_matplotlib = False
@@ -183,7 +167,6 @@ def multi_flat(
     *,
     fast=False,
     cache: Cache = None,
-    **kwargs,
 ) -> Iterable[BoundingBox]:
     """Yields a bounding box for each of the given `entities`.
 
@@ -198,9 +181,7 @@ def multi_flat(
 
     def extends_(entities_: Iterable["DXFEntity"]) -> BoundingBox:
         _extends = BoundingBox()
-        for _box in multi_recursive(
-            entities_, fast=_resolve_fast_arg(fast, kwargs), cache=cache
-        ):
+        for _box in multi_recursive(entities_, fast=fast, cache=cache):
             _extends.extend(_box)
         return _extends
 

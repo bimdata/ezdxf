@@ -15,11 +15,17 @@ specific problems go to the :ref:`Howto` section.
 
     dxf
     aci
+    true_color
+    transparency
     layers
     linetypes
     lineweights
     coordinates
     ocs
     units
+    modelspace
+    paperspace
+    blocks
     extents_limits
     fonts
+

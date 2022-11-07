@@ -1,15 +1,24 @@
 # Copyright (c) 2022, Manfred Moitzi
 # License: MIT License
 from typing import cast
-from pathlib import Path
+import pathlib
 import ezdxf
 from ezdxf.layouts import Paperspace
 
-MESH_SIZE = 20
-DIR = Path("~/Desktop/Outbox").expanduser()
-if not DIR.exists():
-    DIR = Path(".")
 
+CWD = pathlib.Path("~/Desktop/Outbox").expanduser()
+if not CWD.exists():
+    CWD = pathlib.Path(".")
+
+# ------------------------------------------------------------------------------
+# This example shows how to override layer properties in VIEWPORT entities.
+#
+# VIEWPORT: https://ezdxf.mozman.at/docs/dxfentities/viewport.html
+# LAYER: https://ezdxf.mozman.at/docs/tables/layer_table_entry.html
+# TUTORIAL: https://ezdxf.mozman.at/docs/tutorials/psp_viewports.html
+# ------------------------------------------------------------------------------
+
+MESH_SIZE = 20
 COUNT = 7
 LAYER_NAME = "Layer{}"
 PAPER_WIDTH = 22
@@ -119,14 +128,14 @@ def create_viewports(paperspace: Paperspace):
 
 
 def main():
-    def make(dxfversion, filename):
+    def make(dxfversion):
         doc = ezdxf.new(dxfversion, setup=True)
-        doc.header["$LWDISPLAY"] = 1  # show linewidth in DXF viewer
+        doc.header["$LWDISPLAY"] = 1  # show lineweight in DXF viewer
         msp = doc.modelspace()
 
         # create the default layer for VIEWPORT entities:
         vp_layer = doc.layers.add("VIEWPORTS")
-        # switch viewport layer off to hide the viewport border lines
+        # switch viewport layer off to hide the viewport borderlines
         vp_layer.off()
         for index in range(COUNT):
             doc.layers.add(LAYER_NAME.format(index))
@@ -139,14 +148,15 @@ def main():
         )
         create_viewports(psp)
         doc.set_modelspace_vport(60, (50, 30))
+        filename = f"viewport_overrides_{dxfversion}.dxf"
         try:
-            doc.saveas(DIR / filename)
+            doc.saveas(CWD / filename)
         except IOError as e:
             print(str(e))
 
-    make("R2000", "viewport_overrides_R2000.dxf")
-    make("R2007", "viewport_overrides_R2007.dxf")
-    make("R2018", "viewport_overrides_R2018.dxf")
+    make("R2000")
+    make("R2007")
+    make("R2018")
 
 
 if __name__ == "__main__":

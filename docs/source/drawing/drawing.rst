@@ -184,6 +184,8 @@ Drawing Object
 
     .. automethod:: modelspace
 
+    .. automethod:: paperspace
+
     .. automethod:: layout
 
     .. automethod:: active_layout
@@ -193,6 +195,8 @@ Drawing Object
     .. automethod:: layout_names_in_taborder
 
     .. automethod:: new_layout
+
+    .. automethod:: page_setup
 
     .. automethod:: delete_layout
 

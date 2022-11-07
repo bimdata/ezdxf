@@ -1,5 +1,6 @@
 # Copyright (c) 2011-2022, Manfred Moitzi
 # License: MIT License
+from __future__ import annotations
 from typing import (
     TYPE_CHECKING,
     TextIO,
@@ -22,7 +23,7 @@ import logging
 from itertools import chain
 
 import ezdxf
-from ezdxf.layouts import Modelspace
+from ezdxf.layouts import Modelspace, Paperspace
 from ezdxf.lldxf import const
 from ezdxf.lldxf.const import (
     BLK_XREF,
@@ -783,19 +784,46 @@ class Drawing:
         """
         self._dimension_renderer = renderer
 
-    def modelspace(self) -> "Modelspace":
+    def modelspace(self) -> Modelspace:
         """Returns the modelspace layout, displayed as ``'Model'`` tab in CAD
         applications, defined by block record named ``'*Model_Space'``.
         """
         return self.layouts.modelspace()
 
-    def layout(self, name: str = None) -> "Layout":
-        """Returns paperspace layout `name` or returns first layout in tab
-        order if `name` is ``None``.
+    def layout(self, name: str = "") -> Layout:
+        """Returns paperspace layout `name` or the first layout in tab-order
+        if no name is given.
+
+        Args:
+            name: paperspace name or empty string for the first paperspace in
+                tab-order
+
+        Raises:
+            KeyError: layout `name` does not exist
+
         """
         return self.layouts.get(name)
 
-    def active_layout(self) -> "Layout":
+    def paperspace(self, name: str = "") -> Paperspace:
+        """Returns paperspace layout `name` or the active paperspace if no
+        name is given.
+
+        Args:
+            name: paperspace name or empty string for the active paperspace
+
+        Raises:
+            KeyError: if the modelspace was acquired or layout `name` does not exist
+
+        """
+        if name:
+            psp = self.layouts.get(name)
+            if isinstance(psp, Paperspace):
+                return psp
+            raise KeyError("use method modelspace() to acquire the modelspace.")
+        else:
+            return self.active_layout()
+
+    def active_layout(self) -> Paperspace:
         """Returns the active paperspace layout, defined by block record
         name ``'*Paper_Space'``.
         """
@@ -808,7 +836,7 @@ class Drawing:
         return list(self.layouts.names())
 
     def layout_names_in_taborder(self) -> Iterable[str]:
-        """Returns all layout names in tab order, layout "Model" (model space)
+        """Returns all layout names in tab-order, layout "Model" (model space)
         is always the first name.
         """
         return list(self.layouts.names_in_taborder())
@@ -883,7 +911,7 @@ class Drawing:
         """
         Delete paper space layout `name` and all entities owned by this layout.
         Available only for DXF R2000 or later, DXF R12 supports only one
-        paperspace and it can't be deleted.
+        paperspace, and it can't be deleted.
 
         """
         if name not in self.layouts:
@@ -911,6 +939,70 @@ class Drawing:
             raise const.DXFValueError(f"Layout '{name}' already exists.")
         else:
             return self.layouts.new(name, dxfattribs)
+
+    def page_setup(
+        self,
+        name: str = "Layout1",
+        fmt: str = "ISO A3",
+        landscape=True,
+    ) -> Paperspace:
+        """
+        Creates a new paperspace layout if `name` does not exist or reset the
+        existing layout.  This method requires DXF R2000 or newer.
+        The paper format name `fmt` defines one of the following paper sizes,
+        measures in landscape orientation:
+
+        =========== ======= ======= =======
+        Name        Units   Width   Height
+        =========== ======= ======= =======
+        ISO A0      mm      1189    841
+        ISO A1      mm      841     594
+        ISO A2      mm      594     420
+        ISO A3      mm      420     297
+        ISO A4      mm      297     210
+        ANSI A      inch    11      8.5
+        ANSI B      inch    17      11
+        ANSI C      inch    22      17
+        ANSI D      inch    34      22
+        ANSI E      inch    44      34
+        ARCH C      inch    24      18
+        ARCH D      inch    36      24
+        ARCH E      inch    48      36
+        ARCH E1     inch    42      30
+        Letter      inch    11      8.5
+        Legal       inch    14      8.5
+        =========== ======= ======= =======
+
+        The layout uses the associated units of the paper format as drawing
+        units, has no margins or offset defined and the scale of the paperspace
+        layout is 1:1.
+
+        Args:
+            name: paperspace layout name
+            fmt: paper format
+            landscape: ``True`` for landscape orientation, ``False`` for portrait
+                orientation
+
+        """
+        from ezdxf.tools.standards import PAGE_SIZES
+
+        if self.acad_release == "R12":
+            raise const.DXFVersionError("method call no supported for DXF R12")
+        width: float
+        height: float
+        try:
+            units, width, height = PAGE_SIZES[fmt]
+        except KeyError:
+            raise ValueError(f"unknown paper format: {fmt}")
+        if not landscape:
+            width, height = height, width
+        try:
+            psp = self.paperspace(name)
+        except KeyError:
+            psp = cast(Paperspace, self.new_layout(name))
+
+        psp.page_setup(size=(width, height), margins=(0, 0, 0, 0), units=units)
+        return psp
 
     def acquire_arrow(self, name: str):
         """For standard AutoCAD and ezdxf arrows create block definitions if

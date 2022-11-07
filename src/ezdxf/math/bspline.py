@@ -830,8 +830,10 @@ def local_cubic_bspline_interpolation_from_tangents(
 
 
 class BSpline:
-    """Representation of a `B-spline`_ curve. The default configuration of
-    the knot vector is a uniform open `knot`_ vector ("clamped").
+    """B-spline construction tool.
+
+    Internal representation of a `B-spline`_ curve. The default configuration
+    of the knot vector is a uniform open `knot`_ vector ("clamped").
 
     Factory functions:
 
@@ -1362,7 +1364,7 @@ def closed_uniform_bspline(
     order: int = 4,
     weights: Iterable[float] = None,
 ) -> BSpline:
-    """Creates an closed uniform (periodic) `B-spline`_ curve (`open curve`_).
+    """Creates a closed uniform (periodic) `B-spline`_ curve (`open curve`_).
 
     This B-spline does not pass any of the control points.
 

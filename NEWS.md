@@ -2,8 +2,27 @@
 News
 ====
 
-Version 0.18.1b0 - dev
-----------------------
+Version 1.0.0rc1 - dev
+---------------------
+
+- Release notes: https://ezdxf.mozman.at/release-v1-0.html
+- NEW: Python 3.11 binary wheels on PyPI
+- NEW: `Drawing.paperspace()`, a correct type-annotated method to get paperspace 
+  layouts 
+- NEW: `Drawing.page_setup()`, simple way to set up paperspace layouts
+- CHANGE: removed deprecated features
+- BUGFIX: [#747](https://github.com/mozman/ezdxf/issues/747)
+  fix virtual entities of 3D DIMENSION entities  
+- BUGFIX: [#748](https://github.com/mozman/ezdxf/issues/748)
+  fix keyword only argument in virtual_block_reference_entities() call
+- BUGFIX: [#749](https://github.com/mozman/ezdxf/issues/749)
+  fix infinite loop in MTEXT rendering with tabulators
+- BUGFIX: [#751](https://github.com/mozman/ezdxf/issues/751)
+  fix invalid DXF attribute name
+- BUGFIX: fix configuration defaults for pdsize and pdmode for the `drawing` add-on
+
+Version 0.18.1 - 2022-09-03
+---------------------------
 
 - Release notes: https://ezdxf.mozman.at/release-v0-18.html
 - NEW: improved hatch pattern support for the `drawing` add-on

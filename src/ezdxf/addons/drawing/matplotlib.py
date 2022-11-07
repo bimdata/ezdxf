@@ -1,8 +1,10 @@
 # Copyright (c) 2020-2022, Matthew Broadway
 # License: MIT License
+from __future__ import annotations
 import math
-from typing import Iterable, TYPE_CHECKING, Optional, List, Tuple
+from typing import Iterable, TYPE_CHECKING, Optional, List, Tuple, Union
 import logging
+from os import PathLike
 
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
@@ -38,6 +40,7 @@ logger = logging.getLogger("ezdxf")
 # points unit (pt), 1pt = 1/72 inch, 1pt = 0.3527mm
 POINTS = 1.0 / 0.3527  # mm -> points
 CURVE4x3 = (Path.CURVE4, Path.CURVE4, Path.CURVE4)
+SCATTER_POINT_SIZE = 0.1
 
 
 def setup_axes(ax: plt.Axes):
@@ -52,6 +55,19 @@ def setup_axes(ax: plt.Axes):
 
 
 class MatplotlibBackend(Backend):
+    """Backend which uses the :mod:`Matplotlib` package for image export.
+
+    The current implementation does not support VIEWPORT clipping and is
+    therefore not very suitable for exporting paperspace layouts.
+
+    Args:
+        ax: drawing canvas as :class:`matplotlib.pyplot.Axes` object
+        adjust_figure: automatically adjust the size of the parent
+            :class:`matplotlib.pyplot.Figure` to display all content
+        font: default font properties
+        use_text_cache: use caching for text path rendering
+
+    """
     def __init__(
         self,
         ax: plt.Axes,
@@ -60,6 +76,7 @@ class MatplotlibBackend(Backend):
         font: FontProperties = FontProperties(),
         use_text_cache: bool = True,
     ):
+
         super().__init__()
         setup_axes(ax)
         self.ax = ax
@@ -104,12 +121,11 @@ class MatplotlibBackend(Backend):
         self.ax.scatter(
             [pos.x],
             [pos.y],
-            s=self.config.pdsize * 0.1, 
-            linewidths=self.config.pdsize,
-            marker = ".",
+            marker = "." #BIMDATA update
+            s=SCATTER_POINT_SIZE,
             c=color,
             zorder=self._get_z(),
-            gid=properties.output_id,
+            gid=properties.output_id, #BIMDATA update
         )
 
     def get_lineweight(self, properties: Properties) -> float:
@@ -158,7 +174,9 @@ class MatplotlibBackend(Backend):
             else:
                 _lines.append(((s.x, s.y), (e.x, e.y)))
 
-        self.ax.scatter(point_x, point_y, s=self.config.pdsize * 0.1, linewidths=self.config.pdsize, c=color, zorder=z, gid=properties.output_id, marker = ".")
+        self.ax.scatter(
+            point_x, point_y, s=SCATTER_POINT_SIZE, c=color, zorder=z, gid=properties.output_id, marker = "."
+        )
         self.ax.add_collection(
             LineCollection(
                 _lines,
@@ -341,8 +359,8 @@ def _get_width_height(
 
 
 def qsave(
-    layout: "Layout",
-    filename: str,
+    layout: Layout,
+    filename: Union[str, PathLike],
     *,
     bg: Optional[Color] = None,
     fg: Optional[Color] = None,
@@ -382,23 +400,6 @@ def qsave(
         filter_func: filter function which takes a DXFGraphic object as input
             and returns ``True`` if the entity should be drawn or ``False`` if
             the entity should be ignored
-
-    .. versionadded:: 0.14
-
-    .. versionadded:: 0.15
-        added argument `params` to pass parameters to the matplotlib backend
-
-    .. versionchanged:: 0.16
-        removed arguments `ltype` and `lineweight_scaling`
-
-    .. versionadded:: 0.17
-        added argument `filter_func` to filter DXF entities
-
-    .. versionchanged:: 0.17
-        `params` argument replaced by `config` argument
-
-    .. versionchanged:: 0.18
-        added argument `size_inches`
 
     """
     from .properties import RenderContext

@@ -9,6 +9,14 @@ CWD = Path("~/Desktop/Outbox").expanduser()
 if not CWD.exists():
     CWD = Path(".")
 
+# ------------------------------------------------------------------------------
+# This example shows how to use the ezdxf.forms.extrude method to create a prism
+# from a concave base polygon. The added face-normals show if the face-orientation
+# follows the usual count-clockwise order to build outside pointing faces.
+#
+# docs: https://ezdxf.mozman.at/docs/render/forms.html#ezdxf.render.forms.extrude
+# ------------------------------------------------------------------------------
+
 
 def main(filepath):
     doc = ezdxf.new()
@@ -18,7 +26,7 @@ def main(filepath):
     concave_prism = forms.extrude(
         profile, [(0, 0, 0), (0, 0, 10)], close=True, caps=True
     )
-    concave_prism.render(msp, dxfattribs={"color": 2})
+    concave_prism.render_mesh(msp, dxfattribs={"color": 2})
     concave_prism.render_normals(msp, dxfattribs={"color": 6})
 
     # tessellate prism into triangles:
