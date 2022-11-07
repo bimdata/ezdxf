@@ -122,6 +122,7 @@ class MatplotlibBackend(Backend):
             [pos.x],
             [pos.y],
             marker = ".", #BIMDATA update
+            linewidths=self.config.pdsize,
             s=SCATTER_POINT_SIZE,
             c=color,
             zorder=self._get_z(),
@@ -175,7 +176,7 @@ class MatplotlibBackend(Backend):
                 _lines.append(((s.x, s.y), (e.x, e.y)))
 
         self.ax.scatter(
-            point_x, point_y, s=SCATTER_POINT_SIZE, c=color, zorder=z, gid=properties.output_id, marker = "."
+            point_x, point_y, s=SCATTER_POINT_SIZE, c=color, zorder=z, gid=properties.output_id, marker = ".", linewidths=self.config.pdsize,
         )
         self.ax.add_collection(
             LineCollection(
