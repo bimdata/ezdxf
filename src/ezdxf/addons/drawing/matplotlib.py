@@ -121,7 +121,7 @@ class MatplotlibBackend(Backend):
         self.ax.scatter(
             [pos.x],
             [pos.y],
-            marker = "." #BIMDATA update
+            marker = ".", #BIMDATA update
             s=SCATTER_POINT_SIZE,
             c=color,
             zorder=self._get_z(),
