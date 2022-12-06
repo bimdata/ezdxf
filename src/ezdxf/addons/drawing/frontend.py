@@ -184,7 +184,9 @@ class Frontend:
     def skip_entity(self, entity: DXFEntity, msg: str) -> None:
         self.log_message(f'skipped entity {str(entity)}. Reason: "{msg}"')
 
-    def override_properties(self, entity: DXFGraphic, properties: Properties) -> None:
+    def override_properties(
+        self, entity: DXFGraphic, properties: Properties
+    ) -> None:
         """The :meth:`override_properties` filter can change the properties of
         an entity independent of the DXF attributes.
 
@@ -253,11 +255,11 @@ class Frontend:
         else:
             draw_method = self._dispatch.get(entity.dxftype(), None)
             if draw_method is not None:
-                try : 
+                try:
                     draw_method(entity, properties)
-                except TypeError as e :
+                except TypeError as e:
                     self.skip_entity(entity, e)
-                                  
+
             # Composite entities (INSERT, DIMENSION, ...) have to implement the
             # __virtual_entities__() protocol.
             # Unsupported DXF types which have proxy graphic, are wrapped into
@@ -272,7 +274,8 @@ class Frontend:
                 # DXF entities (DXFGraphicProxy) do not get to this point if
                 # proxy graphic is ignored.
                 if (
-                    self.config.proxy_graphic_policy != ProxyGraphicPolicy.IGNORE
+                    self.config.proxy_graphic_policy
+                    != ProxyGraphicPolicy.IGNORE
                     or entity.dxftype() not in self._proxy_graphic_only_entities
                 ):
                     self.draw_composite_entity(entity, properties)
@@ -281,7 +284,9 @@ class Frontend:
 
         self.out.exit_entity(entity)
 
-    def draw_line_entity(self, entity: DXFGraphic, properties: Properties) -> None:
+    def draw_line_entity(
+        self, entity: DXFGraphic, properties: Properties
+    ) -> None:
         d, dxftype = entity.dxf, entity.dxftype()
         if dxftype == "LINE":
 
@@ -306,7 +311,9 @@ class Frontend:
     def skip_text_entities(self, entity: DXFGraphic, properties: Properties):
         self.skip_entity(entity, "BIMData - Disable text conversion")
 
-    def draw_text_entity(self, entity: DXFGraphic, properties: Properties) -> None:
+    def draw_text_entity(
+        self, entity: DXFGraphic, properties: Properties
+    ) -> None:
         # Draw embedded MTEXT entity as virtual MTEXT entity:
         if isinstance(entity, BaseAttrib) and entity.has_embedded_mtext_entity:
             self.draw_mtext_entity(entity.virtual_mtext_entity(), properties)
@@ -315,7 +322,9 @@ class Frontend:
         else:
             self.draw_text_entity_2d(entity, properties)
 
-    def draw_text_entity_2d(self, entity: DXFGraphic, properties: Properties) -> None:
+    def draw_text_entity_2d(
+        self, entity: DXFGraphic, properties: Properties
+    ) -> None:
         if isinstance(entity, Text):
             for line, transform, cap_height in simplified_text_chunks(
                 entity, self.out, font=properties.font
@@ -326,10 +335,14 @@ class Frontend:
         else:
             raise TypeError(entity.dxftype())
 
-    def draw_text_entity_3d(self, entity: DXFGraphic, properties: Properties) -> None:
+    def draw_text_entity_3d(
+        self, entity: DXFGraphic, properties: Properties
+    ) -> None:
         self.skip_entity(entity, "3D text not supported")
 
-    def draw_mtext_entity(self, entity: DXFGraphic, properties: Properties) -> None:
+    def draw_mtext_entity(
+        self, entity: DXFGraphic, properties: Properties
+    ) -> None:
         mtext = cast(MText, entity)
         if is_spatial_text(Vec3(mtext.dxf.extrusion)):
             self.skip_entity(mtext, "3D MTEXT not supported")
@@ -350,18 +363,23 @@ class Frontend:
         """Draw the content of a MTEXT entity including inline formatting codes."""
         complex_mtext_renderer(self.ctx, self._designer, mtext, properties)
 
-    def draw_curve_entity(self, entity: DXFGraphic, properties: Properties) -> None:
+    def draw_curve_entity(
+        self, entity: DXFGraphic, properties: Properties
+    ) -> None:
         try:
             path = make_path(entity)
         except AttributeError:  # API usage error
             raise TypeError(f"Unsupported DXF type {entity.dxftype()}")
         except ZeroDivisionError as e:
-            # Curve geometries can be broken 
-            self.skip_entity(entity, e )
+            # Curve geometries can be broken
+            self.skip_entity(entity, e)
             return
 
         self._designer.draw_path(path, properties)
-    def draw_point_entity(self, entity: DXFGraphic, properties: Properties) -> None:
+
+    def draw_point_entity(
+        self, entity: DXFGraphic, properties: Properties
+    ) -> None:
         point = cast(Point, entity)
         pdmode = self.config.pdmode
         pdsize = self.config.pdsize
@@ -393,7 +411,9 @@ class Frontend:
                 else:
                     raise ValueError(dxftype)
 
-    def draw_solid_entity(self, entity: DXFGraphic, properties: Properties) -> None:
+    def draw_solid_entity(
+        self, entity: DXFGraphic, properties: Properties
+    ) -> None:
         if isinstance(entity, Face3d):
             dxf = entity.dxf
             try:
@@ -423,7 +443,9 @@ class Frontend:
             )
 
         else:
-            raise TypeError("API error, requires a SOLID, TRACE or 3DFACE entity")
+            raise TypeError(
+                "API error, requires a SOLID, TRACE or 3DFACE entity"
+            )
 
     def draw_hatch_pattern(
         self, polygon: DXFPolygon, paths: List[Path], properties: Properties
@@ -477,13 +499,18 @@ class Frontend:
             show_only_outline = True
 
         polygon = cast(DXFPolygon, entity)
-        if filling.type == Filling.PATTERN:
-            if loops is None:
-                loops = hatching.hatch_boundary_paths(
-                    polygon, filter_text_boxes=True
-                )
-            self.draw_hatch_pattern(polygon, loops, properties)
-            return
+        try:
+            if filling.type == Filling.PATTERN:
+                if loops is None:
+                    loops = hatching.hatch_boundary_paths(
+                        polygon, filter_text_boxes=True
+                    )
+                self.draw_hatch_pattern(polygon, loops, properties)
+                return
+        except ezdxf.render.hatching.DenseHatchingLinesError:
+            # Bugfix 170 - hatching lines are too narrow : use SHOW_OUTLINE
+            filling = Filling()
+            show_only_outline = True
 
         # draw SOLID filling
         ocs = polygon.ocs()
@@ -495,10 +522,14 @@ class Frontend:
         holes: List[Path]
 
         if loops is not None:  # only MPOLYGON
-            external_paths, holes = winding_deconstruction(fast_bbox_detection(loops))
+            external_paths, holes = winding_deconstruction(
+                fast_bbox_detection(loops)
+            )
         else:  # only HATCH
             paths = polygon.paths.rendering_paths(polygon.dxf.hatch_style)
-            polygons: List = fast_bbox_detection(closed_loops(paths, ocs, elevation))
+            polygons: List = fast_bbox_detection(
+                closed_loops(paths, ocs, elevation)
+            )
             external_paths, holes = winding_deconstruction(polygons)
 
         if show_only_outline:
@@ -517,7 +548,9 @@ class Frontend:
 
     def draw_mpolygon_entity(self, entity: DXFGraphic, properties: Properties):
         def resolve_fill_color() -> str:
-            return self.ctx.resolve_aci_color(entity.dxf.fill_color, properties.layer)
+            return self.ctx.resolve_aci_color(
+                entity.dxf.fill_color, properties.layer
+            )
 
         polygon = cast(DXFPolygon, entity)
         ocs = polygon.ocs()
@@ -532,7 +565,10 @@ class Frontend:
         # 1. draw filling
         if polygon.dxf.solid_fill:
             properties.filling.type = Filling.SOLID
-            if polygon.gradient is not None and polygon.gradient.number_of_colors > 0:
+            if (
+                polygon.gradient is not None
+                and polygon.gradient.number_of_colors > 0
+            ):
                 # true color filling is stored as gradient
                 properties.color = str(properties.filling.gradient_color1)
             else:
@@ -550,7 +586,9 @@ class Frontend:
         for loop in loops:
             self._designer.draw_path(loop, properties)
 
-    def draw_wipeout_entity(self, entity: DXFGraphic, properties: Properties) -> None:
+    def draw_wipeout_entity(
+        self, entity: DXFGraphic, properties: Properties
+    ) -> None:
         wipeout = cast(Wipeout, entity)
         properties.filling = Filling()
         properties.color = self.ctx.current_layout_properties.background_color
@@ -576,7 +614,9 @@ class Frontend:
             # viewports are not supported by the backend
             self._draw_filled_rect(vp.clipping_rect_corners(), VIEWPORT_COLOR)
 
-    def draw_ole2frame_entity(self, entity: DXFGraphic, properties: Properties) -> None:
+    def draw_ole2frame_entity(
+        self, entity: DXFGraphic, properties: Properties
+    ) -> None:
         ole2frame = cast(OLE2Frame, entity)
         bbox = ole2frame.bbox()
         if not bbox.is_empty:
@@ -593,7 +633,9 @@ class Frontend:
         props.filling = Filling()
         self._designer.draw_filled_polygon(Vec3.list(points), props)
 
-    def draw_mesh_entity(self, entity: DXFGraphic, properties: Properties) -> None:
+    def draw_mesh_entity(
+        self, entity: DXFGraphic, properties: Properties
+    ) -> None:
         builder = MeshBuilder.from_mesh(entity)  # type: ignore
         self.draw_mesh_builder_entity(builder, properties)
 
@@ -605,7 +647,9 @@ class Frontend:
                 from_vertices(face, close=True), properties=properties
             )
 
-    def draw_polyline_entity(self, entity: DXFGraphic, properties: Properties) -> None:
+    def draw_polyline_entity(
+        self, entity: DXFGraphic, properties: Properties
+    ) -> None:
         dxftype = entity.dxftype()
         if dxftype == "POLYLINE":
             e = cast(Polyface, entity)
