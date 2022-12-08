@@ -43,7 +43,17 @@ Add-ons
     - PyQt: QPrinter & QPainter - https://wiki.qt.io/Handling_PDF
   
     In consideration, if the SVG exporter works well.
-   
+  
+  - (>1.0) Support for `Layout.dxf.plot_layout_options` in export mode of 
+    class `RenderContext`:
+    - plot with plot-styles; disable loading of the ctb-table in set_currrent_layout()
+    - plot entity lineweights; if disabled which linewidth should be used instead?
+    - scale lineweights; scale by what?
+    - plot transparencies
+    - hide paperspace entities (`DXFGraphic.dxf.paperspace` attribute is `True`)
+    
+    VIEWPORT borders are not plotted at all by the `drawing` add-on
+    
 - (>v1.0) DWG loader, planned for the future. Cython will be required for the 
   low level stuff, no pure Python implementation.
 - (>v1.0) text2path: add support for SHX fonts
@@ -67,9 +77,11 @@ DXF Entities
 - (>v1.0) FIELD, used by ACAD_TABLE and MTEXT
 - (>v1.0) explode HATCH pattern into LINE entities, points are represented by 
   zero-length LINE entities, because the POINT entity has a special meaning.
+- (>v1.0) HATCH: shift hatch pattern origin, see discussion #769 
+  and examples/entities/hatch_pattern_modify_origin.py
 - (>v1.0) extend ACIS support
-- (>v1.0) clipping path support for block references, see XCLIP command,
-  https://github.com/mozman/ezdxf/discussions/760
+- (>v1.0) clipping path support for block references, see XCLIP command and 
+  discussion #760
 
 Selection Module
 ----------------
@@ -212,3 +224,43 @@ DXF Document
 
 - (>v1.0) copy DXF document by serializing and reloading the document in memory 
   or by file-system, this is not efficient but safe.
+
+Increase Minimal Required Python Version
+----------------------------------------
+
+(v1.1) Python 3.8 - maybe jumping straight to Python 3.9
+
+- https://docs.python.org/3/whatsnew/3.8.html
+- import `Protocol` from `typing` instead from `typing_extensions`
+- `typing.Literal`
+- walrus operator `:=`
+
+Python 3.9 in late 2023, after release of Python 3.12
+
+- https://docs.python.org/3/whatsnew/3.9.html
+- type hinting generics in standard collections: 
+  `dict[tuple[int, str], list[str]]` can be used in regular code outside of annotations,
+  import of `List`, `Dict` or `Tuple` is not required anymore
+
+Python 3.10 in late 2024, after release of Python 3.13
+
+- https://docs.python.org/3/whatsnew/3.10.html
+- structural pattern matching?
+- typing: union operator `|`, outside of annotations (type aliases)
+- dataclasses: `__slots__`
+- `itertools.pairwise()` replaces `ezdxf.tools.take2()`
+
+Python 3.11 in late 2025, after release of Python 3.14
+
+- https://docs.python.org/3/whatsnew/3.11.html
+- exception groups?
+- `typing.Self`
+
+
+Apply minimal Python version update to:
+
+- README.md
+- setup.py
+- toplevel index.rst
+- introduction.rst
+- setup.rst

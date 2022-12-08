@@ -1,6 +1,7 @@
 #  Copyright (c) 2022, Manfred Moitzi
 #  License: MIT License
-from typing import TypeVar, Generic
+from __future__ import annotations
+from typing import TypeVar, Generic, Optional
 import abc
 from ezdxf.tools.fonts import FontFace, FontMeasurements
 from ezdxf.path import Path
@@ -32,7 +33,7 @@ class TextRenderer(abc.ABC, Generic[T]):
 
     @abc.abstractmethod
     def get_text_line_width(
-        self, text: str, cap_height: float, font: FontFace = None
+        self, text: str, cap_height: float, font: Optional[FontFace] = None
     ) -> float:
         ...
 

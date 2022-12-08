@@ -1,6 +1,8 @@
 # Copyright (c) 2020-2022, Manfred Moitzi
 # License: MIT License
 # type: ignore
+from __future__ import annotations
+from typing import Optional, Union
 import logging
 import os
 import platform
@@ -10,7 +12,6 @@ import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, List, Union
 
 import ezdxf
 from ezdxf.document import Drawing
@@ -23,6 +24,7 @@ from ezdxf.lldxf.validator import (
 
 logger = logging.getLogger("ezdxf")
 win_exec_path = ezdxf.options.get("odafc-addon", "win_exec_path").strip('"')
+unix_exec_path = ezdxf.options.get("odafc-addon", "unix_exec_path").strip('"')
 
 
 class ODAFCError(IOError):
@@ -92,12 +94,10 @@ DARWIN = "Darwin"
 
 
 def is_installed() -> bool:
-    """Returns ``True`` if the ODAFileConverter is installed.
-
-    .. versionadded:: 0.18
-
-    """
+    """Returns ``True`` if the ODAFileConverter is installed."""
     if platform.system() in (LINUX, DARWIN):
+        if unix_exec_path and Path(unix_exec_path).is_file():
+            return True
         return shutil.which("ODAFileConverter") is not None
     # Windows:
     return os.path.exists(win_exec_path)
@@ -226,8 +226,6 @@ def convert(
 ):
     """Convert `source` file to `dest` file.
 
-    .. versionadded::  0.18
-
     The file extension defines the target format
     e.g. :code:`convert("test.dxf", "Test.dwg")` converts the source file to a
     DWG file.
@@ -338,7 +336,7 @@ def _odafc_arguments(
     output_format: str = "DXF",
     version: str = "ACAD2013",
     audit: bool = False,
-) -> List[str]:
+) -> list[str]:
     """ODA File Converter command line format:
 
     ODAFileConverter "Input Folder" "Output Folder" version type recurse audit [filter]
@@ -370,6 +368,18 @@ def _get_odafc_path(system: str) -> str:
         odafc.ODAFCNotInstalledError: ODA File Converter not installed
 
     """
+    # on Linux and Darwin check if UNIX_EXEC_PATH is set and exist and
+    # return this path as exec path.
+    # This may help if the "which" command can not find the "ODAFileConverter"
+    # command and also adds support for AppImages provided by ODA.
+    if system != WINDOWS and unix_exec_path:
+        if Path(unix_exec_path).is_file():
+            return unix_exec_path
+        else:
+            logger.warning(
+                f"command '{unix_exec_path}' not found, using 'ODAFileConverter'"
+            )
+
     path = shutil.which("ODAFileConverter")
     if not path and system == WINDOWS:
         path = win_exec_path
@@ -409,7 +419,7 @@ def _linux_dummy_display():
 
 
 def _run_with_no_gui(
-    system: str, command: str, arguments: List[str]
+    system: str, command: str, arguments: list[str]
 ) -> subprocess.Popen:
     """Execute ODAFC application without launching the GUI.
 
@@ -477,8 +487,8 @@ def _odafc_failed(system: str, proc: subprocess.Popen, stderr: str) -> bool:
         return stderr != ""
 
 
-def _execute_odafc(arguments: List[str]) -> Optional[bytes]:
-    """ Execute ODAFC application.
+def _execute_odafc(arguments: list[str]) -> Optional[bytes]:
+    """Execute ODAFC application.
 
     Args:
         arguments: ODAFC argument list

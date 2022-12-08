@@ -1,6 +1,7 @@
 # Copyright (c) 2019-2022 Manfred Moitzi
 # License: MIT License
-from typing import TYPE_CHECKING, Iterable
+from __future__ import annotations
+from typing import TYPE_CHECKING, Iterable, Optional, Iterator
 import math
 
 from ezdxf.lldxf import validator
@@ -35,7 +36,9 @@ from .dxfgfx import (
 from .factory import register_entity
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import TagWriter, DXFNamespace, Ellipse, Spline
+    from ezdxf.entities import DXFNamespace
+    from ezdxf.lldxf.tagwriter import AbstractTagWriter
+    from ezdxf.entities import Ellipse, Spline
 
 __all__ = ["Circle"]
 
@@ -76,8 +79,8 @@ class Circle(DXFGraphic):
     MERGED_GROUP_CODES = merged_circle_group_codes
 
     def load_dxf_attribs(
-        self, processor: SubclassProcessor = None
-    ) -> "DXFNamespace":
+        self, processor: Optional[SubclassProcessor] = None
+    ) -> DXFNamespace:
         """Loading interface. (internal API)"""
         # bypass DXFGraphic, loading proxy graphic is skipped!
         dxf = super(DXFGraphic, self).load_dxf_attribs(processor)
@@ -88,7 +91,7 @@ class Circle(DXFGraphic):
                 elevation_to_z_axis(dxf, ("center",))
         return dxf
 
-    def export_entity(self, tagwriter: "TagWriter") -> None:
+    def export_entity(self, tagwriter: AbstractTagWriter) -> None:
         """Export entity specific data as DXF tags."""
         super().export_entity(tagwriter)
         if tagwriter.dxfversion > DXF12:
@@ -97,12 +100,14 @@ class Circle(DXFGraphic):
             tagwriter, ["center", "radius", "thickness", "extrusion"]
         )
 
-    def vertices(self, angles: Iterable[float]) -> Iterable[Vec3]:
-        """Yields vertices of the circle for iterable `angles` in WCS.
+    def vertices(self, angles: Iterable[float]) -> Iterator[Vec3]:
+        """Yields the vertices of the circle of all given `angles` as
+        :class:`~ezdxf.math.Vec3` instances in :ref:`WCS`.
 
         Args:
-            angles: iterable of angles in OCS as degrees, angle goes counter
-                clockwise around the extrusion vector, OCS x-axis = 0 deg.
+            angles: iterable of angles in :ref:`OCS` as degrees, angle goes
+                counter-clockwise around the extrusion vector, and the OCS x-axis
+                defines 0-degree.
 
         """
         ocs = self.ocs()
@@ -111,32 +116,28 @@ class Circle(DXFGraphic):
         for angle in angles:
             yield ocs.to_wcs(Vec3.from_deg_angle(angle, radius) + center)
 
-    def flattening(self, sagitta: float) -> Iterable[Vec3]:
-        """Approximate the circle by vertices in WCS, argument `sagitta` is the
-        max. distance from the center of an arc segment to the center of its
-        chord. Returns a closed polygon: start vertex == end vertex!
+    def flattening(self, sagitta: float) -> Iterator[Vec3]:
+        """Approximate the circle by vertices in :ref:`WCS` as :class:`~ezdxf.math.Vec3`
+        instances. The argument `sagitta`_ is the maximum distance from the center of an
+        arc segment to the center of its chord. Yields a closed polygon where the start
+        vertex is equal to the end  vertex!
 
-        Yields always :class:`~ezdxf.math.Vec3` objects.
-
-        .. versionadded:: 0.15
-
+        .. _sagitta: https://en.wikipedia.org/wiki/Sagitta_(geometry)
         """
         radius = abs(self.dxf.radius)
         if radius > 0.0:
             count = arc_segment_count(radius, math.tau, sagitta)
             yield from self.vertices(linspace(0.0, 360.0, count + 1))
 
-    def transform(self, m: Matrix44) -> "Circle":
+    def transform(self, m: Matrix44) -> Circle:
         """Transform the CIRCLE entity by transformation matrix `m` inplace.
-
-        Raises ``NonUniformScalingError()`` for non uniform scaling.
-
+        Raises ``NonUniformScalingError()`` for non-uniform scaling.
         """
         circle = self._transform(OCSTransform(self.dxf.extrusion, m))
         self.post_transform(m)
         return circle
 
-    def _transform(self, ocs: OCSTransform) -> "Circle":
+    def _transform(self, ocs: OCSTransform) -> Circle:
         dxf = self.dxf
         if ocs.scale_uniform:
             dxf.extrusion = ocs.new_extrusion
@@ -157,10 +158,9 @@ class Circle(DXFGraphic):
 
         return self
 
-    def translate(self, dx: float, dy: float, dz: float) -> "Circle":
+    def translate(self, dx: float, dy: float, dz: float) -> Circle:
         """Optimized CIRCLE/ARC translation about `dx` in x-axis, `dy` in
         y-axis and `dz` in z-axis, returns `self` (floating interface).
-
         """
         ocs = self.ocs()
         self.dxf.center = ocs.from_wcs(
@@ -171,11 +171,11 @@ class Circle(DXFGraphic):
             self.post_transform(Matrix44.translate(dx, dy, dz))
         return self
 
-    def to_ellipse(self, replace=True) -> "Ellipse":
-        """Convert CIRCLE/ARC to an :class:`~ezdxf.entities.Ellipse` entity.
+    def to_ellipse(self, replace=True) -> Ellipse:
+        """Convert the CIRCLE/ARC entity to an :class:`~ezdxf.entities.Ellipse` entity.
 
-        Adds the new ELLIPSE entity to the entity database and to the
-        same layout as the source entity.
+        Adds the new ELLIPSE entity to the entity database and to the same layout as
+        the source entity.
 
         Args:
             replace: replace (delete) source entity by ELLIPSE entity if ``True``
@@ -193,11 +193,11 @@ class Circle(DXFGraphic):
             add_entity(ellipse, layout)
         return ellipse
 
-    def to_spline(self, replace=True) -> "Spline":
-        """Convert CIRCLE/ARC to a :class:`~ezdxf.entities.Spline` entity.
+    def to_spline(self, replace=True) -> Spline:
+        """Convert the CIRCLE/ARC entity to a :class:`~ezdxf.entities.Spline` entity.
 
-        Adds the new SPLINE entity to the entity database and to the
-        same layout as the source entity.
+        Adds the new SPLINE entity to the entity database and to the same layout as the
+        source entity.
 
         Args:
             replace: replace (delete) source entity by SPLINE entity if ``True``

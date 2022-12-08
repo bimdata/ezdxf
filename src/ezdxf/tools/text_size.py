@@ -1,7 +1,9 @@
-#  Copyright (c) 2021, Manfred Moitzi
-#  License: MIT License
-from typing import Sequence, Tuple, List
+# Copyright (c) 2021-2022, Manfred Moitzi
+# License: MIT License
+from __future__ import annotations
+from typing import Sequence, Optional
 from dataclasses import dataclass
+
 import ezdxf
 from ezdxf.math import Matrix44, Vec2
 from ezdxf.entities import Text, MText, get_font_name
@@ -16,7 +18,6 @@ __all__ = [
     "TextSize",
     "MTextSize",
     "WordSizeDetector",
-
     # estimate_mtext_extents() belongs also to the topic of this module, users
     # may look here first
     "estimate_mtext_extents",
@@ -77,7 +78,9 @@ def text_size(text: Text) -> TextSize:
     return TextSize(text_width, cap_height, total_height)
 
 
-def mtext_size(mtext: MText, tool: "MTextSizeDetector" = None) -> MTextSize:
+def mtext_size(
+    mtext: MText, tool: Optional[MTextSizeDetector] = None
+) -> MTextSize:
     """Returns the total-width, -height and columns information for a
     :class:`~ezdxf.entities.MText` entity.
 
@@ -98,11 +101,11 @@ def mtext_size(mtext: MText, tool: "MTextSizeDetector" = None) -> MTextSize:
 
     """
     tool = tool or MTextSizeDetector()
-    column_heights: List[float] = [0.0]
+    column_heights: list[float] = [0.0]
     gutter_width = 0.0
     column_width = 0.0
     if mtext.text:
-        columns: List[tl.Column] = list(tool.measure(mtext))
+        columns: list[tl.Column] = list(tool.measure(mtext))
         if len(columns):
             first_column = columns[0]
             # same values for all columns
@@ -138,7 +141,7 @@ class MTextSizeDetector(AbstractMTextRenderer):
             renderer=self.renderer,
         )
 
-    def fraction(self, data: Tuple, ctx: MTextContext) -> tl.ContentCell:
+    def fraction(self, data: tuple, ctx: MTextContext) -> tl.ContentCell:
         upr, lwr, type_ = data
         if type_:
             return tl.Fraction(
@@ -168,8 +171,8 @@ class WordSizeCollector(tl.DoNothingRenderer):
     right corner as Vec2 objects, ignores lines.
     """
 
-    def __init__(self):
-        self.word_boxes: List[Tuple[Vec2, Vec2]] = []
+    def __init__(self) -> None:
+        self.word_boxes: list[tuple[Vec2, Vec2]] = []
 
     def render(
         self,
@@ -177,7 +180,7 @@ class WordSizeCollector(tl.DoNothingRenderer):
         bottom: float,
         right: float,
         top: float,
-        m: Matrix44 = None,
+        m: Optional[Matrix44] = None,
     ) -> None:
         self.word_boxes.append((Vec2(left, bottom), Vec2(right, top)))
 
@@ -191,5 +194,5 @@ class WordSizeDetector(MTextSizeDetector):
         layout.render()
         return layout
 
-    def word_boxes(self) -> List[Tuple[Vec2, Vec2]]:
+    def word_boxes(self) -> list[tuple[Vec2, Vec2]]:
         return self.renderer.word_boxes

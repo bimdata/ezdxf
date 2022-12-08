@@ -1,9 +1,11 @@
 #  Copyright (c) 2020-2021, Manfred Moitzi
 #  License: MIT License
+from __future__ import annotations
 from typing import Tuple, Union
+from typing_extensions import TypeAlias
 import math
 
-RGB = Tuple[int, int, int]
+RGB: TypeAlias = Tuple[int, int, int]
 
 BYBLOCK = 0
 BYLAYER = 256
@@ -16,6 +18,8 @@ BLUE = 5
 MAGENTA = 6
 BLACK = 7
 WHITE = 7
+GRAY = 8
+LIGHT_GRAY = 9
 
 # Flags for raw color int values:
 # Take color from layer, ignore other bytes.
@@ -32,7 +36,7 @@ COLOR_TYPE_ACI = 0xC3
 COLOR_TYPE_WINDOW_BG = 0xC8
 
 
-def decode_raw_color(value: int) -> Tuple[int, Union[int, RGB]]:
+def decode_raw_color(value: int) -> tuple[int, Union[int, RGB]]:
     """Decode :term:`raw-color` value as tuple(type, Union[aci, (r, g, b)]), the
     true color value is a (r, g, b) tuple.
     """
@@ -42,7 +46,7 @@ def decode_raw_color(value: int) -> Tuple[int, Union[int, RGB]]:
     return data
 
 
-def decode_raw_color_int(value: int) -> Tuple[int, int]:
+def decode_raw_color_int(value: int) -> tuple[int, int]:
     """Decode :term:`raw-color` value as tuple(type, int), the true color value
     is a 24-bit int value.
     """
@@ -126,7 +130,7 @@ def transparency2float(value: int) -> float:
 
 
 def int2rgb(value: int) -> RGB:
-    """Split RGB integer `value` into ``(r, g, b)`` tuple."""
+    """Split RGB integer `value` into (r, g, b) tuple."""
     return (
         (value >> 16) & 0xFF,  # red
         (value >> 8) & 0xFF,  # green
@@ -135,13 +139,13 @@ def int2rgb(value: int) -> RGB:
 
 
 def rgb2int(rgb: RGB) -> int:
-    """Combined integer value from ``(r, g, b)`` tuple."""
+    """Combined integer value from (r, g, b) tuple."""
     r, g, b = rgb
     return ((int(r) & 0xFF) << 16) | ((int(g) & 0xFF) << 8) | (int(b) & 0xFF)
 
 
 def aci2rgb(index: int) -> RGB:
-    """Convert :ref:`ACI` into ``(r, g, b)`` tuple, based on default AutoCAD
+    """Convert :ref:`ACI` into (r, g, b) tuple, based on default AutoCAD
     colors.
     """
     if index < 1:
@@ -150,7 +154,7 @@ def aci2rgb(index: int) -> RGB:
 
 
 def luminance(color: RGB) -> float:
-    """Returns perceived luminance for a RGB color in the range [0.0, 1.0]
+    """Returns perceived luminance for an RGB color in the range [0.0, 1.0]
     from dark to light.
     """
     r = float(color[0]) / 255

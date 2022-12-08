@@ -1,7 +1,7 @@
 # Copyright (c) 2020-2022, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
-from typing import Sequence, List, Iterable, Tuple, Optional, Set
+from typing import Sequence, Iterable, Optional
 from enum import IntEnum
 import math
 from ezdxf.math import (
@@ -72,7 +72,7 @@ def is_planar_face(face: Sequence[Vec3], abs_tol=1e-9) -> bool:
 
 def subdivide_face(
     face: Sequence[AnyVec], quads: bool = True
-) -> Iterable[Tuple[Vec3, ...]]:
+) -> Iterable[tuple[Vec3, ...]]:
     """Subdivides faces by subdividing edges and adding a center vertex.
 
     Args:
@@ -85,7 +85,7 @@ def subdivide_face(
         raise ValueError("3 or more vertices required.")
     len_face: int = len(face)
     mid_pos = Vec3.sum(face) / len_face
-    subdiv_location: List[Vec3] = [
+    subdiv_location: list[Vec3] = [
         face[i].lerp(face[(i + 1) % len_face]) for i in range(len_face)
     ]
 
@@ -209,8 +209,6 @@ def intersection_line_line_3d(
         virtual: ``True`` returns any intersection point, ``False`` returns only
             real intersection points
         abs_tol: absolute tolerance for comparisons
-
-    .. versionadded:: 0.17.2
 
     """
     from ezdxf.math import intersection_ray_ray_3d, BoundingBox
@@ -359,8 +357,6 @@ class Plane:
         `coplanar` is ``False`` the start- or end point of the line are ignored
         as intersection points.
 
-        .. versionadded:: 0.18
-
         """
         state0 = self.vertex_location_state(start, abs_tol)
         state1 = self.vertex_location_state(end, abs_tol)
@@ -380,8 +376,6 @@ class Plane:
         `origin` and the `direction` vector and this plane or ``None`` if there
         is no intersection. A coplanar ray does not intersect the plane!
 
-        .. versionadded:: 0.18
-
         """
         n = self.normal
         try:
@@ -397,8 +391,6 @@ class Plane:
     ) -> PlaneLocationState:
         """Returns the :class:`PlaneLocationState` of the given `vertex` in
         relative to this plane.
-
-        .. versionadded:: 0.18
 
         """
         distance = self._normal.dot(vertex) - self._distance_from_origin
@@ -416,7 +408,7 @@ def split_polygon_by_plane(
     *,
     coplanar=True,
     abs_tol=PLANE_EPSILON,
-) -> Tuple[Sequence[Vec3], Sequence[Vec3]]:
+) -> tuple[Sequence[Vec3], Sequence[Vec3]]:
     """Split a convex `polygon` by the given `plane`.
 
     Returns a tuple of front- and back vertices (front, back).
@@ -424,13 +416,11 @@ def split_polygon_by_plane(
     argument `coplanar` is ``True``, the coplanar vertices goes into either
     front or back depending on their orientation with respect to this plane.
 
-    .. versionadded:: 0.18
-
     """
     polygon_type = PlaneLocationState.COPLANAR
-    vertex_types: List[PlaneLocationState] = []
-    front_vertices: List[Vec3] = []
-    back_vertices: List[Vec3] = []
+    vertex_types: list[PlaneLocationState] = []
+    front_vertices: list[Vec3] = []
+    back_vertices: list[Vec3] = []
     vertices = list(polygon)
     w = plane.distance_from_origin
     normal = plane.normal
@@ -504,8 +494,6 @@ def intersection_line_polygon_3d(
             is valid
         abs_tol: absolute tolerance for comparisons
 
-    .. versionadded:: 0.18
-
     """
     vertices = list(polygon)
     if len(vertices) < 3:
@@ -542,8 +530,6 @@ def intersection_ray_polygon_3d(
             are valid
         abs_tol: absolute tolerance for comparisons
 
-    .. versionadded:: 0.18
-
     """
 
     vertices = list(polygon)
@@ -563,7 +549,7 @@ def intersection_ray_polygon_3d(
 
 
 def _is_intersection_point_inside_3d_polygon(
-    ip: Vec3, vertices: List[Vec3], normal: Vec3, boundary: bool, abs_tol: float
+    ip: Vec3, vertices: list[Vec3], normal: Vec3, boundary: bool, abs_tol: float
 ):
     from ezdxf.math import is_point_in_polygon_2d, OCS
 
@@ -633,7 +619,7 @@ class BarycentricCoordinates:
         return self.a * b1 + self.b * b2 + self.c * b3
 
 
-def linear_vertex_spacing(start: Vec3, end: Vec3, count: int) -> List[Vec3]:
+def linear_vertex_spacing(start: Vec3, end: Vec3, count: int) -> list[Vec3]:
     """Returns `count` evenly spaced vertices from `start` to `end`."""
     if count <= 2:
         return [start, end]
@@ -666,15 +652,13 @@ def has_matrix_3d_stretching(m: Matrix44) -> bool:
     ) or not math.isclose(ux_mag_sqr, uz.magnitude_square)
 
 
-def spherical_envelope(points: Sequence[UVec]) -> Tuple[Vec3, float]:
+def spherical_envelope(points: Sequence[UVec]) -> tuple[Vec3, float]:
     """Calculate the spherical envelope for the given points.  Returns the
     centroid (a.k.a. geometric center) and the radius of the enclosing sphere.
 
     .. note::
 
         The result does not represent the minimal bounding sphere!
-
-    .. versionadded:: 0.18
 
     """
     centroid = Vec3.sum(points) / len(points)
@@ -753,7 +737,7 @@ def front_faces_intersect_face_normal(
     # The detector face is excluded by the
     # is_face_in_front_of_detector() function!
 
-    intersection_points: Set[Vec3] = set()
+    intersection_points: set[Vec3] = set()
     for face in front_faces:
         ip = intersection_ray_polygon_3d(
             origin, face_normal, face, boundary=True, abs_tol=abs_tol

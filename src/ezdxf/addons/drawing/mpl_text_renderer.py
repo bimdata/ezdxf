@@ -1,18 +1,19 @@
 # Copyright (c) 2020-2022, Matthew Broadway
 # License: MIT License
-from typing import Iterator, Optional, Dict, Sequence
+from __future__ import annotations
+from typing import Iterator, Optional, Sequence
 from collections import defaultdict
 from functools import lru_cache
 
-from .text_renderer import TextRenderer
 from matplotlib.font_manager import FontProperties
 from matplotlib.textpath import TextPath
 
+import ezdxf.path
 from ezdxf.tools.fonts import FontMeasurements
 from ezdxf.tools import fonts
 from ezdxf.math import Vec2
 from ezdxf.math.triangulation import mapbox_earcut_2d
-import ezdxf.path
+from .text_renderer import TextRenderer
 
 
 @lru_cache(maxsize=256)  # fonts.Font is a named tuple
@@ -39,13 +40,13 @@ class MplTextRenderer(TextRenderer[FontProperties]):
 
         # Each font has its own text path cache
         # key is hash(FontProperties)
-        self._text_path_cache: Dict[int, Dict[str, TextPath]] = defaultdict(
+        self._text_path_cache: dict[int, dict[str, TextPath]] = defaultdict(
             dict
         )
 
         # Each font has its own font measurements cache
         # key is hash(FontProperties)
-        self._font_measurement_cache: Dict[int, FontMeasurements] = {}
+        self._font_measurement_cache: dict[int, FontMeasurements] = {}
 
     @property
     def default_font(self) -> FontProperties:
@@ -107,16 +108,18 @@ class MplTextRenderer(TextRenderer[FontProperties]):
         return path
 
     def get_text_line_width(
-        self, text: str, cap_height: float, font: fonts.FontFace = None
+        self,
+        text: str,
+        cap_height: float,
+        font: Optional[fonts.FontFace] = None,
     ) -> float:
         font_properties = self.get_font_properties(font)
         try:
             path = self.get_text_path(text, font_properties)
+            max_x = max(x for x, y in path.vertices)
         except (RuntimeError, ValueError):
             return 0.0
-        return max(x for x, y in path.vertices) * self.get_scale(
-            cap_height, font_properties
-        )
+        return max_x * self.get_scale(cap_height, font_properties)
 
     def get_ezdxf_path(
         self, text: str, font: FontProperties

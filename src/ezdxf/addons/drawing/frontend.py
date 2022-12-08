@@ -1,22 +1,24 @@
 # Copyright (c) 2020-2022, Matthew Broadway
 # License: MIT License
+from __future__ import annotations
 import math
 from typing import (
     Iterable,
     Iterator,
     cast,
     Union,
-    List,
     Sequence,
     Dict,
     Callable,
     Tuple,
-    Set,
     Optional,
 )
+from typing_extensions import TypeAlias
 import logging
 import itertools
 import time
+
+import ezdxf.bbox
 from ezdxf.addons.drawing.config import (
     Configuration,
     ProxyGraphicPolicy,
@@ -72,14 +74,13 @@ from ezdxf.protocols import SupportsVirtualEntities, virtual_entities
 from ezdxf.tools.text import has_inline_formatting_codes
 from ezdxf.lldxf import const
 from ezdxf.render import hatching
-import ezdxf.bbox
 
 __all__ = ["Frontend"]
 
 
-# typedef
-TDispatchTable = Dict[str, Callable[[DXFGraphic, Properties], None]]
-PatternKey = Tuple[str, float]
+TDispatchTable: TypeAlias = Dict[str, Callable[[DXFGraphic, Properties], None]]
+PatternKey: TypeAlias = Tuple[str, float]
+
 POST_ISSUE_MSG = (
     "Please post sample DXF file at https://github.com/mozman/ezdxf/issues."
 )
@@ -110,7 +111,7 @@ class Frontend:
         ctx: RenderContext,
         out: BackendInterface,
         config: Configuration = Configuration.defaults(),
-        bbox_cache: ezdxf.bbox.Cache = None,
+        bbox_cache: Optional[ezdxf.bbox.Cache] = None,
     ):
         # RenderContext contains all information to resolve resources for a
         # specific DXF document.
@@ -125,12 +126,12 @@ class Frontend:
         self.out.configure(self.config)
 
         # Parents entities of current entity/sub-entity
-        self.parent_stack: List[DXFGraphic] = []
+        self.parent_stack: list[DXFGraphic] = []
 
         self._dispatch = self._build_dispatch_table()
 
         # Supported DXF entities which use only proxy graphic for rendering:
-        self._proxy_graphic_only_entities: Set[str] = {
+        self._proxy_graphic_only_entities: set[str] = {
             "MLEADER",  # todo: remove if MLeader.virtual_entities() is implemented
             "MULTILEADER",
             "ACAD_PROXY_ENTITY",
@@ -179,9 +180,11 @@ class Frontend:
         return dispatch_table
 
     def log_message(self, message: str):
+        """Log given message - override to alter behavior."""
         logger.info(message)
 
     def skip_entity(self, entity: DXFEntity, msg: str) -> None:
+        """Called for skipped entities - override to alter behavior."""
         self.log_message(f'skipped entity {str(entity)}. Reason: "{msg}"')
 
     def override_properties(
@@ -198,12 +201,31 @@ class Frontend:
 
     def draw_layout(
         self,
-        layout: "Layout",
+        layout: Layout,
         finalize: bool = True,
         *,
-        filter_func: FilterFunc = None,
+        filter_func: Optional[FilterFunc] = None,
         layout_properties: Optional[LayoutProperties] = None,
     ) -> None:
+        """Draw all entities of the given `layout`.
+
+        Draws the entities of the layout in the default or redefined redraw-order
+        and calls the :meth:`finalize` method of the backend if requested.
+        The default redraw order is the ascending handle order not the order the
+        entities are stored in the layout.
+
+        The method skips invisible entities and entities for which the given
+        filter function returns ``False``.
+
+        Args:
+            layout: layout to draw of type :class:`~ezdxf.layouts.Layout`
+            finalize: ``True`` if the :meth:`finalize` method of the backend
+                should be called automatically
+            filter_func: function to filter DXf entities, the function should
+                return ``False`` if a given entity should be ignored
+            layout_properties: override the default layout properties
+
+        """
         if layout_properties is not None:
             # TODO: this does not work, layer properties have to be re-evaluated!
             self.ctx.current_layout_properties = layout_properties
@@ -234,8 +256,12 @@ class Frontend:
         self,
         entities: Iterable[DXFGraphic],
         *,
-        filter_func: FilterFunc = None,
+        filter_func: Optional[FilterFunc] = None,
     ) -> None:
+        """Draw the given `entities`. The method skips invisible entities
+        and entities for which the given filter function returns ``False``.
+
+        """
         _draw_entities(self, self.ctx, entities, filter_func=filter_func)
 
     def draw_entity(self, entity: DXFGraphic, properties: Properties) -> None:
@@ -448,14 +474,14 @@ class Frontend:
             )
 
     def draw_hatch_pattern(
-        self, polygon: DXFPolygon, paths: List[Path], properties: Properties
+        self, polygon: DXFPolygon, paths: list[Path], properties: Properties
     ):
         if polygon.pattern is None or len(polygon.pattern.lines) == 0:
             return
         ocs = polygon.ocs()
         elevation = polygon.dxf.elevation.z
         properties.linetype_pattern = tuple()
-        lines: List[Tuple[Vec3, Vec3]] = []
+        lines: list[tuple[Vec3, Vec3]] = []
 
         t0 = time.perf_counter()
         max_time = self.config.hatching_timeout
@@ -484,7 +510,7 @@ class Frontend:
         entity: DXFGraphic,
         properties: Properties,
         *,
-        loops: List[Path] = None,
+        loops: Optional[list[Path]] = None,
     ) -> None:
         if properties.filling is None:
             return
@@ -518,8 +544,8 @@ class Frontend:
         # default (0, 0, 0)
         elevation = entity.dxf.elevation.z
 
-        external_paths: List[Path]
-        holes: List[Path]
+        external_paths: list[Path]
+        holes: list[Path]
 
         if loops is not None:  # only MPOLYGON
             external_paths, holes = winding_deconstruction(
@@ -527,8 +553,8 @@ class Frontend:
             )
         else:  # only HATCH
             paths = polygon.paths.rendering_paths(polygon.dxf.hatch_style)
-            polygons: List = fast_bbox_detection(
-                closed_loops(paths, ocs, elevation)
+            polygons: list = fast_bbox_detection(
+                closed_loops(paths, ocs, elevation)  # type: ignore
             )
             external_paths, holes = winding_deconstruction(polygons)
 
@@ -557,7 +583,7 @@ class Frontend:
         elevation: float = polygon.dxf.elevation.z
         offset = Vec3(polygon.dxf.get("offset_vector", NULLVEC))
         # MPOLYGON does not support hatch styles, all paths are rendered.
-        loops = closed_loops(polygon.paths, ocs, elevation, offset)
+        loops = closed_loops(polygon.paths, ocs, elevation, offset)  # type: ignore
 
         line_color: str = properties.color
         assert properties.filling is not None
@@ -738,11 +764,11 @@ def is_spatial_text(extrusion: Vec3) -> bool:
 
 
 def closed_loops(
-    paths: List[AbstractBoundaryPath],
+    paths: list[AbstractBoundaryPath],
     ocs: OCS,
     elevation: float,
     offset: Vec3 = NULLVEC,
-) -> List[Path]:
+) -> list[Path]:
     loops = []
     for boundary in paths:
         path = from_hatch_boundary_path(boundary, ocs, elevation, offset)
@@ -782,7 +808,7 @@ class Designer:
         self.frontend = frontend
         self.backend = backend
         self.config = frontend.config
-        self.pattern_cache: Dict[PatternKey, Sequence[float]] = dict()
+        self.pattern_cache: dict[PatternKey, Sequence[float]] = dict()
         self.transformation: Optional[Matrix44] = None
         # scaling factor from modelspace to viewport
         self.scale: float = 1.0
@@ -799,7 +825,7 @@ class Designer:
         self,
         vp: Viewport,
         layout_ctx: RenderContext,
-        bbox_cache: ezdxf.bbox.Cache = None,
+        bbox_cache: Optional[ezdxf.bbox.Cache] = None,
     ) -> bool:
         """Draw the content of the given viewport current viewport.
         Returns ``False`` if the backend doesn't support viewports.
@@ -860,7 +886,7 @@ class Designer:
             )
 
     def draw_solid_lines(
-        self, lines: Iterable[Tuple[Vec3, Vec3]], properties: Properties
+        self, lines: Iterable[tuple[Vec3, Vec3]], properties: Properties
     ) -> None:
         if self.transformation:
             t = self.transformation.transform
@@ -948,7 +974,9 @@ class Designer:
 
 
 def filter_vp_entities(
-    msp: Layout, limits: Sequence[float], bbox_cache: ezdxf.bbox.Cache = None
+    msp: Layout,
+    limits: Sequence[float],
+    bbox_cache: Optional[ezdxf.bbox.Cache] = None,
 ) -> Iterator[DXFGraphic]:
     """Yields all DXF entities that need to be processed by the given viewport
     `limits`. The entities may be partially of even complete outside the viewport.
@@ -1010,7 +1038,7 @@ def _draw_entities(
     ctx: RenderContext,
     entities: Iterable[DXFGraphic],
     *,
-    filter_func: FilterFunc = None,
+    filter_func: Optional[FilterFunc] = None,
 ) -> None:
     if filter_func is not None:
         entities = filter(filter_func, entities)

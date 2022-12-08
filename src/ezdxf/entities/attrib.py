@@ -1,5 +1,6 @@
-# Copyright (c) 2019-2021 Manfred Moitzi
+# Copyright (c) 2019-2022 Manfred Moitzi
 # License: MIT License
+from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 import copy
 from ezdxf.lldxf import validator
@@ -35,7 +36,10 @@ from .mtext import (
 from .factory import register_entity
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import TagWriter, Tags, DXFEntity
+    from ezdxf.lldxf.tagwriter import AbstractTagWriter
+    from ezdxf.lldxf.tags import Tags
+    from ezdxf.entities import DXFEntity
+
 
 __all__ = ["AttDef", "Attrib", "copy_attrib_as_text", "BaseAttrib"]
 
@@ -195,16 +199,15 @@ acdb_attdef_xrecord = DefSubclass(
 class BaseAttrib(Text):
     XRECORD_DEF = acdb_attdef_xrecord
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         # Does subclass AcDbXrecord really exist?
-        self._xrecord: Optional["Tags"] = None
-        self._embedded_mtext: Optional["EmbeddedMText"] = None
+        self._xrecord: Optional[Tags] = None
+        self._embedded_mtext: Optional[EmbeddedMText] = None
 
-    def _copy_data(self, entity: "DXFEntity") -> None:
+    def _copy_data(self, entity: DXFEntity) -> None:
         """Copy entity data, xrecord data and embedded MTEXT are not stored
         in the entity database.
-
         """
         assert isinstance(entity, BaseAttrib)
         entity._xrecord = copy.deepcopy(self._xrecord)
@@ -219,7 +222,7 @@ class BaseAttrib(Text):
             mtext.load_dxf_tags(processor)
             self._embedded_mtext = mtext
 
-    def export_dxf_r2018_features(self, tagwriter: "TagWriter") -> None:
+    def export_dxf_r2018_features(self, tagwriter: AbstractTagWriter) -> None:
         tagwriter.write_tag2(71, self.dxf.attribute_type)
         tagwriter.write_tag2(72, 0)  # unknown tag
         if self.dxf.hasattr("align_point"):
@@ -233,63 +236,46 @@ class BaseAttrib(Text):
 
     @property
     def is_const(self) -> bool:
-        """This is a constant attribute."""
+        """This is a constant attribute if ``True``."""
         return bool(self.dxf.flags & const.ATTRIB_CONST)
 
     @is_const.setter
     def is_const(self, state: bool) -> None:
-        """This is a constant attribute."""
-        self.dxf.flags = set_flag_state(
-            self.dxf.flags, const.ATTRIB_CONST, state
-        )
+        self.dxf.flags = set_flag_state(self.dxf.flags, const.ATTRIB_CONST, state)
 
     @property
     def is_invisible(self) -> bool:
-        """Attribute is invisible (does not appear)."""
+        """Attribute is invisible if ``True``."""
         return bool(self.dxf.flags & const.ATTRIB_INVISIBLE)
 
     @is_invisible.setter
     def is_invisible(self, state: bool) -> None:
-        """Attribute is invisible (does not appear)."""
-        self.dxf.flags = set_flag_state(
-            self.dxf.flags, const.ATTRIB_INVISIBLE, state
-        )
+        self.dxf.flags = set_flag_state(self.dxf.flags, const.ATTRIB_INVISIBLE, state)
 
     @property
     def is_verify(self) -> bool:
-        """Verification is required on input of this attribute.
-        (CAD application feature)
-
+        """Verification is required on input of this attribute. (interactive CAD
+        application feature)
         """
         return bool(self.dxf.flags & const.ATTRIB_VERIFY)
 
     @is_verify.setter
     def is_verify(self, state: bool) -> None:
-        """Verification is required on input of this attribute.
-        (CAD application feature)
-
-        """
-        self.dxf.flags = set_flag_state(
-            self.dxf.flags, const.ATTRIB_VERIFY, state
-        )
+        self.dxf.flags = set_flag_state(self.dxf.flags, const.ATTRIB_VERIFY, state)
 
     @property
     def is_preset(self) -> bool:
-        """No prompt during insertion. (CAD application feature)"""
+        """No prompt during insertion. (interactive CAD application feature)"""
         return bool(self.dxf.flags & const.ATTRIB_IS_PRESET)
 
     @is_preset.setter
     def is_preset(self, state: bool) -> None:
-        """No prompt during insertion. (CAD application feature)"""
-        self.dxf.flags = set_flag_state(
-            self.dxf.flags, const.ATTRIB_IS_PRESET, state
-        )
+        self.dxf.flags = set_flag_state(self.dxf.flags, const.ATTRIB_IS_PRESET, state)
 
     @property
     def has_embedded_mtext_entity(self) -> bool:
-        """Returns ``True`` if the entity has an embedded MTEXT entity for multi
-        line support.
-
+        """Returns ``True`` if the entity has an embedded MTEXT entity for multi-line
+        support.
         """
         return bool(self._embedded_mtext)
 
@@ -297,7 +283,6 @@ class BaseAttrib(Text):
         """Returns the embedded MTEXT entity as a regular but virtual
         :class:`MText` entity with the same graphical properties as the
         host entity.
-
         """
         if not self._embedded_mtext:
             raise TypeError("no embedded MTEXT entity exist")
@@ -309,17 +294,17 @@ class BaseAttrib(Text):
         """Returns the embedded MTEXT content without formatting codes.
         Returns an empty string if no embedded MTEXT entity exist.
 
-        The "fast" mode is accurate if the DXF content was created by
+        The `fast` mode is accurate if the DXF content was created by
         reliable (and newer) CAD applications like AutoCAD or BricsCAD.
-        The "accurate" mode is for some rare cases where the content was
+        The `accurate` mode is for some rare cases where the content was
         created by older CAD applications or unreliable DXF libraries and CAD
         applications.
 
-        The "accurate" mode is **much** slower than the "fast" mode.
+        The `accurate` mode is **much** slower than the `fast` mode.
 
         Args:
-            fast: uses the "fast" mode to extract the plain MTEXT content if
-                ``True`` or the "accurate" mode if set to ``False``
+            fast: uses the `fast` mode to extract the plain MTEXT content if
+                ``True`` or the `accurate` mode if set to ``False``
 
         """
         if self._embedded_mtext:
@@ -412,14 +397,12 @@ class AttDef(BaseAttrib):
     DXFATTRIBS = DXFAttributes(base_class, acdb_entity, acdb_text, acdb_attdef)
 
     def load_dxf_attribs(
-        self, processor: SubclassProcessor = None
-    ) -> "DXFNamespace":
+        self, processor: Optional[SubclassProcessor] = None
+    ) -> DXFNamespace:
         dxf = super(Text, self).load_dxf_attribs(processor)
         # Do not call Text loader.
         if processor:
-            processor.fast_load_dxfattribs(
-                dxf, acdb_text_group_codes, 2, recover=True
-            )
+            processor.fast_load_dxfattribs(dxf, acdb_text_group_codes, 2, recover=True)
             processor.fast_load_dxfattribs(
                 dxf, acdb_attdef_group_codes, 3, recover=True
             )
@@ -431,7 +414,7 @@ class AttDef(BaseAttrib):
 
         return dxf
 
-    def export_entity(self, tagwriter: "TagWriter") -> None:
+    def export_entity(self, tagwriter: AbstractTagWriter) -> None:
         # Text() writes 2x AcDbText which is not suitable for AttDef()
         self.export_acdb_entity(tagwriter)
         self.export_acdb_text(tagwriter)
@@ -440,7 +423,7 @@ class AttDef(BaseAttrib):
             self.dxf.attribute_type = 4 if self.has_embedded_mtext_entity else 1
             self.export_dxf_r2018_features(tagwriter)
 
-    def export_acdb_attdef(self, tagwriter: "TagWriter") -> None:
+    def export_acdb_attdef(self, tagwriter: AbstractTagWriter) -> None:
         if tagwriter.dxfversion > const.DXF12:
             tagwriter.write_tag2(const.SUBCLASS_MARKER, acdb_attdef.name)
         self.dxf.export_dxf_attribs(
@@ -466,14 +449,12 @@ class Attrib(BaseAttrib):
     DXFATTRIBS = DXFAttributes(base_class, acdb_entity, acdb_text, acdb_attrib)
 
     def load_dxf_attribs(
-        self, processor: SubclassProcessor = None
-    ) -> "DXFNamespace":
+        self, processor: Optional[SubclassProcessor] = None
+    ) -> DXFNamespace:
         dxf = super(Text, self).load_dxf_attribs(processor)
         # Do not call Text loader.
         if processor:
-            processor.fast_load_dxfattribs(
-                dxf, acdb_text_group_codes, 2, recover=True
-            )
+            processor.fast_load_dxfattribs(dxf, acdb_text_group_codes, 2, recover=True)
             processor.fast_load_dxfattribs(
                 dxf, acdb_attrib_group_codes, 3, recover=True
             )
@@ -484,7 +465,7 @@ class Attrib(BaseAttrib):
                 elevation_to_z_axis(dxf, ("insert", "align_point"))
         return dxf
 
-    def export_entity(self, tagwriter: "TagWriter") -> None:
+    def export_entity(self, tagwriter: AbstractTagWriter) -> None:
         # Text() writes 2x AcDbText which is not suitable for AttDef()
         self.export_acdb_entity(tagwriter)
         self.export_acdb_attrib_text(tagwriter)
@@ -493,7 +474,7 @@ class Attrib(BaseAttrib):
             self.dxf.attribute_type = 2 if self.has_embedded_mtext_entity else 1
             self.export_dxf_r2018_features(tagwriter)
 
-    def export_acdb_attrib_text(self, tagwriter: "TagWriter") -> None:
+    def export_acdb_attrib_text(self, tagwriter: AbstractTagWriter) -> None:
         # Despite the similarities to TEXT, it is different to
         # Text.export_acdb_text():
         if tagwriter.dxfversion > const.DXF12:
@@ -516,7 +497,7 @@ class Attrib(BaseAttrib):
             ],
         )
 
-    def export_acdb_attrib(self, tagwriter: "TagWriter") -> None:
+    def export_acdb_attrib(self, tagwriter: AbstractTagWriter) -> None:
         if tagwriter.dxfversion > const.DXF12:
             tagwriter.write_tag2(const.SUBCLASS_MARKER, acdb_attrib.name)
         self.dxf.export_dxf_attribs(
@@ -588,13 +569,13 @@ class EmbeddedMText:
 
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Attribute "dxf" contains the DXF attributes defined in subclass
         # "AcDbMText"
         self.dxf = EmbeddedMTextNS()
         self.text: str = ""
 
-    def copy(self) -> "EmbeddedMText":
+    def copy(self) -> EmbeddedMText:
         copy_ = EmbeddedMText()
         copy_.dxf = copy.deepcopy(self.dxf)
         return copy_
@@ -645,7 +626,7 @@ class EmbeddedMText:
             if not dxf.hasattr(key):
                 dxf.set(key, default)
 
-    def export_dxf_tags(self, tagwriter: "TagWriter") -> None:
+    def export_dxf_tags(self, tagwriter: AbstractTagWriter) -> None:
         """Export embedded MTEXT as "Embedded Object"."""
         tagwriter.write_tag2(EMBEDDED_OBJ_MARKER, EMBEDDED_OBJ_STR)
         self.set_required_dxf_attributes()

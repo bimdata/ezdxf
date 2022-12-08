@@ -1,6 +1,7 @@
-# Copyright (c) 2019-2021 Manfred Moitzi
+# Copyright (c) 2019-2022 Manfred Moitzi
 # License: MIT License
-from typing import TYPE_CHECKING, Iterable, Optional
+from __future__ import annotations
+from typing import TYPE_CHECKING, Iterable, Optional, Iterator
 import copy
 from ezdxf.math import Vec3, Matrix44
 from ezdxf.lldxf.tags import Tags
@@ -19,11 +20,9 @@ from .dxfobj import DXFObject
 from .objectcollection import ObjectCollection
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import (
-        TagWriter,
-        DXFNamespace,
-        Drawing,
-    )
+    from ezdxf.entities import DXFNamespace
+    from ezdxf.lldxf.tagwriter import AbstractTagWriter
+    from ezdxf.document import Drawing
 
 __all__ = ["AcadTable", "AcadTableBlockContent"]
 
@@ -35,7 +34,7 @@ class AcadTableBlockContent(DXFTagStorage):
     def proxy_graphic_content(self) -> Iterable[DXFGraphic]:
         return super().__virtual_entities__()
 
-    def _block_content(self) -> Iterable[DXFGraphic]:
+    def _block_content(self) -> Iterator[DXFGraphic]:
         tags = self._block_reference_tags()
         block_name: str = tags.get_first_value(2, "*")
         return self.doc.blocks.get(block_name, [])  # type: ignore
@@ -49,7 +48,7 @@ class AcadTableBlockContent(DXFTagStorage):
     def _insert_location(self) -> Vec3:
         return self._block_reference_tags().get_first_value(10, Vec3())
 
-    def __virtual_entities__(self) -> Iterable[DXFGraphic]:
+    def __virtual_entities__(self) -> Iterator[DXFGraphic]:
         """Implements the SupportsVirtualEntities protocol."""
         insert: Vec3 = Vec3(self._insert_location())
         m: Optional[Matrix44] = None
@@ -282,14 +281,14 @@ class AcadTable(DXFGraphic):
         super().__init__()
         self.data = None
 
-    def _copy_data(self, entity: "DXFEntity") -> None:
+    def _copy_data(self, entity: DXFEntity) -> None:
         """Copy data."""
         assert isinstance(entity, AcadTable)
         entity.data = copy.deepcopy(self.data)
 
     def load_dxf_attribs(
-        self, processor: SubclassProcessor = None
-    ) -> "DXFNamespace":
+        self, processor: Optional[SubclassProcessor] = None
+    ) -> DXFNamespace:
         dxf = super().load_dxf_attribs(processor)
         if processor:
             processor.fast_load_dxfattribs(
@@ -301,10 +300,10 @@ class AcadTable(DXFGraphic):
             self.load_table(tags)
         return dxf
 
-    def load_table(self, tags: "Tags"):
+    def load_table(self, tags: Tags):
         pass
 
-    def export_entity(self, tagwriter: "TagWriter") -> None:
+    def export_entity(self, tagwriter: AbstractTagWriter) -> None:
         """Export entity specific data as DXF tags."""
         super().export_entity(tagwriter)
         tagwriter.write_tag2(const.SUBCLASS_MARKER, acdb_block_reference.name)
@@ -312,7 +311,7 @@ class AcadTable(DXFGraphic):
         tagwriter.write_tag2(const.SUBCLASS_MARKER, acdb_table.name)
         self.export_table(tagwriter)
 
-    def export_table(self, tagwriter: "TagWriter"):
+    def export_table(self, tagwriter: AbstractTagWriter):
         pass
 
     def __referenced_blocks__(self) -> Iterable[str]:
@@ -382,7 +381,7 @@ class TableStyle(DXFObject):
 
 
 class TableStyleManager(ObjectCollection[TableStyle]):
-    def __init__(self, doc: "Drawing"):
+    def __init__(self, doc: Drawing):
         super().__init__(
             doc, dict_name="ACAD_TABLESTYLE", object_type="TABLESTYLE"
         )

@@ -3,10 +3,8 @@
 from __future__ import annotations
 from typing import (
     TYPE_CHECKING,
-    List,
     Iterable,
     Iterator,
-    Tuple,
     Optional,
     Sequence,
 )
@@ -42,7 +40,8 @@ from .commands import Command
 from . import converter, nesting
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import Layout, EntityQuery
+    from ezdxf.query import EntityQuery
+    from ezdxf.layouts import Layout
 
 __all__ = [
     "bbox",
@@ -84,9 +83,6 @@ IS_CLOSE_TOL = 1e-10
 def to_multi_path(paths: Iterable[Path]) -> Path:
     """Returns a multi-path object from all given paths and their sub-paths.
     Ignores paths without any commands (empty paths).
-
-    .. versionadded:: 0.17
-
     """
     multi_path = Path()
     for p in paths:
@@ -95,11 +91,7 @@ def to_multi_path(paths: Iterable[Path]) -> Path:
 
 
 def single_paths(paths: Iterable[Path]) -> Iterable[Path]:
-    """Yields all given paths and their sub-paths as single path objects.
-
-    .. versionadded:: 0.17
-
-    """
+    """Yields all given paths and their sub-paths as single path objects."""
     for p in paths:
         if p.has_sub_paths:
             yield from p.sub_paths()
@@ -107,7 +99,7 @@ def single_paths(paths: Iterable[Path]) -> Iterable[Path]:
             yield p
 
 
-def transform_paths(paths: Iterable[Path], m: Matrix44) -> List[Path]:
+def transform_paths(paths: Iterable[Path], m: Matrix44) -> list[Path]:
     """Transform multiple :class:`Path` objects at once by transformation
     matrix `m`. Returns a list of the transformed :class:`Path` objects.
 
@@ -119,7 +111,7 @@ def transform_paths(paths: Iterable[Path], m: Matrix44) -> List[Path]:
     return [p.transform(m) for p in paths]
 
 
-def transform_paths_to_ocs(paths: Iterable[Path], ocs: OCS) -> List[Path]:
+def transform_paths_to_ocs(paths: Iterable[Path], ocs: OCS) -> list[Path]:
     """Transform multiple :class:`Path` objects at once from WCS to OCS.
     Returns a list of the transformed :class:`Path` objects.
 
@@ -142,12 +134,6 @@ def bbox(paths: Iterable[Path], *, fast=False) -> BoundingBox:
             ``False``, otherwise uses the control points of Bézier curves to
             determine their bounding box.
 
-    .. versionchanged:: 0.18
-
-        Uses a new algorithm to determine exact Bézier curve bounding boxes.
-        Added argument `fast` and removed the arguments `flatten` and
-        `segments`.
-
     """
     box = BoundingBox()
     for p in paths:
@@ -168,7 +154,7 @@ def precise_bbox(path: Path) -> BoundingBox:
     if len(path) == 0:  # empty path
         return BoundingBox()
     start = path.start
-    points: List[Vec3] = [start]
+    points: list[Vec3] = [start]
     for cmd in path:
         if cmd.type == Command.LINE_TO:
             points.append(cmd.end)
@@ -191,10 +177,10 @@ def precise_bbox(path: Path) -> BoundingBox:
 
 def fit_paths_into_box(
     paths: Iterable[Path],
-    size: Tuple[float, float, float],
+    size: tuple[float, float, float],
     uniform: bool = True,
-    source_box: BoundingBox = None,
-) -> List[Path]:
+    source_box: Optional[BoundingBox] = None,
+) -> list[Path]:
     """Scale the given `paths` to fit into a box of the given `size`,
     so that all path vertices are inside these borders.
     If `source_box` is ``None`` the default source bounding box is calculated
@@ -298,8 +284,6 @@ def render_lwpolylines(
     Returns:
         created entities in an :class:`~ezdxf.query.EntityQuery` object
 
-    .. versionadded:: 0.16
-
     """
     lwpolylines = list(
         converter.to_lwpolylines(
@@ -341,8 +325,6 @@ def render_polylines2d(
 
     Returns:
         created entities in an :class:`~ezdxf.query.EntityQuery` object
-
-    .. versionadded:: 0.16
 
     """
     polylines2d = list(
@@ -391,8 +373,6 @@ def render_hatches(
     Returns:
         created entities in an :class:`~ezdxf.query.EntityQuery` object
 
-    .. versionadded:: 0.16
-
     """
     hatches = list(
         converter.to_hatches(
@@ -439,8 +419,6 @@ def render_mpolygons(
     Returns:
         created entities in an :class:`~ezdxf.query.EntityQuery` object
 
-    .. versionadded:: 0.17
-
     """
     polygons = list(
         converter.to_mpolygons(
@@ -476,8 +454,6 @@ def render_polylines3d(
 
     Returns:
         created entities in an :class:`~ezdxf.query.EntityQuery` object
-
-    .. versionadded:: 0.16
 
     """
 
@@ -515,8 +491,6 @@ def render_lines(
     Returns:
         created entities in an :class:`~ezdxf.query.EntityQuery` object
 
-    .. versionadded:: 0.16
-
     """
     lines = list(
         converter.to_lines(
@@ -550,8 +524,6 @@ def render_splines_and_polylines(
     Returns:
         created entities in an :class:`~ezdxf.query.EntityQuery` object
 
-    .. versionadded:: 0.16
-
     """
     entities = list(
         converter.to_splines_and_polylines(
@@ -577,7 +549,7 @@ def add_ellipse(
     the path end point to the ellipse start point will be added automatically
     (see :func:`add_bezier4p`).
 
-    By default the start of an **empty** path is set to the start point of
+    By default, the start of an **empty** path is set to the start point of
     the ellipse, setting argument `reset` to ``False`` prevents this
     behavior.
 
@@ -604,10 +576,6 @@ def add_bezier4p(path: Path, curves: Iterable[Bezier4P]) -> None:
     nor the end point of the curves is close to the path end point, a line from
     the path end point to the start point of the first curve will be added
     automatically.
-
-    .. versionchanged:: 0.16.2
-
-        add linear Bézier curve segments as LINE_TO commands
 
     """
     rel_tol = 1e-15
@@ -641,10 +609,6 @@ def add_bezier3p(path: Path, curves: Iterable[Bezier3P]) -> None:
     nor the end point of the curves is close to the path end point, a line from
     the path end point to the start point of the first curve will be added
     automatically.
-
-    .. versionchanged:: 0.16.2
-
-        add linear Bézier curve segments as LINE_TO commands
 
     """
     rel_tol = 1e-15
@@ -771,11 +735,7 @@ def add_spline(path: Path, spline: BSpline, level=4, reset=True) -> None:
 def have_close_control_vertices(
     a: Path, b: Path, *, rel_tol=1e-9, abs_tol=1e-12
 ) -> bool:
-    """Returns ``True`` if the control vertices of given paths are close.
-
-    .. versionadded:: 0.16.5
-
-    """
+    """Returns ``True`` if the control vertices of given paths are close."""
     return all(
         cp_a.isclose(cp_b, rel_tol=rel_tol, abs_tol=abs_tol)
         for cp_a, cp_b in zip(a.control_vertices(), b.control_vertices())
@@ -834,7 +794,7 @@ def _all_lines_to_curve(path: Path, count: int = 4) -> Path:
     return new_path
 
 
-def _get_local_fillet_ucs(p0, p1, p2, radius) -> Tuple[Vec3, float, UCS]:
+def _get_local_fillet_ucs(p0, p1, p2, radius) -> tuple[Vec3, float, UCS]:
     dir1 = (p0 - p1).normalize()
     dir2 = (p2 - p1).normalize()
     if dir1.isclose(dir2) or dir1.isclose(-dir2):
@@ -865,8 +825,6 @@ def fillet(points: Sequence[Vec3], radius: float) -> Path:
     Args:
         points: coordinates of the line segments
         radius: fillet radius
-
-    .. versionadded:: 0.18
 
     """
     if len(points) < 3:
@@ -910,8 +868,6 @@ def polygonal_fillet(
         radius: fillet radius
         count: polygon vertex count for a full circle, minimum is 4
 
-    .. versionadded:: 0.18
-
     """
     if len(points) < 3:
         raise ValueError("at least 3 not coincident points required")
@@ -944,8 +900,6 @@ def chamfer(points: Sequence[Vec3], length: float) -> Path:
     Args:
         points: coordinates of the line segments
         length: chamfer length
-
-    .. versionadded:: 0.18
 
     """
     if len(points) < 3:
@@ -980,8 +934,6 @@ def chamfer2(points: Sequence[Vec3], a: float, b: float) -> Path:
         a: distance of the chamfer start point to the segment point
         b: distance of the chamfer end point to the segment point
 
-    .. versionadded:: 0.18
-
     """
     if len(points) < 3:
         raise ValueError("at least 3 non-coincident points required")
@@ -1008,8 +960,6 @@ def triangulate(
 ) -> Iterator[Sequence[Vec2]]:
     """Tessellate nested 2D paths into triangle-faces. For 3D paths the
     projection onto the xy-plane will be triangulated.
-
-    .. versionadded:: 0.18.1
 
     """
     for polygon in nesting.group_paths(single_paths(paths)):

@@ -1,38 +1,16 @@
-#  Copyright (c) 2021, Manfred Moitzi
+#  Copyright (c) 2021-2022, Manfred Moitzi
 #  License: MIT License
-"""
-Block Reference Management
-==========================
-
-The package `ezdxf` is not designed as a CAD library and does not automatically
-monitor all internal changes. This enables faster entity processing at the cost
-of an unknown state of the DXF document.
-
-In order to carry out precise BLOCK reference management, i.e. to handle
-dependencies or to delete unused BLOCK definition, the block reference status
-(counter) must be acquired explicitly by the package user.
-All block reference management structures must be explicitly recreated each time
-the document content is changed. This is not very efficient, but it is safe.
-
-.. warning::
-
-    And even with all this careful approach, it is always possible to destroy a
-    DXF document by deleting an absolutely necessary block definition.
-
-Always remember that `ezdxf` is not intended or suitable as a basis for a CAD
-application!
-
-.. versionadded:: 0.18
-
-"""
-from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Iterator
+from __future__ import annotations
+from typing import TYPE_CHECKING, Iterable, Optional, Iterator
 from collections import Counter
 
 from ezdxf.lldxf.types import POINTER_CODES
 from ezdxf.protocols import referenced_blocks
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import Drawing, Tags, DXFEntity, BlockRecord
+    from ezdxf.document import Drawing
+    from ezdxf.lldxf.tags import Tags
+    from ezdxf.entities import DXFEntity, BlockRecord
 
 __all__ = ["BlockDefinitionIndex", "BlockReferenceCounter"]
 
@@ -85,16 +63,16 @@ class BlockDefinitionIndex:
     (XREF) and XREF overlays are included.
 
     """
-    def __init__(self, doc: "Drawing"):
+    def __init__(self, doc: Drawing):
         self._doc = doc
         # mapping: handle -> BlockRecord entity
-        self._handle_index: Dict[str, "BlockRecord"] = dict()
+        self._handle_index: dict[str, BlockRecord] = dict()
         # mapping: block name -> BlockRecord entity
-        self._name_index: Dict[str, "BlockRecord"] = dict()
+        self._name_index: dict[str, BlockRecord] = dict()
         self.rebuild()
 
     @property
-    def block_records(self) -> Iterator["BlockRecord"]:
+    def block_records(self) -> Iterator[BlockRecord]:
         """Returns an iterator of all :class:`~ezdxf.entities.BlockRecord`
         entities representing BLOCK definitions.
         """
@@ -123,13 +101,13 @@ class BlockDefinitionIndex:
         """
         return name in self._name_index
 
-    def by_handle(self, handle: str) -> Optional["BlockRecord"]:
+    def by_handle(self, handle: str) -> Optional[BlockRecord]:
         """Returns the :class:`~ezdxf.entities.BlockRecord` for the given block
         record handle or ``None``.
         """
         return self._handle_index.get(handle)
 
-    def by_name(self, name: str) -> Optional["BlockRecord"]:
+    def by_name(self, name: str) -> Optional[BlockRecord]:
         """Returns :class:`~ezdxf.entities.BlockRecord` for the given block name
         or ``None``.
         """
@@ -153,7 +131,7 @@ class BlockReferenceCounter:
 
     """
 
-    def __init__(self, doc: "Drawing", index: BlockDefinitionIndex = None):
+    def __init__(self, doc: Drawing, index: Optional[BlockDefinitionIndex] = None):
         # mapping: handle -> BlockRecord entity
         self._block_record_index = (
             index if index is not None else BlockDefinitionIndex(doc)
@@ -181,7 +159,7 @@ class BlockReferenceCounter:
 
 
 def count_references(
-    entities: Iterable["DXFEntity"], index: BlockDefinitionIndex
+    entities: Iterable[DXFEntity], index: BlockDefinitionIndex
 ) -> Counter:
     from ezdxf.entities import XRecord, DXFTagStorage
 
@@ -206,8 +184,8 @@ def count_references(
     return counter
 
 
-def generic_handles(entity: "DXFEntity") -> Iterable[str]:
-    handles: List[str] = []
+def generic_handles(entity: DXFEntity) -> Iterable[str]:
+    handles: list[str] = []
     if entity.xdata is not None:
         for tags in entity.xdata.data.values():
             handles.extend(value for code, value in tags if code == 1005)
@@ -217,7 +195,7 @@ def generic_handles(entity: "DXFEntity") -> Iterable[str]:
     return handles
 
 
-def all_pointer_handles(tags: "Tags") -> Iterable[str]:
+def all_pointer_handles(tags: Tags) -> Iterable[str]:
     return (value for code, value in tags if code in POINTER_CODES)
 
 

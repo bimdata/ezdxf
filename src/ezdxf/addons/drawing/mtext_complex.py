@@ -1,9 +1,11 @@
 #  Copyright (c) 2021-2022, Manfred Moitzi
 #  License: MIT License
+from __future__ import annotations
+from typing import Iterable, Optional
+from typing_extensions import Protocol
 import copy
 import math
-from typing import Iterable, List, Optional, Tuple
-from typing_extensions import Protocol
+
 from ezdxf import colors
 from ezdxf.entities import MText
 from ezdxf.lldxf import const
@@ -71,7 +73,7 @@ class FrameRenderer(tl.ContentRenderer):
     ) -> None:
         self._render_outline(list(corner_vertices(left, bottom, right, top, m)))
 
-    def _render_outline(self, vertices: List[Vec3]) -> None:
+    def _render_outline(self, vertices: list[Vec3]) -> None:
         backend = self.backend
         properties = self.properties
         prev = vertices.pop(0)
@@ -95,7 +97,7 @@ class ColumnBackgroundRenderer(FrameRenderer):
         self,
         properties: Properties,
         backend: DrawInterface,
-        bg_properties: Properties = None,
+        bg_properties: Optional[Properties] = None,
         offset: float = 0,
         text_frame: bool = False,
     ):
@@ -216,7 +218,7 @@ class ComplexMTextRenderer(AbstractMTextRenderer):
         )
 
     def fraction(
-        self, data: Tuple[str, str, str], ctx: MTextContext
+        self, data: tuple[str, str, str], ctx: MTextContext
     ) -> tl.ContentCell:
         upr, lwr, type_ = data
         if type_:

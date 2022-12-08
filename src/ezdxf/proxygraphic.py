@@ -1,13 +1,11 @@
-# Copyright (c) 2020-2021, Manfred Moitzi
+# Copyright (c) 2020-2022, Manfred Moitzi
 # License: MIT License
+from __future__ import annotations
 from typing import (
     TYPE_CHECKING,
     Optional,
     Iterable,
-    Tuple,
-    List,
-    Set,
-    Dict,
+    Iterator,
     cast,
     Sequence,
     Any,
@@ -22,6 +20,7 @@ from ezdxf.tools.binarydata import bytes_to_hexstr, ByteStream, BitStream
 from ezdxf import colors
 from ezdxf.math import (
     Vec3,
+    Vec2,
     Matrix44,
     Z_AXIS,
     ConstructionCircle,
@@ -34,10 +33,10 @@ from ezdxf.entities import factory
 import logging
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import (
-        Tags,
-        TagWriter,
-        Drawing,
+    from ezdxf.document import Drawing
+    from ezdxf.lldxf.tags import Tags
+    from ezdxf.lldxf.tagwriter import AbstractTagWriter
+    from ezdxf.entities import (
         DXFGraphic,
         Polymesh,
         Polyface,
@@ -56,7 +55,7 @@ class ProxyGraphicError(Exception):
 
 
 def load_proxy_graphic(
-    tags: "Tags", length_code: int = 160, data_code: int = 310
+    tags: Tags, length_code: int = 160, data_code: int = 310
 ) -> Optional[bytes]:
     binary_data = [
         tag.value
@@ -68,7 +67,7 @@ def load_proxy_graphic(
 
 def export_proxy_graphic(
     data: bytes,
-    tagwriter: "TagWriter",
+    tagwriter: AbstractTagWriter,
     length_code: int = 160,
     data_code: int = 310,
 ) -> None:
@@ -131,7 +130,7 @@ TRAIT_TESTER = {
 
 def read_prim_traits(
     bs: ByteStream, types: Sequence[str], prim_flags: int, count: int
-) -> Dict:
+) -> dict:
     def read_float_list():
         return [bs.read_long() for _ in range(count)]
 
@@ -156,21 +155,21 @@ def read_mesh_traits(
 ):
     # Traits data format:
     # all entries are optional
-    # traits: Dict[str, Dict]
-    #     "edges": Dict[str, List]
-    #         "colors": List[int]
-    #         "layers": List[int] as layer ids
-    #         "linetypes": List[int] as linetype ids
-    #         "markers": List[int]
-    #         "visibilities": List[int]
-    #     "faces": Dict[str, List]
-    #         "colors": List[int]
-    #         "layers": List[int] as layer ids
-    #         "markers": List[int]
-    #         "normals": List[Vec3]
-    #         "visibilities": List[int]
-    #     "vertices": Dict
-    #         "normals": List[Vec3]
+    # traits: dict[str, dict]
+    #     "edges": dict[str, list]
+    #         "colors": list[int]
+    #         "layers": list[int] as layer ids
+    #         "linetypes": list[int] as linetype ids
+    #         "markers": list[int]
+    #         "visibilities": list[int]
+    #     "faces": dict[str, list]
+    #         "colors": list[int]
+    #         "layers": list[int] as layer ids
+    #         "markers": list[int]
+    #         "normals": list[Vec3]
+    #         "visibilities": list[int]
+    #     "vertices": dict
+    #         "normals": list[Vec3]
     #         "orientation": bool
     traits = dict()
     edge_flags = bs.read_long()
@@ -248,7 +247,7 @@ class ProxyGraphicTypes(IntEnum):
 
 
 class ProxyGraphic:
-    def __init__(self, data: bytes, doc: "Drawing" = None):
+    def __init__(self, data: bytes, doc: Optional[Drawing] = None):
         self._doc = doc
         self._factory = factory.new
         self._buffer: bytes = data
@@ -264,24 +263,22 @@ class ProxyGraphic:
         self.ltscale: float = 1.0
         self.thickness: float = 0.0
         # Layer list in storage order
-        self.layers: List[str] = []
+        self.layers: list[str] = []
         # Linetypes list in storage order
-        self.linetypes: List[str] = []
+        self.linetypes: list[str] = []
         # List of text styles, with font name as key
-        self.textstyles: Dict[str, str] = dict()
-        self.required_fonts: Set[str] = set()
-        self.matrices: List[Matrix44] = []
+        self.textstyles: dict[str, str] = dict()
+        self.required_fonts: set[str] = set()
+        self.matrices: list[Matrix44] = []
 
         if self._doc:
             self.layers = list(layer.dxf.name for layer in self._doc.layers)
-            self.linetypes = list(
-                linetype.dxf.name for linetype in self._doc.linetypes
-            )
+            self.linetypes = list(linetype.dxf.name for linetype in self._doc.linetypes)
             self.textstyles = {
                 style.dxf.font: style.dxf.name for style in self._doc.styles
             }
 
-    def info(self) -> Iterable[Tuple[int, int, str]]:
+    def info(self) -> Iterable[tuple[int, int, str]]:
         index = self._index
         buffer = self._buffer
         while index < len(buffer):
@@ -293,17 +290,17 @@ class ProxyGraphic:
             yield index, size, name
             index += size
 
-    def virtual_entities(self) -> Iterable["DXFGraphic"]:
+    def virtual_entities(self) -> Iterator[DXFGraphic]:
         return self.__virtual_entities__()
 
-    def __virtual_entities__(self) -> Iterable["DXFGraphic"]:
+    def __virtual_entities__(self) -> Iterator[DXFGraphic]:
         """Implements the SupportsVirtualEntities protocol."""
         try:
             yield from self.unsafe_virtual_entities()
         except Exception as e:
             raise ProxyGraphicError(f"Proxy graphic error: {str(e)}")
 
-    def unsafe_virtual_entities(self) -> Iterable["DXFGraphic"]:
+    def unsafe_virtual_entities(self) -> Iterable[DXFGraphic]:
         def transform(entity):
             if self.matrices:
                 return entity.transform(self.matrices[-1])
@@ -462,7 +459,10 @@ class ProxyGraphic:
 
     def _filled_polygon(self, vertices, attribs):
         hatch = cast("Hatch", self._factory("HATCH", dxfattribs=attribs))
-        hatch.paths.add_polyline_path(vertices, is_closed=True)
+        elevation = _get_elevation(vertices)
+        hatch.paths.add_polyline_path(Vec2.generate(vertices), is_closed=True)
+        if elevation:
+            hatch.dxf.elevation = Vec3(0, 0, elevation)
         return hatch
 
     def _polyline(self, vertices, *, close=False, normal=Z_AXIS):
@@ -478,9 +478,7 @@ class ProxyGraphic:
             polyline = self._filled_polygon(vertices, attribs)
         else:
             attribs["flags"] = const.POLYLINE_3D_POLYLINE
-            polyline = cast(
-                "Polyline", self._factory("POLYLINE", dxfattribs=attribs)
-            )
+            polyline = cast("Polyline", self._factory("POLYLINE", dxfattribs=attribs))
             polyline.append_vertices(vertices)
             if close:
                 polyline.close()
@@ -534,31 +532,26 @@ class ProxyGraphic:
             num_width = 0
         # ignore DXF R13/14 special vertex order
 
-        vertices: List[Tuple[float, float]] = [bs.read_raw_double(2)]  # type: ignore
+        vertices: list[luple[float, float]] = [bs.read_raw_double(2)]  # type: ignore
         prev_point = vertices[-1]
         for _ in range(num_points - 1):
             x = bs.read_bit_double_default(default=prev_point[0])  # type: ignore
             y = bs.read_bit_double_default(default=prev_point[1])  # type: ignore
             prev_point = (x, y)
             vertices.append(prev_point)
-        bulges: List[float] = [bs.read_bit_double() for _ in range(num_bulges)]
-        vertex_ids: List[int] = [
-            bs.read_bit_long() for _ in range(vertex_id_count)
-        ]
-        widths: List[Tuple[float, float]] = [
-            (bs.read_bit_double(), bs.read_bit_double())
-            for _ in range(num_width)
+        bulges: list[float] = [bs.read_bit_double() for _ in range(num_bulges)]
+        vertex_ids: list[int] = [bs.read_bit_long() for _ in range(vertex_id_count)]
+        widths: list[tuple[float, float]] = [
+            (bs.read_bit_double(), bs.read_bit_double()) for _ in range(num_width)
         ]
         if len(bulges) == 0:
             bulges = list(repeat(0, num_points))
         if len(widths) == 0:
             widths = list(repeat((0, 0), num_points))
-        points: List[Sequence[float]] = []
+        points: list[Sequence[float]] = []
         for v, w, b in zip(vertices, widths, bulges):
             points.append((v[0], v[1], w[0], w[1], b))
-        lwpolyline = cast(
-            "LWPolyline", self._factory("LWPOLYLINE", dxfattribs=attribs)
-        )
+        lwpolyline = cast("LWPolyline", self._factory("LWPOLYLINE", dxfattribs=attribs))
         lwpolyline.set_points(points)
         return lwpolyline
 
@@ -582,9 +575,7 @@ class ProxyGraphic:
                 bs, total_edge_count, total_face_count, vertex_count=0
             )
         except struct.error:
-            logger.error(
-                "Structure error while parsing traits for MESH proxy graphic"
-            )
+            logger.error("Structure error while parsing traits for MESH proxy graphic")
         if traits:
             # apply traits
             pass
@@ -594,9 +585,7 @@ class ProxyGraphic:
         attribs["m_count"] = rows
         attribs["n_count"] = columns
         attribs["flags"] = const.POLYLINE_3D_POLYMESH
-        polymesh = cast(
-            "Polymesh", self._factory("POLYLINE", dxfattribs=attribs)
-        )
+        polymesh = cast("Polymesh", self._factory("POLYLINE", dxfattribs=attribs))
         polymesh.append_vertices(vertices)
         return polymesh
 
@@ -607,9 +596,7 @@ class ProxyGraphic:
         bs = ByteStream(data)
         attribs = self._build_dxf_attribs()
         attribs["flags"] = const.POLYLINE_POLYFACE
-        polyface = cast(
-            "Polyface", self._factory("POLYLINE", dxfattribs=attribs)
-        )
+        polyface = cast("Polyface", self._factory("POLYLINE", dxfattribs=attribs))
         total_vertex_count = bs.read_long()
         vertices = [Vec3(bs.read_vertex()) for _ in range(total_vertex_count)]
         face_entry_count = bs.read_long()
@@ -632,9 +619,7 @@ class ProxyGraphic:
                 bs, total_edge_count, total_face_count, vertex_count=0
             )
         except struct.error:
-            logger.error(
-                "Structure error while parsing traits for SHELL proxy graphic"
-            )
+            logger.error("Structure error while parsing traits for SHELL proxy graphic")
         polyface.append_faces(faces)
         if traits:
             face_traits = traits.get("faces")
@@ -753,9 +738,7 @@ class ProxyGraphic:
         return self._xline(data, "RAY")
 
     def _xline(self, data: bytes, type_: str):
-        logger.warning(
-            "Untested proxy graphic entity: RAY/XLINE - Need examples!"
-        )
+        logger.warning("Untested proxy graphic entity: RAY/XLINE - Need examples!")
         bs = ByteStream(data)
         attribs = self._build_dxf_attribs()
         start_point = Vec3(bs.read_vertex())
@@ -783,7 +766,7 @@ class ProxyGraphic:
         count = bs.read_long()
         if load_normal:
             count += 1
-        vertices = []
+        vertices: list[Vec3] = []
         while count > 0:
             vertices.append(Vec3(bs.read_struct("<3d")))
             count -= 1
@@ -791,8 +774,8 @@ class ProxyGraphic:
             normal = vertices.pop()
         return vertices, normal
 
-    def _build_dxf_attribs(self) -> Dict:
-        attribs: Dict[str, Any] = dict()
+    def _build_dxf_attribs(self) -> dict[str, Any]:
+        attribs: dict[str, Any] = dict()
         if self.layer != "0":
             attribs["layer"] = self.layer
         if self.color != const.BYLAYER:
@@ -809,7 +792,7 @@ class ProxyGraphic:
 
 
 class ProxyGraphicDebugger(ProxyGraphic):
-    def __init__(self, data: bytes, doc: "Drawing" = None, debug_stream=None):
+    def __init__(self, data: bytes, doc: Optional[Drawing] = None, debug_stream=None):
         super(ProxyGraphicDebugger, self).__init__(data, doc)
         if debug_stream is None:
             debug_stream = sys.stdout
@@ -886,7 +869,7 @@ class ProxyGraphicDebugger(ProxyGraphic):
         self.log_state()
 
 
-def _apply_face_colors(polyface: "Polyface", colors: List[int]) -> None:
+def _apply_face_colors(polyface: Polyface, colors: list[int]) -> None:
     color_count: int = len(colors)
     if color_count == 0:
         return
@@ -898,3 +881,9 @@ def _apply_face_colors(polyface: "Polyface", colors: List[int]) -> None:
             index += 1
             if index >= color_count:
                 return
+
+
+def _get_elevation(vertices) -> float:
+    if vertices:
+        return vertices[0].z
+    return 0.0

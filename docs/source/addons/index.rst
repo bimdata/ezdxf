@@ -24,3 +24,6 @@ Add-ons
     binpacking
     meshex
     openscad
+    tablepainter
+    mtextsurrogate
+    gerber_D6673

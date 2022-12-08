@@ -26,7 +26,7 @@ from .circle import acdb_circle, Circle, merged_circle_group_codes
 from .factory import register_entity
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import TagWriter
+    from ezdxf.lldxf.tagwriter import AbstractTagWriter
 
 __all__ = ["Arc"]
 
@@ -52,7 +52,7 @@ class Arc(Circle):
     DXFATTRIBS = DXFAttributes(base_class, acdb_entity, acdb_circle, acdb_arc)
     MERGED_GROUP_CODES = merged_arc_group_codes
 
-    def export_entity(self, tagwriter: TagWriter) -> None:
+    def export_entity(self, tagwriter: AbstractTagWriter) -> None:
         """Export entity specific data as DXF tags."""
         super().export_entity(tagwriter)
         # AcDbEntity export is done by parent class
@@ -63,22 +63,23 @@ class Arc(Circle):
 
     @property
     def start_point(self) -> Vec3:
-        """Returns the start point of the arc in WCS, takes OCS into account."""
+        """Returns the start point of the arc in :ref:`WCS`, takes the :ref:`OCS` into
+        account.
+        """
         v = list(self.vertices([self.dxf.start_angle]))
         return v[0]
 
     @property
     def end_point(self) -> Vec3:
-        """Returns the end point of the arc in WCS, takes OCS into account."""
+        """Returns the end point of the arc in :ref:`WCS`, takes the :ref:`OCS` into
+        account.
+        """
         v = list(self.vertices([self.dxf.end_angle]))
         return v[0]
 
-    def angles(self, num: int) -> Iterable[float]:
-        """Returns `num` angles from start- to end angle in degrees in counter
-        clockwise order.
-
-        All angles are normalized in the range from [0, 360).
-
+    def angles(self, num: int) -> Iterator[float]:
+        """Yields `num` angles from start- to end angle in degrees in counter-clockwise
+        orientation. All angles are normalized in the range from [0, 360).
         """
         if num < 2:
             raise ValueError("num >= 2")
@@ -90,10 +91,11 @@ class Arc(Circle):
             yield angle % 360
 
     def flattening(self, sagitta: float) -> Iterator[Vec3]:
-        """Approximate the arc by vertices in WCS, argument `segment` is the
-        max. distance from the center of an arc segment to the center of its
-        chord.
+        """Approximate the arc by vertices in :ref:`WCS`, the argument `sagitta`_
+        defines the maximum distance from the center of an arc segment to the center of
+        its chord.
 
+        .. _sagitta: https://en.wikipedia.org/wiki/Sagitta_(geometry)
         """
         arc = self.construction_tool()
         ocs = self.ocs()
@@ -103,15 +105,11 @@ class Arc(Circle):
         else:
             to_wcs = Vec3.generate
 
-        yield from to_wcs(
-            Vec3(p.x, p.y, elevation) for p in arc.flattening(sagitta)
-        )
+        yield from to_wcs(Vec3(p.x, p.y, elevation) for p in arc.flattening(sagitta))
 
     def transform(self, m: Matrix44) -> Arc:
         """Transform ARC entity by transformation matrix `m` inplace.
-
-        Raises ``NonUniformScalingError()`` for non uniform scaling.
-
+        Raises ``NonUniformScalingError()`` for non-uniform scaling.
         """
         ocs = OCSTransform(self.dxf.extrusion, m)
         super()._transform(ocs)
@@ -126,9 +124,8 @@ class Arc(Circle):
         return self
 
     def construction_tool(self) -> ConstructionArc:
-        """Returns 2D construction tool :class:`ezdxf.math.ConstructionArc`,
-        ignoring the extrusion vector.
-
+        """Returns the 2D construction tool :class:`ezdxf.math.ConstructionArc` but the
+        extrusion vector is ignored.
         """
         dxf = self.dxf
         return ConstructionArc(
@@ -139,9 +136,8 @@ class Arc(Circle):
         )
 
     def apply_construction_tool(self, arc: ConstructionArc) -> Arc:
-        """Set ARC data from construction tool :class:`ezdxf.math.ConstructionArc`,
-        will not change the extrusion vector.
-
+        """Set ARC data from the construction tool :class:`ezdxf.math.ConstructionArc`
+        but the extrusion vector is ignored.
         """
         dxf = self.dxf
         dxf.center = Vec3(arc.center)

@@ -1,7 +1,7 @@
 #  Copyright (c) 2021-2022, Manfred Moitzi
 #  License: MIT License
 from __future__ import annotations
-from typing import Callable, Optional, Dict, TYPE_CHECKING, Type, Tuple
+from typing import Callable, Optional, TYPE_CHECKING, Type
 import abc
 import sys
 import os
@@ -19,7 +19,7 @@ from ezdxf.dwginfo import dwg_file_info
 from ezdxf import units
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import DXFGraphic
+    from ezdxf.entities import DXFGraphic
     from ezdxf.addons.drawing.properties import Properties
 
 __all__ = ["get", "add_parsers"]
@@ -55,7 +55,7 @@ class Command:
         pass
 
 
-_commands: Dict[str, Type[Command]] = dict()
+_commands: dict[str, Type[Command]] = dict()
 
 
 def register(cls: Type[Command]):
@@ -606,7 +606,7 @@ class Pillow(Command):
             # get entity bounding boxes in modelspace for faster paperspace
             # rendering
             bbox.extents(doc.modelspace(), fast=True, cache=bbox_cache)
-        extents = bbox.extents(layout, fast=True, bbox_cache=bbox_cache)
+        extents = bbox.extents(layout, fast=True, cache=bbox_cache)
         img_x, img_y = parse_image_size(args.image_size)
         if verbose:
             print(f"    units: {units.unit_name(layout.units)}")
@@ -655,7 +655,7 @@ class Pillow(Command):
             out.resize().show(args.file)
 
 
-def parse_image_size(image_size: str) -> Tuple[int, int]:
+def parse_image_size(image_size: str) -> tuple[int, int]:
     if "," in image_size:
         sx, sy = image_size.split(",")
     elif "x" in image_size:

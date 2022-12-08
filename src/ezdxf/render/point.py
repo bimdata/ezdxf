@@ -1,6 +1,7 @@
-#  Copyright (c) 2020-2021, Manfred Moitzi
-#  License: MIT License
-from typing import List, cast
+# Copyright (c) 2020-2022, Manfred Moitzi
+# License: MIT License
+from __future__ import annotations
+from typing import cast
 import math
 from ezdxf.entities import factory, Point, DXFGraphic
 from ezdxf.math import Vec3, UCS, NULLVEC
@@ -8,7 +9,7 @@ from ezdxf.math import Vec3, UCS, NULLVEC
 
 def virtual_entities(
     point: Point, pdsize: float = 1, pdmode: int = 0
-) -> List[DXFGraphic]:
+) -> list[DXFGraphic]:
     """Yields point graphic as DXF primitives LINE and CIRCLE entities.
     The dimensionless point is rendered as zero-length line!
 
@@ -23,8 +24,6 @@ def virtual_entities(
         point: DXF POINT entity
         pdsize: point size in drawing units
         pdmode: point styling mode, see :class:`~ezdxf.entities.Point` class
-
-    .. versionadded:: 0.15
 
     """
 
@@ -47,7 +46,7 @@ def virtual_entities(
     # The point angle is clockwise oriented:
     ucs = ucs.rotate_local_z(math.radians(-point.dxf.angle))
 
-    entities: List[DXFGraphic] = []
+    entities: list[DXFGraphic] = []
     gfx = point.graphic_properties()
 
     radius = pdsize * 0.5

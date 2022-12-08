@@ -1,7 +1,7 @@
 # Copyright (c) 2019-2022, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional, Tuple, cast, Dict, List, Any
+from typing import TYPE_CHECKING, Optional, cast, Any
 import logging
 from dataclasses import dataclass
 from ezdxf.lldxf import validator
@@ -29,18 +29,14 @@ from ezdxf.lldxf.const import (
 from ezdxf.entities.dxfentity import base_class, SubclassProcessor, DXFEntity
 from .factory import register_entity
 
-logger = logging.getLogger("ezdxf")
-
 if TYPE_CHECKING:
-    from ezdxf.eztypes import (
-        TagWriter,
-        DXFNamespace,
-        Viewport,
-        XRecord,
-        EntityDB,
-    )
+    from ezdxf.entities import DXFNamespace, Viewport, XRecord
+    from ezdxf.lldxf.tagwriter import AbstractTagWriter
+    from ezdxf.entitydb import EntityDB
+
 
 __all__ = ["Layer", "acdb_symbol_table_record", "LayerOverrides"]
+logger = logging.getLogger("ezdxf")
 
 
 def is_valid_layer_color_index(aci: int) -> bool:
@@ -134,7 +130,7 @@ class Layer(DXFEntity):
     UNLOCK = 0b11111011
 
     def load_dxf_attribs(
-        self, processor: SubclassProcessor = None
+        self, processor: Optional[SubclassProcessor] = None
     ) -> DXFNamespace:
         dxf = super().load_dxf_attribs(processor)
         if processor:
@@ -143,7 +139,7 @@ class Layer(DXFEntity):
             )
         return dxf
 
-    def export_entity(self, tagwriter: TagWriter) -> None:
+    def export_entity(self, tagwriter: AbstractTagWriter) -> None:
         super().export_entity(tagwriter)
         if tagwriter.dxfversion > DXF12:
             tagwriter.write_tag2(SUBCLASS_MARKER, acdb_symbol_table_record.name)
@@ -239,7 +235,7 @@ class Layer(DXFEntity):
         self.dxf.color = color
 
     @property
-    def rgb(self) -> Optional[Tuple[int, int, int]]:
+    def rgb(self) -> Optional[tuple[int, int, int]]:
         """Returns RGB true color as (r, g, b)-tuple or None if attribute
         dxf.true_color is not set.
         """
@@ -249,7 +245,7 @@ class Layer(DXFEntity):
             return None
 
     @rgb.setter
-    def rgb(self, rgb: Tuple[int, int, int]) -> None:
+    def rgb(self, rgb: tuple[int, int, int]) -> None:
         """Set RGB true color as (r, g, b)-tuple e.g. (12, 34, 56)."""
         self.dxf.set("true_color", clr.rgb2int(rgb))
 
@@ -366,7 +362,7 @@ class Layer(DXFEntity):
                 e.dxf.layer = new_name
             entity_type = e.dxftype()
             if entity_type == "VIEWPORT":
-                e.rename_frozen_layer(old_name, new_name)
+                e.rename_frozen_layer(old_name, new_name)  # type: ignore
             elif entity_type == "LAYER_FILTER":
                 # todo: if LAYER_FILTER implemented, add support for
                 #  renaming layers
@@ -415,7 +411,7 @@ class LayerOverrides:
         self._layer = layer
         self._overrides = load_layer_overrides(layer)
 
-    def has_overrides(self, vp_handle: str = None) -> bool:
+    def has_overrides(self, vp_handle: Optional[str] = None) -> bool:
         """Returns ``True`` if attribute overrides exist for the given
         :class:`Viewport` handle.
         Returns ``True`` if `any` attribute overrides exist if the given
@@ -550,7 +546,7 @@ class LayerOverrides:
         vp_overrides = self._acquire_overrides(vp_handle)
         vp_overrides.lineweight = value
 
-    def discard(self, vp_handle: str = None) -> None:
+    def discard(self, vp_handle: Optional[str] = None) -> None:
         """Discard all attribute overrides for the given :class:`Viewport`
         handle or for all :class:`Viewport` entities if the handle is ``None``.
         """
@@ -582,7 +578,7 @@ def is_layer_frozen_in_vp(layer, vp_handle) -> bool:
     return False
 
 
-def load_layer_overrides(layer: Layer) -> Dict[str, OverrideAttributes]:
+def load_layer_overrides(layer: Layer) -> dict[str, OverrideAttributes]:
     """Load all VIEWPORT overrides from the layer extension dictionary."""
 
     def get_ovr(vp_handle: str):
@@ -631,7 +627,7 @@ def load_layer_overrides(layer: Layer) -> Dict[str, OverrideAttributes]:
     entitydb: EntityDB = layer.doc.entitydb
     assert entitydb is not None, "valid entity database required"
 
-    overrides: Dict[str, OverrideAttributes] = dict()
+    overrides: dict[str, OverrideAttributes] = dict()
     if not layer.has_extension_dict:
         return overrides
 
@@ -647,7 +643,7 @@ def _load_ovr_values(xrec: XRecord, group_code):
 
 
 def store_layer_overrides(
-    layer: Layer, overrides: Dict[str, OverrideAttributes]
+    layer: Layer, overrides: dict[str, OverrideAttributes]
 ) -> None:
     """Store all VIEWPORT overrides in the layer extension dictionary.
     Replaces all existing overrides!
@@ -660,7 +656,7 @@ def store_layer_overrides(
         else:
             return layer.new_extension_dict()
 
-    def set_xdict_tags(key: str, tags: List[DXFTag]):
+    def set_xdict_tags(key: str, tags: list[DXFTag]):
         xdict = get_xdict()
         xrec = xdict.get(key)
         if xrec is None:
@@ -678,9 +674,9 @@ def store_layer_overrides(
             xdict.discard(key)
 
     def make_tags(
-        data: List[Tuple[Any, str]], name: str, code: int
-    ) -> List[DXFTag]:
-        tags: List[DXFTag] = []
+        data: list[tuple[Any, str]], name: str, code: int
+    ) -> list[DXFTag]:
+        tags: list[DXFTag] = []
         for value, vp_handle in data:
             tags.extend(
                 [

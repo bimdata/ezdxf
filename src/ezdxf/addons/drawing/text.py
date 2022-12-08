@@ -1,11 +1,17 @@
-# Copyright (c) 2020-2021, Matthew Broadway
+# Copyright (c) 2020-2022, Matthew Broadway
 # License: MIT License
+from __future__ import annotations
+from typing import Union, Tuple, Iterable, Optional, Callable
+from typing_extensions import TypeAlias
 import enum
 from math import radians
-from typing import Union, Tuple, Dict, Iterable, List, Optional, Callable
 
 import ezdxf.lldxf.const as DXFConstants
-from ezdxf.enums import TextEntityAlignment, MAP_TEXT_ENUM_TO_ALIGN_FLAGS, MTextEntityAlignment
+from ezdxf.enums import (
+    TextEntityAlignment,
+    MAP_TEXT_ENUM_TO_ALIGN_FLAGS,
+    MTextEntityAlignment,
+)
 from ezdxf.addons.drawing.backend import BackendInterface
 from ezdxf.addons.drawing.debug_utils import draw_rect
 from ezdxf.entities import MText, Text, Attrib, AttDef
@@ -41,14 +47,14 @@ class VAlignment(enum.Enum):
     )
 
 
-Alignment = Tuple[HAlignment, VAlignment]
-AnyText = Union[Text, MText, Attrib, AttDef]
+Alignment: TypeAlias = Tuple[HAlignment, VAlignment]
+AnyText: TypeAlias = Union[Text, MText, Attrib, AttDef]
 
 # multiple of cap_height between the baseline of the previous line and the
 # baseline of the next line
 DEFAULT_LINE_SPACING = 5 / 3
 
-DXF_TEXT_ALIGNMENT_TO_ALIGNMENT: Dict[TextEntityAlignment, Alignment] = {
+DXF_TEXT_ALIGNMENT_TO_ALIGNMENT: dict[TextEntityAlignment, Alignment] = {
     TextEntityAlignment.LEFT: (HAlignment.LEFT, VAlignment.BASELINE),
     TextEntityAlignment.CENTER: (HAlignment.CENTER, VAlignment.BASELINE),
     TextEntityAlignment.RIGHT: (HAlignment.RIGHT, VAlignment.BASELINE),
@@ -82,7 +88,7 @@ assert (
     == MAP_TEXT_ENUM_TO_ALIGN_FLAGS.keys()
 )
 
-DXF_MTEXT_ALIGNMENT_TO_ALIGNMENT: Dict[int, Alignment] = {
+DXF_MTEXT_ALIGNMENT_TO_ALIGNMENT: dict[int, Alignment] = {
     DXFConstants.MTEXT_TOP_LEFT: (HAlignment.LEFT, VAlignment.TOP),
     DXFConstants.MTEXT_TOP_CENTER: (HAlignment.CENTER, VAlignment.TOP),
     DXFConstants.MTEXT_TOP_RIGHT: (HAlignment.RIGHT, VAlignment.TOP),
@@ -161,7 +167,7 @@ def _split_into_lines(
     entity: AnyText,
     box_width: Optional[float],
     get_text_width: Callable[[str], float],
-) -> List[str]:
+) -> list[str]:
     if isinstance(entity, AttDef):
         # ATTDEF outside of an Insert renders the tag rather than the value
         text = plain_text(entity.dxf.tag)
@@ -228,11 +234,11 @@ def _get_extra_transform(text: AnyText, line_width: float) -> Matrix44:
 
 def _apply_alignment(
     alignment: Alignment,
-    line_widths: List[float],
+    line_widths: list[float],
     line_spacing: float,
     box_width: Optional[float],
     font_measurements: FontMeasurements,
-) -> Tuple[Tuple[float, float], List[float], List[float]]:
+) -> tuple[tuple[float, float], list[float], list[float]]:
     if not line_widths:
         return (0, 0), [], []
 
@@ -286,7 +292,10 @@ def _get_wcs_insert(text: AnyText) -> Vec3:
         if alignment == TextEntityAlignment.LEFT:
             # LEFT/BASELINE is always located at the insert point.
             pass
-        elif alignment in (TextEntityAlignment.FIT, TextEntityAlignment.ALIGNED):
+        elif alignment in (
+            TextEntityAlignment.FIT,
+            TextEntityAlignment.ALIGNED,
+        ):
             # Interpolate insertion location between insert and align point:
             insert = insert.lerp(align_point, factor=0.5)
         else:
@@ -302,9 +311,9 @@ def simplified_text_chunks(
     text: AnyText,
     out: BackendInterface,
     *,
-    font: fonts.FontFace = None,
+    font: Optional[fonts.FontFace] = None,
     debug_draw_rect: bool = False
-) -> Iterable[Tuple[str, Matrix44, float]]:
+) -> Iterable[tuple[str, Matrix44, float]]:
     """Splits a complex text entity into simple chunks of text which can all be
     rendered the same way:
     render the string (which will not contain any newlines) with the given

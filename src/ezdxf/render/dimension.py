@@ -1,25 +1,28 @@
-# Copyright (c) 2018-2021, Manfred Moitzi
+# Copyright (c) 2018-2022, Manfred Moitzi
 # License: MIT License
-from typing import TYPE_CHECKING
+from __future__ import annotations
+from typing import TYPE_CHECKING, Optional
+
 from ezdxf.math import UCS
 from ezdxf.lldxf.const import DXFValueError
 from ezdxf.entities.dimstyleoverride import DimStyleOverride
 
-from .dim_linear import LinearDimension
-from .dim_radius import RadiusDimension
-from .dim_diameter import DiameterDimension
+from .dim_base import BaseDimensionRenderer
 from .dim_curved import AngularDimension, Angular3PDimension, ArcLengthDimension
+from .dim_diameter import DiameterDimension
+from .dim_linear import LinearDimension
 from .dim_ordinate import OrdinateDimension
+from .dim_radius import RadiusDimension
 
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import Dimension, BaseDimensionRenderer
+    from ezdxf.entities import Dimension
 
 
 class DimensionRenderer:
     def dispatch(
-        self, override: "DimStyleOverride", ucs: "UCS" = None
-    ) -> "BaseDimensionRenderer":
+        self, override: DimStyleOverride, ucs: Optional[UCS] = None
+    ) -> BaseDimensionRenderer:
         dimension = override.dimension
         dim_type = dimension.dimtype
         dxf_type = dimension.dxftype()
@@ -44,72 +47,72 @@ class DimensionRenderer:
 
     def linear(
         self,
-        dimension: "Dimension",
-        ucs: "UCS" = None,
-        override: "DimStyleOverride" = None,
+        dimension: Dimension,
+        ucs: Optional[UCS] = None,
+        override: Optional[DimStyleOverride] = None,
     ):
         """Call renderer for linear dimension lines: horizontal, vertical and rotated"""
         return LinearDimension(dimension, ucs, override)
 
     def angular(
         self,
-        dimension: "Dimension",
-        ucs: "UCS" = None,
-        override: "DimStyleOverride" = None,
+        dimension: Dimension,
+        ucs: Optional[UCS] = None,
+        override: Optional[DimStyleOverride] = None,
     ):
         """Call renderer for angular dimension defined by two lines."""
         return AngularDimension(dimension, ucs, override)
 
     def diameter(
         self,
-        dimension: "Dimension",
-        ucs: "UCS" = None,
-        override: "DimStyleOverride" = None,
+        dimension: Dimension,
+        ucs: Optional[UCS] = None,
+        override: Optional[DimStyleOverride] = None,
     ):
         """Call renderer for diameter dimension"""
         return DiameterDimension(dimension, ucs, override)
 
     def radius(
         self,
-        dimension: "Dimension",
-        ucs: "UCS" = None,
-        override: "DimStyleOverride" = None,
+        dimension: Dimension,
+        ucs: Optional[UCS] = None,
+        override: Optional[DimStyleOverride] = None,
     ):
         """Call renderer for radius dimension"""
         return RadiusDimension(dimension, ucs, override)
 
     def large_radial(
         self,
-        dimension: "Dimension",
-        ucs: "UCS" = None,
-        override: "DimStyleOverride" = None,
+        dimension: Dimension,
+        ucs: Optional[UCS] = None,
+        override: Optional[DimStyleOverride] = None,
     ):
         """Call renderer for large radial dimension"""
         raise NotImplementedError()
 
     def angular3p(
         self,
-        dimension: "Dimension",
-        ucs: "UCS" = None,
-        override: "DimStyleOverride" = None,
+        dimension: Dimension,
+        ucs: Optional[UCS] = None,
+        override: Optional[DimStyleOverride] = None,
     ):
         """Call renderer for angular dimension defined by three points."""
         return Angular3PDimension(dimension, ucs, override)
 
     def ordinate(
         self,
-        dimension: "Dimension",
-        ucs: "UCS" = None,
-        override: "DimStyleOverride" = None,
+        dimension: Dimension,
+        ucs: Optional[UCS] = None,
+        override: Optional[DimStyleOverride] = None,
     ):
         """Call renderer for ordinate dimension."""
         return OrdinateDimension(dimension, ucs, override)
 
     def arc_length(
         self,
-        dimension: "Dimension",
-        ucs: "UCS" = None,
-        override: "DimStyleOverride" = None,
+        dimension: Dimension,
+        ucs: Optional[UCS] = None,
+        override: Optional[DimStyleOverride] = None,
     ):
         """Call renderer for arc length dimension."""
         return ArcLengthDimension(dimension, ucs, override)

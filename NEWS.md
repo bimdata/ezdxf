@@ -2,24 +2,45 @@
 News
 ====
 
-Version 1.0.0rc1 - dev
----------------------
+Version 1.0.0rc2 - dev
+----------------------
 
 - Release notes: https://ezdxf.mozman.at/release-v1-0.html
 - NEW: Python 3.11 binary wheels on PyPI
 - NEW: `Drawing.paperspace()`, a correct type-annotated method to get paperspace 
   layouts 
 - NEW: `Drawing.page_setup()`, simple way to set up paperspace layouts
+- NEW: `UNIX_EXEC_PATH` config option for the ODAFC add-on. 
+  This may help if the `which` command cannot find the `ODAFileConverter` command 
+  and also adds support for AppImages provided by ODA.
+- NEW: ASTM-D6673-10 Exporter for Gerber Technology applications, `gerber_D6673` 
+  [docs](https://ezdxf.mozman.at/docs/addons/gerber_D6673.html)
 - CHANGE: removed deprecated features
+- CHANGE: type annotation refactoring
+- CHANGE: renaming and refactoring of the `MTextSurrogate` add-on (formerly 
+  `ezdxf.addons.MText` class) 
+- CHANGE: renaming and refactoring of the `TablePainter` add-on (formerly the 
+  undocumented `ezdxf.addons.Table` class)
 - BUGFIX: [#747](https://github.com/mozman/ezdxf/issues/747)
   fix virtual entities of 3D DIMENSION entities  
 - BUGFIX: [#748](https://github.com/mozman/ezdxf/issues/748)
-  fix keyword only argument in virtual_block_reference_entities() call
+  fix keyword only argument in `virtual_block_reference_entities()` call
 - BUGFIX: [#749](https://github.com/mozman/ezdxf/issues/749)
-  fix infinite loop in MTEXT rendering with tabulators
+  fix infinite loop when rendering MTEXT containing tabulators
 - BUGFIX: [#751](https://github.com/mozman/ezdxf/issues/751)
-  fix invalid DXF attribute name
+  fix invalid DXF attribute name in xdict.py
 - BUGFIX: fix configuration defaults for pdsize and pdmode for the `drawing` add-on
+- BUGFIX: [#776](https://github.com/mozman/ezdxf/issues/776)
+  fix swapped bold and italic flag for extended font data in STYLE entity 
+- BUGFIX: [#777](https://github.com/mozman/ezdxf/issues/777)
+  check for empty `TextPath` in function `get_text_line_width()` 
+- BUGFIX: [#782](https://github.com/mozman/ezdxf/issues/782)
+  allow DXF-Unicode notion `\U+XXXX` in table names 
+- BUGFIX: [#783](https://github.com/mozman/ezdxf/issues/783)
+  apply block reference transformation to pattern filling of exploded HATCH entities
+- BUGFIX: [#791](https://github.com/mozman/ezdxf/issues/791)
+  fix broken POLYGON creation in `ProxyGraphic` class
+   
 
 Version 0.18.1 - 2022-09-03
 ---------------------------

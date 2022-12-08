@@ -1,16 +1,7 @@
 #  Copyright (c) 2021-2022, Manfred Moitzi
 #  License: MIT License
 from __future__ import annotations
-from typing import (
-    Iterable,
-    List,
-    Sequence,
-    Optional,
-    Iterator,
-    Union,
-    Tuple,
-    Callable,
-)
+from typing import Iterable, Sequence, Optional, Iterator, Union, Callable
 from typing_extensions import Protocol
 from ezdxf.math import (
     Vec2,
@@ -62,8 +53,8 @@ def _clip_polyline(
     vertices = list(polyline)
     if len(vertices) < 2:
         return []
-    result: List[Vec2] = []
-    parts: List[List[Vec2]] = []
+    result: list[Vec2] = []
+    parts: list[list[Vec2]] = []
     start = vertices[0]
     for end in vertices[1:]:
         clipped_line = line_clipper(start, end)
@@ -82,11 +73,7 @@ def _clip_polyline(
 
 
 class ClippingPolygon2d:
-    """The clipping path is an arbitrary polygon.
-
-    .. versionadded: 0.18.1
-
-    """
+    """The clipping path is an arbitrary polygon."""
 
     def __init__(self, vertices: Iterable[Vec2], ccw_check=True):
         clip = list(vertices)
@@ -99,7 +86,7 @@ class ClippingPolygon2d:
             )
         if ccw_check and has_clockwise_orientation(clip):
             clip.reverse()
-        self._clipping_polygon: List[Vec2] = clip
+        self._clipping_polygon: list[Vec2] = clip
 
     def clip_polyline(
         self, polyline: Iterable[Vec2]
@@ -187,8 +174,6 @@ class ClippingRect2d:
 
     This class will get an optimized implementation in the future.
 
-    .. versionadded: 0.18.1
-
     """
 
     def __init__(self, bottom_left: Vec2, top_right: Vec2):
@@ -244,8 +229,6 @@ def clip_polygon_2d(
 
     Returns:
         the clipped subject as list of :class:`~ezdxf.math.Vec2`
-
-    .. versionadded:: 0.16
 
     .. _Sutherland–Hodgman: https://de.wikipedia.org/wiki/Algorithmus_von_Sutherland-Hodgman
 
@@ -373,7 +356,7 @@ class GHPolygon:
         return None
 
     @property
-    def points(self) -> List[Vec2]:
+    def points(self) -> list[Vec2]:
         points = [v.vtx for v in self]
         if not points[0].isclose(points[-1]):
             points.append(points[0])
@@ -385,16 +368,16 @@ class GHPolygon:
                 return True
         return False
 
-    def union(self, clip: GHPolygon) -> List[List[Vec2]]:
+    def union(self, clip: GHPolygon) -> list[list[Vec2]]:
         return self.clip(clip, False, False)
 
-    def intersection(self, clip: GHPolygon) -> List[List[Vec2]]:
+    def intersection(self, clip: GHPolygon) -> list[list[Vec2]]:
         return self.clip(clip, True, True)
 
-    def difference(self, clip: GHPolygon) -> List[List[Vec2]]:
+    def difference(self, clip: GHPolygon) -> list[list[Vec2]]:
         return self.clip(clip, False, True)
 
-    def clip(self, clip: GHPolygon, s_entry, c_entry) -> List[List[Vec2]]:
+    def clip(self, clip: GHPolygon, s_entry, c_entry) -> list[list[Vec2]]:
         """Clip this polygon using another one as a clipper.
 
         This is where the algorithm is executed. It allows you to make
@@ -469,7 +452,7 @@ class GHPolygon:
                 c_entry = not c_entry
 
         # Phase 3: Construct clipped polygons
-        clipped_polygons: List[List[Vec2]] = []
+        clipped_polygons: list[list[Vec2]] = []
         while self.unprocessed():
             current: _Node = self.first_intersect  # type: ignore
             clipped = GHPolygon()
@@ -537,7 +520,7 @@ _ERROR = None, 0, 0
 
 def line_intersection(
     s1: Vec2, s2: Vec2, c1: Vec2, c2: Vec2, tol: float = TOLERANCE
-) -> Tuple[Optional[Vec2], float, float]:
+) -> tuple[Optional[Vec2], float, float]:
     """Returns the intersection point between two lines.
 
     This special implementation excludes the line end points as intersection
@@ -574,13 +557,11 @@ class BooleanOperation(enum.Enum):
 
 def greiner_hormann_intersection(
     p1: Iterable[UVec], p2: Iterable[UVec]
-) -> List[List[Vec2]]:
+) -> list[list[Vec2]]:
     """Returns the INTERSECTION of polygon `p1` &  polygon `p2`.
     This algorithm works only for polygons with real intersection points
     and line end points on face edges are not considered as such intersection
     points!
-
-    .. versionadded:: 0.18
 
     """
     return greiner_hormann(p1, p2, BooleanOperation.INTERSECTION)
@@ -588,13 +569,11 @@ def greiner_hormann_intersection(
 
 def greiner_hormann_difference(
     p1: Iterable[UVec], p2: Iterable[UVec]
-) -> List[List[Vec2]]:
+) -> list[list[Vec2]]:
     """Returns the DIFFERENCE of polygon `p1` - polygon `p2`.
     This algorithm works only for polygons with real intersection points
     and line end points on face edges are not considered as such intersection
     points!
-
-    .. versionadded:: 0.18
 
     """
     return greiner_hormann(p1, p2, BooleanOperation.DIFFERENCE)
@@ -602,13 +581,11 @@ def greiner_hormann_difference(
 
 def greiner_hormann_union(
     p1: Iterable[UVec], p2: Iterable[UVec]
-) -> List[List[Vec2]]:
+) -> list[list[Vec2]]:
     """Returns the UNION of polygon `p1` | polygon `p2`.
     This algorithm works only for polygons with real intersection points
     and line end points on face edges are not considered as such intersection
     points!
-
-    .. versionadded:: 0.18
 
     """
     return greiner_hormann(p1, p2, BooleanOperation.UNION)
@@ -616,7 +593,7 @@ def greiner_hormann_union(
 
 def greiner_hormann(
     p1: Iterable[UVec], p2: Iterable[UVec], op: BooleanOperation
-) -> List[List[Vec2]]:
+) -> list[list[Vec2]]:
     """Implements a 2d clipping function to perform 3 boolean operations:
 
     - UNION: p1 | p2 ... p1 OR p2
@@ -628,8 +605,6 @@ def greiner_hormann(
     This algorithm works only for polygons with real intersection points
     and line end points on face edges are not considered as such intersection
     points!
-
-    .. versionadded:: 0.18
 
     """
     polygon1 = GHPolygon.build(p1)

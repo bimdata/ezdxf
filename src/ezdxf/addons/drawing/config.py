@@ -1,10 +1,14 @@
+# Copyright (c) 2021-2022, Matthew Broadway
+# License: MIT License
+from __future__ import annotations
+from typing import Optional
 import dataclasses
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Optional
 
 from ezdxf import disassemble
 from ezdxf.enums import Measurement
+
 
 class LinePolicy(Enum):
     """

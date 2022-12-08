@@ -1,9 +1,12 @@
 # Copyright (c) 2020-2022, Matthew Broadway
 # License: MIT License
+# mypy: ignore_errors=True
+from __future__ import annotations
+from typing import Optional, Iterable, Tuple
+from typing_extensions import TypeAlias
 import math
-from typing import Optional, Iterable, Dict, Tuple, List
-from ezdxf.addons.xqt import QtCore as qc, QtGui as qg, QtWidgets as qw
 
+from ezdxf.addons.xqt import QtCore as qc, QtGui as qg, QtWidgets as qw
 from ezdxf.addons.drawing.backend import Backend, prepare_string_for_rendering
 from ezdxf.addons.drawing.config import Configuration
 from ezdxf.tools.fonts import FontMeasurements
@@ -14,7 +17,7 @@ from ezdxf.tools import fonts
 from ezdxf.math import Vec3, Matrix44
 from ezdxf.path import Path, to_qpainter_path
 
-PatternKey = Tuple[str, float]
+PatternKey: TypeAlias = Tuple[str, float]
 
 
 class _Point(qw.QAbstractGraphicsShapeItem):
@@ -49,7 +52,8 @@ class ViewportGroup(qw.QGraphicsItemGroup):
     def __init__(self, clipping_path: Path):
         super().__init__()
         self.setFlag(
-            qw.QGraphicsItemGroup.GraphicsItemFlag.ItemClipsChildrenToShape, True
+            qw.QGraphicsItemGroup.GraphicsItemFlag.ItemClipsChildrenToShape,
+            True,
         )
         self._clipping_path = to_qpainter_path([clipping_path])
 
@@ -76,6 +80,7 @@ class PyQtBackend(Backend):
         use_text_cache: use caching for text path rendering
 
     """
+
     def __init__(
         self,
         scene: Optional[qw.QGraphicsScene] = None,
@@ -86,8 +91,8 @@ class PyQtBackend(Backend):
     ):
         super().__init__()
         self._scene = scene or qw.QGraphicsScene()  # avoids many type errors
-        self._color_cache: Dict[Color, qg.QColor] = {}
-        self._pattern_cache: Dict[PatternKey, int] = {}
+        self._color_cache: dict[Color, qg.QColor] = {}
+        self._pattern_cache: dict[PatternKey, int] = {}
         self._no_line = qg.QPen(qc.Qt.NoPen)
         self._no_fill = qg.QBrush(qc.Qt.NoBrush)
 
@@ -107,7 +112,9 @@ class PyQtBackend(Backend):
     def clear_text_cache(self):
         self._text_renderer.clear_cache()
 
-    def set_clipping_path(self, path: Path = None, scale: float = 1.0) -> bool:
+    def set_clipping_path(
+        self, path: Optional[Path] = None, scale: float = 1.0
+    ) -> bool:
         if path:
             self._current_viewport = ViewportGroup(path)
             self._scene.addItem(self._current_viewport)
@@ -192,7 +199,7 @@ class PyQtBackend(Backend):
 
     def draw_solid_lines(
         self,
-        lines: Iterable[Tuple[Vec3, Vec3]],
+        lines: Iterable[tuple[Vec3, Vec3]],
         properties: Properties,
     ):
         """Fast method to draw a bunch of solid lines with the same properties."""
@@ -218,7 +225,7 @@ class PyQtBackend(Backend):
         holes: Iterable[Path],
         properties: Properties,
     ) -> None:
-        oriented_paths: List[Path] = []
+        oriented_paths: list[Path] = []
         for path in paths:
             try:
                 path = path.counter_clockwise()
@@ -274,7 +281,7 @@ class PyQtBackend(Backend):
         return self._text_renderer.get_font_properties(font)
 
     def get_font_measurements(
-        self, cap_height: float, font: fonts.FontFace = None
+        self, cap_height: float, font: Optional[fonts.FontFace] = None
     ) -> FontMeasurements:
         qfont = self.get_qfont(font)
         return self._text_renderer.get_font_measurements(
@@ -282,7 +289,10 @@ class PyQtBackend(Backend):
         ).scale_from_baseline(desired_cap_height=cap_height)
 
     def get_text_line_width(
-        self, text: str, cap_height: float, font: fonts.FontFace = None
+        self,
+        text: str,
+        cap_height: float,
+        font: Optional[fonts.FontFace] = None,
     ) -> float:
         if not text.strip():
             return 0

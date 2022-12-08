@@ -1,25 +1,25 @@
 #  Copyright (c) 2022, Manfred Moitzi
 #  License: MIT License
 from __future__ import annotations
-
-import math
 from typing import (
     NamedTuple,
     Any,
     Sequence,
-    List,
-    Set,
     Iterator,
     Union,
     Iterable,
     cast,
-    Tuple,
     TYPE_CHECKING,
+    List,
+    Tuple,
+    Optional,
 )
-from datetime import datetime
+from typing_extensions import TypeAlias
+import math
 import struct
-from ezdxf.math import Vec3
+from datetime import datetime
 
+from ezdxf.math import Vec3
 from . import const
 from .const import ParsingError, Tags, InvalidLinkStructure
 from .hdr import AcisHeader
@@ -45,7 +45,7 @@ class Token(NamedTuple):
         return f"(0x{self.tag:02x}, {str(self.value)})"
 
 
-SabRecord = List[Token]
+SabRecord: TypeAlias = List[Token]
 
 
 class Decoder:
@@ -126,7 +126,7 @@ class Decoder:
             return "-".join(entity_type)
 
         values: SabRecord = []
-        entity_type: List[str] = []
+        entity_type: list[str] = []
         subtype_level: int = 0
         while True:
             if not self.has_data:
@@ -196,7 +196,7 @@ class SabEntity(AbstractEntity):
         name: str,
         attr_ptr: int = -1,
         id: int = -1,
-        data: SabRecord = None,
+        data: Optional[SabRecord] = None,
     ):
         self.name = name
         self.attr_ptr = attr_ptr
@@ -220,7 +220,7 @@ class SabDataLoader(DataLoader):
     def has_data(self) -> bool:
         return self.index <= len(self.data)
 
-    def read_int(self, skip_sat: int = None) -> int:
+    def read_int(self, skip_sat: Optional[int] = None) -> int:
         token = self.data[self.index]
         if token.tag == Tags.INT:
             self.index += 1
@@ -240,7 +240,7 @@ class SabDataLoader(DataLoader):
             return self.read_double()
         return math.inf
 
-    def read_vec3(self) -> Tuple[float, float, float]:
+    def read_vec3(self) -> tuple[float, float, float]:
         token = self.data[self.index]
         if token.tag in (Tags.LOCATION_VEC, Tags.DIRECTION_VEC):
             self.index += 1
@@ -271,7 +271,7 @@ class SabDataLoader(DataLoader):
             return cast(AbstractEntity, token.value)
         raise ParsingError(f"expected pointer token, got {token}")
 
-    def read_transform(self) -> List[float]:
+    def read_transform(self) -> list[float]:
         # Transform matrix is stored as literal string like in the SAT format!
         # 4th column is not stored
         # Read only the matrix values which contain all information needed,
@@ -284,10 +284,10 @@ class SabDataLoader(DataLoader):
 class SabBuilder(AbstractBuilder):
     """Low level data structure to manage ACIS SAB data files."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.header = AcisHeader()
-        self.bodies: List[SabEntity] = []
-        self.entities: List[SabEntity] = []
+        self.bodies: list[SabEntity] = []
+        self.entities: list[SabEntity] = []
 
     def dump_sab(self) -> bytes:
         """Returns the SAB representation of the ACIS file as bytes."""
@@ -297,7 +297,7 @@ class SabBuilder(AbstractBuilder):
         )
         self.header.n_records = 0  # is always 0
         self.header.flags = 12  # important for 21800 - meaning unknown
-        data: List[bytes] = [self.header.dumpb()]
+        data: list[bytes] = [self.header.dumpb()]
         encoder = Encoder()
         for record in build_sab_records(self.entities):
             encoder.write_record(record)
@@ -305,7 +305,7 @@ class SabBuilder(AbstractBuilder):
         data.append(self.header.sab_end_marker())
         return b"".join(data)
 
-    def set_entities(self, entities: List[SabEntity]) -> None:
+    def set_entities(self, entities: list[SabEntity]) -> None:
         """Reset entities and bodies list. (internal API)"""
         self.bodies = [e for e in entities if e.name == "body"]
         self.entities = entities
@@ -348,7 +348,7 @@ def build_entities(
         yield SabEntity(name, attr, id_, data)
 
 
-def resolve_pointers(entities: List[SabEntity]) -> List[SabEntity]:
+def resolve_pointers(entities: list[SabEntity]) -> list[SabEntity]:
     def ptr(num: int) -> SabEntity:
         if num == -1:
             return NULL_PTR
@@ -384,7 +384,7 @@ def parse_sab(data: Union[bytes, bytearray]) -> SabBuilder:
 
 
 class SabDataExporter(DataExporter):
-    def __init__(self, exporter: SabExporter, data: List[Token]):
+    def __init__(self, exporter: SabExporter, data: list[Token]):
         self.version = exporter.version
         self.exporter = exporter
         self.data = data
@@ -429,12 +429,12 @@ class SabDataExporter(DataExporter):
             record = self.exporter.get_record(entity)
         self.data.append(Token(Tags.POINTER, record))
 
-    def write_transform(self, data: List[str]) -> None:
+    def write_transform(self, data: list[str]) -> None:
         # The last space is important!
         self.write_literal_str(" ".join(data) + " ")
 
 
-def encode_entity_type(name: str) -> List[Token]:
+def encode_entity_type(name: str) -> list[Token]:
     if name == const.NULL_PTR_NAME:
         raise InvalidLinkStructure(
             f"invalid record type: {const.NULL_PTR_NAME}"
@@ -445,7 +445,7 @@ def encode_entity_type(name: str) -> List[Token]:
     return tokens
 
 
-def encode_entity_ptr(entity: SabEntity, entities: List[SabEntity]) -> Token:
+def encode_entity_ptr(entity: SabEntity, entities: list[SabEntity]) -> Token:
     if entity.is_null_ptr:
         return Token(Tags.POINTER, -1)
     try:
@@ -456,9 +456,9 @@ def encode_entity_ptr(entity: SabEntity, entities: List[SabEntity]) -> Token:
         )
 
 
-def build_sab_records(entities: List[SabEntity]) -> Iterator[SabRecord]:
+def build_sab_records(entities: list[SabEntity]) -> Iterator[SabRecord]:
     for entity in entities:
-        record: List[Token] = []
+        record: list[Token] = []
         record.extend(encode_entity_type(entity.name))
         # 1. attribute record pointer
         record.append(encode_entity_ptr(entity.attributes, entities))
@@ -483,8 +483,8 @@ SAB_ENCODING = "utf8"
 
 
 class Encoder:
-    def __init__(self):
-        self.buffer: List[bytes] = []
+    def __init__(self) -> None:
+        self.buffer: list[bytes] = []
 
     def write_record(self, record: SabRecord) -> None:
         for token in record:

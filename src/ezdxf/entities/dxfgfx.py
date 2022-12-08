@@ -1,7 +1,7 @@
 # Copyright (c) 2019-2022 Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional, Tuple, Iterable, Dict, Any
+from typing import TYPE_CHECKING, Optional, Iterable, Any
 from ezdxf.entities import factory
 from ezdxf import options
 from ezdxf.lldxf import validator
@@ -13,18 +13,14 @@ from ezdxf.lldxf.attributes import (
     group_code_mapping,
 )
 from ezdxf import colors as clr
+from ezdxf.lldxf import const
 from ezdxf.lldxf.const import (
     DXF12,
     DXF2000,
     DXF2004,
     DXF2007,
     DXF2013,
-    DXFValueError,
-    DXFKeyError,
-    DXFTableEntryError,
     SUBCLASS_MARKER,
-    DXFInvalidLineType,
-    DXFStructureError,
     TRANSPARENCY_BYBLOCK,
 )
 from ezdxf.math import OCS, Matrix44, UVec
@@ -32,13 +28,11 @@ from ezdxf.proxygraphic import load_proxy_graphic, export_proxy_graphic
 from .dxfentity import DXFEntity, base_class, SubclassProcessor, DXFTagStorage
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import (
-        Auditor,
-        TagWriter,
-        BaseLayout,
-        DXFNamespace,
-        Drawing,
-    )
+    from ezdxf.audit import Auditor
+    from ezdxf.document import Drawing
+    from ezdxf.entities import DXFNamespace
+    from ezdxf.layouts import BaseLayout
+    from ezdxf.lldxf.tagwriter import AbstractTagWriter
 
 __all__ = [
     "DXFGraphic",
@@ -190,11 +184,11 @@ class DXFGraphic(DXFEntity):
     """
 
     DXFTYPE = "DXFGFX"
-    DEFAULT_ATTRIBS: Dict[str, Any] = {"layer": "0"}
+    DEFAULT_ATTRIBS: dict[str, Any] = {"layer": "0"}
     DXFATTRIBS = DXFAttributes(base_class, acdb_entity)
 
     def load_dxf_attribs(
-        self, processor: SubclassProcessor = None
+        self, processor: Optional[SubclassProcessor] = None
     ) -> DXFNamespace:
         """Adds subclass processing for 'AcDbEntity', requires previous base
         class processing by parent class.
@@ -224,12 +218,12 @@ class DXFGraphic(DXFEntity):
         return dxf
 
     def post_new_hook(self):
-        """Post processing and integrity validation after entity creation
+        """Post-processing and integrity validation after entity creation
         (internal API)
         """
         if self.doc:
             if self.dxf.linetype not in self.doc.linetypes:
-                raise DXFInvalidLineType(
+                raise const.DXFInvalidLineType(
                     f'Linetype "{self.dxf.linetype}" not defined.'
                 )
 
@@ -278,7 +272,7 @@ class DXFGraphic(DXFEntity):
         """Returns ``True`` if entity inherits transparency from block."""
         return self.dxf.get("transparency", 0) == TRANSPARENCY_BYBLOCK
 
-    def graphic_properties(self) -> Dict:
+    def graphic_properties(self) -> dict:
         """Returns the important common properties layer, color, linetype,
         lineweight, ltscale, true_color and color_name as `dxfattribs` dict.
 
@@ -319,13 +313,13 @@ class DXFGraphic(DXFEntity):
         """
         pass
 
-    def export_entity(self, tagwriter: TagWriter) -> None:
+    def export_entity(self, tagwriter: AbstractTagWriter) -> None:
         """Export entity specific data as DXF tags. (internal API)"""
         # Base class export is done by parent class.
         self.export_acdb_entity(tagwriter)
         # XDATA and embedded objects export is also done by the parent class.
 
-    def export_acdb_entity(self, tagwriter: TagWriter):
+    def export_acdb_entity(self, tagwriter: AbstractTagWriter):
         """Export subclass 'AcDbEntity' as DXF tags. (internal API)"""
         # Full control over tag order and YES, sometimes order matters
         not_r12 = tagwriter.dxfversion > DXF12
@@ -368,11 +362,11 @@ class DXFGraphic(DXFEntity):
             return None
         try:
             return self.doc.layouts.get_layout_by_key(self.dxf.owner)
-        except DXFKeyError:
+        except const.DXFKeyError:
             pass
         try:
             return self.doc.blocks.get_block_layout_by_handle(self.dxf.owner)
-        except DXFTableEntryError:
+        except const.DXFTableEntryError:
             return None
 
     def unlink_from_layout(self) -> None:
@@ -398,7 +392,7 @@ class DXFGraphic(DXFEntity):
             layout.unlink_entity(self)
 
     def move_to_layout(
-        self, layout: BaseLayout, source: BaseLayout = None
+        self, layout: BaseLayout, source: Optional[BaseLayout] = None
     ) -> None:
         """
         Move entity from model space or a paper space layout to another layout.
@@ -417,7 +411,7 @@ class DXFGraphic(DXFEntity):
         if source is None:
             source = self.get_layout()
             if source is None:
-                raise DXFValueError("Source layout for entity not found.")
+                raise const.DXFValueError("Source layout for entity not found.")
         source.move_to_layout(self, layout)
 
     def copy_to_layout(self, layout: BaseLayout) -> DXFEntity:
@@ -434,7 +428,7 @@ class DXFGraphic(DXFEntity):
 
         """
         if self.doc != layout.doc:
-            raise DXFStructureError(
+            raise const.DXFStructureError(
                 "Copying between different DXF drawings is not supported."
             )
 
@@ -512,7 +506,7 @@ class DXFGraphic(DXFEntity):
         """
         return self.transform(Matrix44.scale(sx, sy, sz))
 
-    def scale_uniform(self, s: float) -> "DXFGraphic":
+    def scale_uniform(self, s: float) -> DXFGraphic:
         """Scale entity inplace uniform about `s` in x-axis, y-axis and z-axis,
         returns `self` (floating interface).
 
@@ -565,7 +559,10 @@ class DXFGraphic(DXFEntity):
         return bool(self.xdata) and ("PE_URL" in self.xdata)  # type: ignore
 
     def set_hyperlink(
-        self, link: str, description: str = None, location: str = None
+        self,
+        link: str,
+        description: Optional[str] = None,
+        location: Optional[str] = None,
     ):
         """Set hyperlink of an entity."""
         xdata = [(1001, "PE_URL"), (1000, str(link))]
@@ -582,7 +579,7 @@ class DXFGraphic(DXFEntity):
             self.doc.appids.new("PE_URL")
         return self
 
-    def get_hyperlink(self) -> Tuple[str, str, str]:
+    def get_hyperlink(self) -> tuple[str, str, str]:
         """Returns hyperlink, description and location."""
         link = ""
         description = ""
@@ -601,7 +598,7 @@ class DXFGraphic(DXFEntity):
                 location = xdata[2]
         return link, description, location
 
-    def remove_dependencies(self, other: Drawing = None) -> None:
+    def remove_dependencies(self, other: Optional[Drawing] = None) -> None:
         """Remove all dependencies from current document.
 
         (internal API)
@@ -623,7 +620,7 @@ class DXFGraphic(DXFEntity):
         self.dxf.discard("plotstyle_enum")
         self.dxf.discard("plotstyle_handle")
 
-    def _new_compound_entity(self, type_: str, dxfattribs: dict) -> DXFGraphic:
+    def _new_compound_entity(self, type_: str, dxfattribs) -> DXFGraphic:
         """Create and bind  new entity with same layout settings as `self`.
 
         Used by INSERT & POLYLINE to create appended DXF entities, don't use it
@@ -652,7 +649,7 @@ class SeqEnd(DXFGraphic):
     DXFTYPE = "SEQEND"
 
     def load_dxf_attribs(
-        self, processor: SubclassProcessor = None
+        self, processor: Optional[SubclassProcessor] = None
     ) -> DXFNamespace:
         """Loading interface. (internal API)"""
         # bypass DXFGraphic, loading proxy graphic is skipped!

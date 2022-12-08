@@ -1,7 +1,7 @@
-#  Copyright (c) 2021, Manfred Moitzi
+#  Copyright (c) 2021-2022, Manfred Moitzi
 #  License: MIT License
 from __future__ import annotations
-from typing import Iterable, Optional, cast, TYPE_CHECKING, List
+from typing import Iterable, Optional, cast, TYPE_CHECKING
 import abc
 import math
 from ezdxf.entities import DXFEntity, Insert, get_font_name
@@ -23,7 +23,7 @@ from ezdxf.tools.text import (
 from ezdxf.tools import fonts
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import LWPolyline, Polyline, MText
+    from ezdxf.entities import LWPolyline, Polyline, MText, Text
 
 __all__ = [
     "make_primitive",
@@ -108,8 +108,6 @@ class Primitive(abc.ABC):
         representation. Returns the precise bounding box for the path
         representation if `fast` is ``False``, otherwise the bounding box for
         Bézier curves is based on their control points.
-
-        .. versionadded:: 0.18
 
         """
         if self.mesh:
@@ -198,8 +196,8 @@ class LinePrimitive(Primitive):
 
 class LwPolylinePrimitive(ConvertedPrimitive):
     # TODO: apply thickness if not 0
-    def _convert_entity(self):
-        e: "LWPolyline" = cast("LWPolyline", self.entity)
+    def _convert_entity(self) -> None:
+        e: LWPolyline = cast("LWPolyline", self.entity)
         if e.has_width:  # use a mesh representation:
             # TraceBuilder operates in OCS!
             ocs = e.ocs()
@@ -246,8 +244,8 @@ class QuadrilateralPrimitive(ConvertedPrimitive):
 
 class PolylinePrimitive(ConvertedPrimitive):
     # TODO: apply thickness if not 0
-    def _convert_entity(self):
-        e: "Polyline" = cast("Polyline", self.entity)
+    def _convert_entity(self) -> None:
+        e: Polyline = cast("Polyline", self.entity)
         if e.is_2d_polyline and e.has_width:
             # TraceBuilder operates in OCS!
             ocs = e.ocs()
@@ -274,10 +272,10 @@ X_HEIGHT_FACTOR = 0.666  # from TXT SHX font - just guessing
 
 
 class TextLinePrimitive(ConvertedPrimitive):
-    def _convert_entity(self):
+    def _convert_entity(self) -> None:
         """Calculates the rough border path for a single line text.
 
-        Calculation is based on a mono-spaced font and therefore the border
+        Calculation is based on a monospaced font and therefore the border
         path is just an educated guess.
 
         Vertical text generation and oblique angle is ignored.
@@ -342,7 +340,7 @@ class TextLinePrimitive(ConvertedPrimitive):
 
 
 class MTextPrimitive(ConvertedPrimitive):
-    def _convert_entity(self):
+    def _convert_entity(self) -> None:
         """Calculates the rough border path for a MTEXT entity.
 
         Calculation is based on a mono-spaced font and therefore the border
@@ -352,7 +350,7 @@ class MTextPrimitive(ConvertedPrimitive):
 
         """
 
-        def get_content() -> List[str]:
+        def get_content() -> list[str]:
             text = mtext.plain_text(split=False)
             return text_wrap(text, box_width, font.text_width)  # type: ignore
 
@@ -443,14 +441,14 @@ class MTextPrimitive(ConvertedPrimitive):
             shift = Vec3(sx * rect_width, sy * rect_height)
             return (v + shift for v in vertices)
 
-        mtext: "MText" = cast("MText", self.entity)
+        mtext: MText = cast("MText", self.entity)
         columns = mtext.columns
         if columns is None:
             box_width = mtext.dxf.get("width", 0)
             font = fonts.make_font(
                 get_font_name(mtext), mtext.dxf.char_height, 1.0
             )
-            content: List[str] = get_content()
+            content: list[str] = get_content()
             if len(content) == 0:
                 # empty path - does not render any vertices!
                 self._path = Path()
@@ -470,16 +468,12 @@ def _estimate_column_extents(mtext: MText):
     if columns.count > 1:
         _columns_content = _content.split("\\N")
         if len(_columns_content) > 1:
-            _content = max(
-                _columns_content, key=lambda t: len(t)
-            )
+            _content = max(_columns_content, key=lambda t: len(t))
     return estimate_mtext_content_extents(
         content=_content,
         font=fonts.MonospaceFont(mtext.dxf.char_height, 1.0),
         column_width=columns.width,
-        line_spacing_factor=mtext.dxf.get_default(
-            "line_spacing_factor"
-        ),
+        line_spacing_factor=mtext.dxf.get_default("line_spacing_factor"),
     )
 
 
@@ -537,9 +531,6 @@ def make_primitive(
     The :attr:`path` and the :attr:`mesh` attributes of an empty primitive
     are ``None`` and the :meth:`vertices` method  yields no vertices.
 
-    .. versionchanged:: 0.17
-        regular support for the :class:`~ezdxf.entities.Hatch` entity.
-
     """
     cls = _PRIMITIVE_CLASSES.get(entity.dxftype(), EmptyPrimitive)
     primitive = cls(entity)
@@ -586,7 +577,8 @@ def recursive_decompose(entities: Iterable[DXFEntity]) -> Iterable[DXFEntity]:
 
 
 def to_primitives(
-    entities: Iterable[DXFEntity], max_flattening_distance: float = None
+    entities: Iterable[DXFEntity],
+    max_flattening_distance: Optional[float] = None,
 ) -> Iterable[Primitive]:
     """Yields all DXF entities as path or mesh primitives. Yields
     unsupported entities as empty primitives, see :func:`make_primitive`.

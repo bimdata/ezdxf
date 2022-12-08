@@ -1,9 +1,10 @@
-# Copyright (c) 2021, Manfred Moitzi
+# Copyright (c) 2021-2022, Manfred Moitzi
 # License: MIT License
-import math
-from typing import TYPE_CHECKING, Tuple, List, Optional, Dict, Any
+from __future__ import annotations
+from typing import TYPE_CHECKING, Optional
 from abc import abstractmethod
 import logging
+import math
 
 from ezdxf.math import (
     Vec2,
@@ -20,7 +21,6 @@ from .dim_base import (
     get_required_defpoint,
     format_text,
     apply_dimpost,
-    TextBox,
     Tolerance,
     Measurement,
     LengthMeasurement,
@@ -36,13 +36,12 @@ if TYPE_CHECKING:
     from ezdxf.eztypes import GenericLayoutType
 
 __all__ = ["AngularDimension", "Angular3PDimension", "ArcLengthDimension"]
-
 logger = logging.getLogger("ezdxf")
 
 ARC_PREFIX = "( "
 
 
-def has_required_attributes(entity: DXFEntity, attrib_names: List[str]):
+def has_required_attributes(entity: DXFEntity, attrib_names: list[str]):
     has = entity.dxf.hasattr
     return all(has(attrib_name) for attrib_name in attrib_names)
 
@@ -189,8 +188,8 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
     def __init__(
         self,
         dimension: Dimension,
-        ucs: "UCS" = None,
-        override: DimStyleOverride = None,
+        ucs: Optional[UCS] = None,
+        override: Optional[DimStyleOverride] = None,
     ):
         super().__init__(dimension, ucs, override)
         # Common parameters for all sub-classes:
@@ -279,7 +278,7 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
         ...
 
     @abstractmethod
-    def get_defpoints(self) -> List[Vec2]:
+    def get_defpoints(self) -> list[Vec2]:
         ...
 
     def transform_ucs_to_wcs(self) -> None:
@@ -310,7 +309,7 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
         text_radial_dir = Vec2.from_angle(self.center_angle_rad)
         return self.center_of_arc + text_radial_dir * radius
 
-    def setup_text_and_arrow_fitting(self):
+    def setup_text_and_arrow_fitting(self) -> None:
         # self.text_box.width includes the gaps between text and dimension line
         # Is the measurement text without the arrows too wide to fit between the
         # extension lines?
@@ -326,7 +325,7 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
 
         # dimatfit: measurement text fitting rule is ignored!
         # Place arrows outside?
-        self.arrows_outside: bool = not fits_into_arc_span(
+        self.arrows_outside = not fits_into_arc_span(
             required_text_and_arrows_space,
             self.dim_line_radius,
             self.arc_angle_span_rad,
@@ -448,7 +447,7 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
                 rotation += 180.0  # apply to UCS rotation!
         measurement.text_rotation = rotation
 
-    def get_leader_points(self) -> Tuple[Vec2, Vec2]:
+    def get_leader_points(self) -> tuple[Vec2, Vec2]:
         # Leader location is defined by dimtad (text_valign):
         # "center":
         # - connects to the left or right vertical center of the text
@@ -468,7 +467,7 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
                 p1, p2 = c0, c1
             return order_leader_points(self.dim_midpoint, p1, p2)
 
-    def render(self, block: "GenericLayoutType") -> None:
+    def render(self, block: GenericLayoutType) -> None:
         """Main method to create dimension geometry of basic DXF entities in the
         associated BLOCK layout.
 
@@ -506,9 +505,7 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
                 self.ext2_start, self.ext2_dir, ext_lines.dxfattribs(2)
             )
 
-    def _add_ext_line(
-        self, start: Vec2, direction: Vec2, dxfattribs: Dict[str, Any]
-    ) -> None:
+    def _add_ext_line(self, start: Vec2, direction: Vec2, dxfattribs) -> None:
         ext_lines = self.extension_lines
         center = self.center_of_arc
         radius = self.dim_line_radius
@@ -529,7 +526,7 @@ class _CurvedDimensionLine(BaseDimensionRenderer):
         end = center + direction * (radius + ext_above)
         self.add_line(start, end, dxfattribs=dxfattribs)
 
-    def add_arrows(self) -> Tuple[float, float]:
+    def add_arrows(self) -> tuple[float, float]:
         """Add arrows or ticks to dimension.
 
         Returns: dimension start- and end angle offsets to adjust the
@@ -736,8 +733,8 @@ class AngularDimension(_AngularCommonBase):
     def __init__(
         self,
         dimension: Dimension,
-        ucs: "UCS" = None,
-        override: DimStyleOverride = None,
+        ucs: Optional[UCS] = None,
+        override: Optional[DimStyleOverride] = None,
     ):
         self.leg1_start = get_required_defpoint(dimension, "defpoint")
         self.leg1_end = get_required_defpoint(dimension, "defpoint4")
@@ -762,7 +759,7 @@ class AngularDimension(_AngularCommonBase):
             p2=self.leg2_end,
         )
 
-    def get_defpoints(self) -> List[Vec2]:
+    def get_defpoints(self) -> list[Vec2]:
         return [
             self.leg1_start,
             self.leg1_end,
@@ -837,8 +834,8 @@ class Angular3PDimension(_AngularCommonBase):
     def __init__(
         self,
         dimension: Dimension,
-        ucs: "UCS" = None,
-        override: DimStyleOverride = None,
+        ucs: Optional[UCS] = None,
+        override: Optional[DimStyleOverride] = None,
     ):
         self.dim_line_location = get_required_defpoint(dimension, "defpoint")
         self.leg1_start = get_required_defpoint(dimension, "defpoint2")
@@ -848,7 +845,7 @@ class Angular3PDimension(_AngularCommonBase):
         self.ext1_start = self.leg1_start
         self.ext2_start = self.leg2_start
 
-    def get_defpoints(self) -> List[Vec2]:
+    def get_defpoints(self) -> list[Vec2]:
         return [
             self.dim_line_location,
             self.leg1_start,
@@ -912,8 +909,8 @@ class ArcLengthDimension(_CurvedDimensionLine):
     def __init__(
         self,
         dimension: Dimension,
-        ucs: "UCS" = None,
-        override: DimStyleOverride = None,
+        ucs: Optional[UCS] = None,
+        override: Optional[DimStyleOverride] = None,
     ):
         self.dim_line_location = get_required_defpoint(dimension, "defpoint")
         self.leg1_start = get_required_defpoint(dimension, "defpoint2")
@@ -924,7 +921,7 @@ class ArcLengthDimension(_CurvedDimensionLine):
         self.ext1_start = self.leg1_start
         self.ext2_start = self.leg2_start
 
-    def get_defpoints(self) -> List[Vec2]:
+    def get_defpoints(self) -> list[Vec2]:
         return [
             self.dim_line_location,
             self.leg1_start,
@@ -970,7 +967,7 @@ def detect_closer_defpoint(
 
 def arrow_offset_angles(
     arrow_name: str, size: float, radius: float
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     start_offset: float = 0.0
     end_offset: float = size / radius
     length = arrow_length(arrow_name, size)

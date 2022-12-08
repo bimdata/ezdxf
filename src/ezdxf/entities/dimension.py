@@ -1,8 +1,8 @@
 # Copyright (c) 2019-2022 Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
+from typing import TYPE_CHECKING, Optional, Union, Iterable, Iterator
 import math
-from typing import TYPE_CHECKING, Optional, Union, Iterable
 import logging
 from ezdxf.audit import AuditError
 from ezdxf.lldxf import validator, const
@@ -38,17 +38,12 @@ from .factory import register_entity
 from .dimstyleoverride import DimStyleOverride
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import (
-        TagWriter,
-        DimStyle,
-        DXFNamespace,
-        BlockLayout,
-        OCS,
-        BaseLayout,
-        EntityQuery,
-        DXFEntity,
-        Auditor,
-    )
+    from ezdxf.entities import DXFNamespace, DXFEntity, DimStyle
+    from ezdxf.lldxf.tagwriter import AbstractTagWriter
+    from ezdxf.layouts import BaseLayout, BlockLayout
+    from ezdxf.audit import Auditor
+    from ezdxf.query import EntityQuery
+    from ezdxf.math import OCS
 
 logger = logging.getLogger("ezdxf")
 ADSK_CONSTRAINTS = "*ADSK_CONSTRAINTS"
@@ -86,9 +81,7 @@ acdb_dimension = DefSubclass(
         "text_midpoint": DXFAttr(11, xtype=XType.point3d),
         # Insertion point for clones of a dimension (Baseline and Continue?) (in OCS)
         # located in AcDbDimension? Another error in the DXF reference?
-        "insert": DXFAttr(
-            12, xtype=XType.point3d, default=NULLVEC, optional=True
-        ),
+        "insert": DXFAttr(12, xtype=XType.point3d, default=NULLVEC, optional=True),
         # Dimension type:
         # Important: Dimensional constraints do not have group code 70
         # Values 0–6 are integer values that represent the dimension type.
@@ -243,9 +236,7 @@ class OverrideMixin:
         """Returns all valid DXF attributes (internal API)."""
         return self.get_dim_style().DXFATTRIBS
 
-    def dim_style_attr_names_to_handles(
-        self, data: dict, dxfversion: str
-    ) -> dict:
+    def dim_style_attr_names_to_handles(self, data: dict, dxfversion: str) -> dict:
         """`Ezdxf` uses internally only resource names for arrows, linetypes
         and text styles, but DXF 2000 and later requires handles for these
         resources, this method translates resource names into related handles.
@@ -283,9 +274,7 @@ class OverrideMixin:
             try:
                 ltype = self.doc.linetypes.get(linetype_name)
             except DXFTableEntryError:
-                logger.warning(
-                    f'Required line type "{linetype_name}" does not exist.'
-                )
+                logger.warning(f'Required line type "{linetype_name}" does not exist.')
             else:
                 data[attrib_name + "_handle"] = ltype.dxf.handle
 
@@ -362,7 +351,7 @@ class OverrideMixin:
             self.set_xdata_list("ACAD", "DSTYLE", tags)  # type: ignore
 
     def dim_style_attr_handles_to_names(self, data: dict) -> dict:
-        """`ezdxf` uses internally only resource names for arrows, line types
+        """`Ezdxf` uses internally only resource names for arrows, line types
         and text styles, but DXF 2000 and later requires handles for these
         resources, this method translates resource handles into related names.
         (e.g. 'dimtxsty_handle', <handle of FancyStyle> -> 'dimtxsty': 'FancyStyle')
@@ -485,7 +474,7 @@ class Dimension(DXFGraphic, OverrideMixin):
     # WARNING for destroy() method:
     # Do not destroy associated anonymous block, if DIMENSION is used in a
     # block, the same geometry block maybe used by multiple block references.
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         # store the content of the geometry block for virtual entities
         self.virtual_block_content: Optional[EntitySpace] = None
@@ -501,9 +490,7 @@ class Dimension(DXFGraphic, OverrideMixin):
         assert isinstance(entity, Dimension)
         if self.virtual_block_content:
             # another copy of a virtual entity:
-            virtual_content = EntitySpace(
-                e.copy() for e in self.virtual_block_content
-            )
+            virtual_content = EntitySpace(e.copy() for e in self.virtual_block_content)
         else:
             # entity is a new virtual copy of self and can not share the same
             # geometry block to be independently transformable:
@@ -516,7 +503,7 @@ class Dimension(DXFGraphic, OverrideMixin):
     def post_bind_hook(self):
         """Called after binding a virtual dimension entity to a document.
 
-        This method is not called at the loading stage, but virtual dimension
+        This method is not called at the loading stage and virtual dimension
         entities do not exist at the loading stage!
 
         """
@@ -532,7 +519,7 @@ class Dimension(DXFGraphic, OverrideMixin):
             self.virtual_block_content = None
 
     def load_dxf_attribs(
-        self, processor: SubclassProcessor = None
+        self, processor: Optional[SubclassProcessor] = None
     ) -> DXFNamespace:
         dxf = super().load_dxf_attribs(processor)
         if processor:
@@ -546,7 +533,7 @@ class Dimension(DXFGraphic, OverrideMixin):
             # content.
         return dxf
 
-    def export_entity(self, tagwriter: TagWriter) -> None:
+    def export_entity(self, tagwriter: AbstractTagWriter) -> None:
         """Export entity specific data as DXF tags."""
         super().export_entity(tagwriter)
         if tagwriter.dxfversion == DXF12:
@@ -609,16 +596,12 @@ class Dimension(DXFGraphic, OverrideMixin):
 
         if dim_type == 0:  # linear
             tagwriter.write_tag2(SUBCLASS_MARKER, "AcDbAlignedDimension")
-            self.dxf.export_dxf_attribs(
-                tagwriter, ["defpoint2", "defpoint3", "angle"]
-            )
+            self.dxf.export_dxf_attribs(tagwriter, ["defpoint2", "defpoint3", "angle"])
             # empty but required subclass
             tagwriter.write_tag2(SUBCLASS_MARKER, "AcDbRotatedDimension")
         elif dim_type == 1:  # aligned
             tagwriter.write_tag2(SUBCLASS_MARKER, "AcDbAlignedDimension")
-            self.dxf.export_dxf_attribs(
-                tagwriter, ["defpoint2", "defpoint3", "angle"]
-            )
+            self.dxf.export_dxf_attribs(tagwriter, ["defpoint2", "defpoint3", "angle"])
         elif dim_type == 2:  # angular & angular3p
             tagwriter.write_tag2(SUBCLASS_MARKER, "AcDb2LineAngularDimension")
             self.dxf.export_dxf_attribs(
@@ -626,14 +609,10 @@ class Dimension(DXFGraphic, OverrideMixin):
             )
         elif dim_type == 3:  # diameter
             tagwriter.write_tag2(SUBCLASS_MARKER, "AcDbDiametricDimension")
-            self.dxf.export_dxf_attribs(
-                tagwriter, ["defpoint4", "leader_length"]
-            )
+            self.dxf.export_dxf_attribs(tagwriter, ["defpoint4", "leader_length"])
         elif dim_type == 4:  # radius
             tagwriter.write_tag2(SUBCLASS_MARKER, "AcDbRadialDimension")
-            self.dxf.export_dxf_attribs(
-                tagwriter, ["defpoint4", "leader_length"]
-            )
+            self.dxf.export_dxf_attribs(tagwriter, ["defpoint4", "leader_length"])
         elif dim_type == 5:  # angular & angular3p
             tagwriter.write_tag2(SUBCLASS_MARKER, "AcDb3PointAngularDimension")
             self.dxf.export_dxf_attribs(
@@ -692,7 +671,9 @@ class Dimension(DXFGraphic, OverrideMixin):
         return DimStyleOverride(self)
 
     def render(self) -> None:
-        """Render graphical representation as anonymous block."""
+        """Renders the graphical representation of the DIMENSION entity as DXF
+        primitives (TEXT, LINE, ARC, ...) into an anonymous content BLOCK.
+        """
         if self.is_virtual:
             raise DXFTypeError("can not render virtual entity")
         # Do not delete existing anonymous block, it is maybe referenced
@@ -746,7 +727,7 @@ class Dimension(DXFGraphic, OverrideMixin):
             except (NotImplementedError, NonUniformScalingError):
                 pass  # ignore transformation errors
 
-    def __virtual_entities__(self) -> Iterable[DXFGraphic]:
+    def __virtual_entities__(self) -> Iterator[DXFGraphic]:
         """Implements the SupportsVirtualEntities protocol."""
 
         def ocs_to_wcs(e: DXFGraphic, elevation: float):
@@ -805,30 +786,28 @@ class Dimension(DXFGraphic, OverrideMixin):
                 copy.transform(m)
             yield copy
 
-    def virtual_entities(self) -> Iterable[DXFGraphic]:
-        """
-        Yields 'virtual' parts of DIMENSION as basic DXF entities like LINE, ARC
-        or TEXT.
+    def virtual_entities(self) -> Iterator[DXFGraphic]:
+        """Yields the graphical representation of the anonymous content BLOCK as virtual
+        DXF primitives (LINE, ARC, TEXT, ...).
 
-        These entities are located at the original positions, but are not stored
-        in the entity database, have no handle and are not assigned to any
-        layout.
+        These virtual entities are located at the original location of the DIMENSION entity,
+        but they are not stored in the entity database, have no handle and are not
+        assigned to any layout.
 
         """
         return self.__virtual_entities__()
 
-    def explode(self, target_layout: BaseLayout = None) -> EntityQuery:
-        """
-        Explode parts of DIMENSION as basic DXF entities like LINE, ARC or TEXT
-        into target layout, if target layout is ``None``, the target layout is
-        the layout of the DIMENSION.
+    def explode(self, target_layout: Optional[BaseLayout] = None) -> EntityQuery:
+        """Explodes the graphical representation of the DIMENSION entity as DXF
+        primitives (LINE, ARC, TEXT, ...) into the target layout, ``None`` for the same
+        layout as the source DIMENSION entity.
 
-        Returns an :class:`~ezdxf.query.EntityQuery` container with all DXF
+        Returns an :class:`~ezdxf.query.EntityQuery` container containing all DXF
         primitives.
 
         Args:
-            target_layout: target layout for DXF parts, ``None`` for same layout
-                as source entity.
+            target_layout: target layout for the DXF primitives, ``None`` for same
+                layout as source DIMENSION entity.
 
         """
         return explode_entity(self, target_layout)
@@ -906,7 +885,7 @@ class ArcDimension(Dimension):
     MIN_DXF_VERSION_FOR_EXPORT = DXF2000
 
     def load_dxf_attribs(
-        self, processor: SubclassProcessor = None
+        self, processor: Optional[SubclassProcessor] = None
     ) -> DXFNamespace:
         # Skip Dimension loader:
         dxf = super(Dimension, self).load_dxf_attribs(processor)
@@ -925,7 +904,7 @@ class ArcDimension(Dimension):
         else:
             return (self.dxf.dimtype & 0xFFF0) | 5
 
-    def export_entity(self, tagwriter: TagWriter) -> None:
+    def export_entity(self, tagwriter: AbstractTagWriter) -> None:
         """Export entity specific data as DXF tags."""
         dimtype = self.dxf.dimtype  # preserve original dimtype
         self.dxf.dimtype = self.versioned_dimtype(tagwriter.dxfversion)
@@ -994,7 +973,7 @@ class RadialDimensionLarge(Dimension):
     MIN_DXF_VERSION_FOR_EXPORT = DXF2004
 
     def load_dxf_attribs(
-        self, processor: SubclassProcessor = None
+        self, processor: Optional[SubclassProcessor] = None
     ) -> DXFNamespace:
         # Skip Dimension loader:
         dxf = super(Dimension, self).load_dxf_attribs(processor)
@@ -1007,7 +986,7 @@ class RadialDimensionLarge(Dimension):
             )
         return dxf
 
-    def export_entity(self, tagwriter: TagWriter) -> None:
+    def export_entity(self, tagwriter: AbstractTagWriter) -> None:
         """Export entity specific data as DXF tags."""
         super().export_entity(tagwriter)
         tagwriter.write_tag2(SUBCLASS_MARKER, "AcDbRadialDimensionLarge")
@@ -1167,7 +1146,7 @@ def angle_between(v1: Vec3, v2: Vec3) -> float:
 
 
 def linear_measurement(
-    p1: Vec3, p2: Vec3, angle: float = 0, ocs: OCS = None
+    p1: Vec3, p2: Vec3, angle: float = 0, ocs: Optional[OCS] = None
 ) -> float:
     """Returns distance from `p1` to `p2` projected onto ray defined by
     `angle`, `angle` in radians in the xy-plane.

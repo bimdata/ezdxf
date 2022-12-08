@@ -1,8 +1,7 @@
-# Copyright (c) 2019-2021, Manfred Moitzi
+# Copyright (c) 2019-2022, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
-
-from typing import TYPE_CHECKING, Iterator, Union, Dict, Iterable, Tuple
+from typing import TYPE_CHECKING, Iterator, Union, Iterable, Optional
 
 from ezdxf.entities import factory, is_graphic_entity, SortEntsTable
 from ezdxf.enums import InsertUnits
@@ -19,12 +18,8 @@ from ezdxf.entitydb import EntityDB, EntitySpace
 from ezdxf.graphicsfactory import CreatorInterface
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import (
-        BlockRecord,
-        DXFGraphic,
-        KeyFunc,
-        ExtensionDict,
-    )
+    from ezdxf.entities import DXFGraphic, BlockRecord, ExtensionDict
+    from ezdxf.eztypes import KeyFunc
 
 SUPPORTED_FOREIGN_ENTITY_TYPES = {
     "ARC",
@@ -52,7 +47,7 @@ class _AbstractLayout(CreatorInterface):
     entity_space = EntitySpace()
 
     @property
-    def entitydb(self) -> "EntityDB":
+    def entitydb(self) -> EntityDB:
         """Returns drawing entity database. (internal API)"""
         return self.doc.entitydb
 
@@ -63,7 +58,7 @@ class _AbstractLayout(CreatorInterface):
         """Returns count of entities owned by the layout."""
         return len(self.entity_space)
 
-    def __iter__(self) -> Iterator["DXFGraphic"]:
+    def __iter__(self) -> Iterator[DXFGraphic]:
         """Returns iterable of all drawing entities in this layout."""
         return iter(self.entity_space)  # type: ignore
 
@@ -74,7 +69,7 @@ class _AbstractLayout(CreatorInterface):
         standard Python list, therefore `index` can be any valid list indexing
         or slicing term, like a single index ``layout[-1]`` to get the last
         entity, or an index slice ``layout[:10]`` to get the first 10 or less
-        entities as ``List[DXFGraphic]``.
+        entities as ``list[DXFGraphic]``.
 
         """
         return self.entity_space[index]
@@ -83,7 +78,7 @@ class _AbstractLayout(CreatorInterface):
         """Get all DXF entities matching the :ref:`entity query string`."""
         return EntityQuery(iter(self), query)
 
-    def groupby(self, dxfattrib: str = "", key: "KeyFunc" = None) -> dict:
+    def groupby(self, dxfattrib: str = "", key: Optional[KeyFunc] = None) -> dict:
         """
         Returns a ``dict`` of entity lists, where entities are grouped by a
         `dxfattrib` or a `key` function.
@@ -107,13 +102,13 @@ class _AbstractLayout(CreatorInterface):
 
 
 class BaseLayout(_AbstractLayout):
-    def __init__(self, block_record: "BlockRecord"):
+    def __init__(self, block_record: BlockRecord):
         doc = block_record.doc
         assert doc is not None
         super().__init__(doc)
         self.entity_space = block_record.entity_space
         # This is the real central layout management structure:
-        self.block_record: "BlockRecord" = block_record
+        self.block_record: BlockRecord = block_record
 
     @property
     def block_record_handle(self):
@@ -178,7 +173,7 @@ class BaseLayout(_AbstractLayout):
         """Set layout/block drawing units as enum."""
         self.block_record.dxf.units = value  # has a DXF validator
 
-    def get_extension_dict(self) -> "ExtensionDict":
+    def get_extension_dict(self) -> ExtensionDict:
         """Returns the associated extension dictionary, creates a new one if
         necessary.
         """
@@ -188,7 +183,7 @@ class BaseLayout(_AbstractLayout):
         else:
             return block_record.new_extension_dict()
 
-    def add_entity(self, entity: "DXFGraphic") -> None:
+    def add_entity(self, entity: DXFGraphic) -> None:
         """Add an existing :class:`DXFGraphic` entity to a layout, but be sure
         to unlink (:meth:`~BaseLayout.unlink_entity`) entity from the previous
         owner layout. Adding entities from a different DXF drawing is not
@@ -208,7 +203,7 @@ class BaseLayout(_AbstractLayout):
             raise DXFTypeError(f"invalid entity {str(entity)}")
         self.block_record.add_entity(entity)
 
-    def add_foreign_entity(self, entity: "DXFGraphic", copy=True) -> None:
+    def add_foreign_entity(self, entity: DXFGraphic, copy=True) -> None:
         """Add a foreign DXF entity to a layout, this foreign entity could be
         from another DXF document or an entity without an assigned DXF document.
         The intention of this method is to add **simple** entities from another
@@ -273,13 +268,13 @@ class BaseLayout(_AbstractLayout):
         # add to this layout & bind to document
         self.add_entity(entity)
 
-    def unlink_entity(self, entity: "DXFGraphic") -> None:
+    def unlink_entity(self, entity: DXFGraphic) -> None:
         """Unlink `entity` from layout but does not delete entity from the
         entity database, this removes `entity` just from the layout entity space.
         """
         self.block_record.unlink_entity(entity)
 
-    def delete_entity(self, entity: "DXFGraphic") -> None:
+    def delete_entity(self, entity: DXFGraphic) -> None:
         """Delete `entity` from layout entity space and the entity database,
         this destroys the `entity`.
         """
@@ -295,7 +290,7 @@ class BaseLayout(_AbstractLayout):
             self.delete_entity(entity)
 
     def move_to_layout(
-        self, entity: "DXFGraphic", layout: "BaseLayout"
+        self, entity: DXFGraphic, layout: BaseLayout
     ) -> None:
         """Move entity to another layout.
 
@@ -322,7 +317,7 @@ class BaseLayout(_AbstractLayout):
         # the block_record is the owner of the entities and deletes them all
         self.doc.block_records.remove(self.block_record.dxf.name)
 
-    def get_sortents_table(self, create: bool = True) -> "SortEntsTable":
+    def get_sortents_table(self, create: bool = True) -> SortEntsTable:
         """Get/Create the SORTENTSTABLE object associated to the layout.
 
         Args:
@@ -353,15 +348,15 @@ class BaseLayout(_AbstractLayout):
         return sortents_table
 
     def set_redraw_order(
-        self, handles: Union[Dict, Iterable[Tuple[str, str]]]
+        self, handles: Union[dict, Iterable[tuple[str, str]]]
     ) -> None:
         """If the header variable $SORTENTS `Regen` flag (bit-code value 16)
         is set, AutoCAD regenerates entities in ascending handles order.
 
         To change redraw order associate a different sort-handle to entities,
         this redefines the order in which the entities are regenerated.
-        `handles` can be a dict of entity_handle and sort_handle as (k, v)
-        pairs, or an iterable of (entity_handle, sort_handle) tuples.
+        The `handles` argument can be a dict of entity_handle and sort_handle
+        as (k, v) pairs, or an iterable of (entity_handle, sort_handle) tuples.
 
         The sort-handle doesn't have to be unique, some or all entities can
         share the same sort-handle and a sort-handle can be an existing handle.
@@ -380,7 +375,7 @@ class BaseLayout(_AbstractLayout):
             handles = handles.items()
         sortents.set_handles(handles)
 
-    def get_redraw_order(self) -> Iterable[Tuple[str, str]]:
+    def get_redraw_order(self) -> Iterable[tuple[str, str]]:
         """Returns iterable for all existing table entries as (entity_handle,
         sort_handle) pairs, see also :meth:`~BaseLayout.set_redraw_order`.
 
@@ -399,9 +394,6 @@ class BaseLayout(_AbstractLayout):
     def entities_in_redraw_order(self, reverse=False) -> Iterable[DXFGraphic]:
         """Yields all entities from layout in ascending redraw order or
         descending redraw order if `reverse` is ``True``.
-
-        .. versionadded:: 0.18.1
-
         """
         from ezdxf import reorder
 
@@ -431,18 +423,18 @@ class VirtualLayout(_AbstractLayout):
     def dxfversion(self) -> str:
         return LATEST_DXF_VERSION
 
-    def add_entity(self, entity: "DXFGraphic") -> None:
+    def add_entity(self, entity: DXFGraphic) -> None:
         self.entity_space.add(entity)
 
-    def new_entity(self, type_: str, dxfattribs: dict) -> "DXFGraphic":
+    def new_entity(self, type_: str, dxfattribs: dict) -> DXFGraphic:
         entity = factory.new(type_, dxfattribs=dxfattribs)
         self.entity_space.add(entity)
         return entity  # type: ignore
 
-    def unlink_entity(self, entity: "DXFGraphic") -> None:
+    def unlink_entity(self, entity: DXFGraphic) -> None:
         self.entity_space.remove(entity)
 
-    def delete_entity(self, entity: "DXFGraphic") -> None:
+    def delete_entity(self, entity: DXFGraphic) -> None:
         self.entity_space.remove(entity)
 
     def delete_all_entities(self) -> None:

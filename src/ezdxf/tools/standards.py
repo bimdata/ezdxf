@@ -1,8 +1,8 @@
 # Copyright (c) 2016-2022, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
-from typing import TYPE_CHECKING, List, Tuple, Sequence, Union, cast
-
+from typing import TYPE_CHECKING, Tuple, Sequence, Union, cast, Optional
+from typing_extensions import TypeAlias
 from ezdxf import const
 from ezdxf._options import options
 from ezdxf.render.arrows import ARROWS
@@ -14,10 +14,9 @@ import logging
 if TYPE_CHECKING:
     from ezdxf.document import Drawing
     from ezdxf.entities import DimStyle
-    from ezdxf.layouts import Paperspace
 
 logger = logging.getLogger("ezdxf")
-LTypeDef = Tuple[str, str, Sequence[float]]
+LTypeDef: TypeAlias = Tuple[str, str, Sequence[float]]
 
 
 def setup_drawing(doc: Drawing, topics: Union[str, bool, Sequence] = "all"):
@@ -37,7 +36,7 @@ def setup_drawing(doc: Drawing, topics: Union[str, bool, Sequence] = "all"):
     if not topics:  # topics is None, False or ""
         return
 
-    def get_token(name: str) -> List[str]:
+    def get_token(name: str) -> list[str]:
         for t in topics:  # type: ignore
             token = t.split(":")
             if token[0] == name:
@@ -249,8 +248,12 @@ class DimStyleFmt:
 
 
 def setup_dimstyle(
-    doc: "Drawing", fmt: str, style: str = None, blk: str = None, name: str = ""
-) -> "DimStyle":
+    doc: Drawing,
+    fmt: str,
+    style: Optional[str] = None,
+    blk: Optional[str] = None,
+    name: str = "",
+) -> DimStyle:
     """Easy DimStyle setup, the `fmt` string defines four essential dimension
     parameters separated by the `_` character. Tested and works with the metric
     system, I don't touch the 'english unit' system.
@@ -418,7 +421,7 @@ ANSI_LINE_TYPES = [
 ]
 
 
-def linetypes(scale: float = 1.0) -> List[LTypeDef]:
+def linetypes(scale: float = 1.0) -> list[LTypeDef]:
     """Creates a list of standard line types.
     Imperial units (in, ft, yd, ...) have a scale factor of 1.0, ISO units (m,
     cm, mm, ...) have a scale factor of 2.54, available as constant
@@ -465,14 +468,14 @@ def styles():
     ]
 
 
-def setup_visual_styles(doc: "Drawing"):
+def setup_visual_styles(doc: Drawing):
     if doc.dxfversion < const.DXF2013:
         setup_visual_styles_r2000(doc)
     else:
         setup_visual_styles_r2013(doc)
 
 
-def setup_visual_styles_r2000(doc: "Drawing"):
+def setup_visual_styles_r2000(doc: Drawing):
     objects = doc.objects
     vstyle_dict = doc.rootdict.get_required_dict("ACAD_VISUALSTYLE")
     vstyle_dict_handle = vstyle_dict.dxf.handle
@@ -484,7 +487,7 @@ def setup_visual_styles_r2000(doc: "Drawing"):
         vstyle_dict[vstyle_object.dxf.description] = vstyle_object
 
 
-def setup_visual_styles_r2013(doc: "Drawing"):
+def setup_visual_styles_r2013(doc: Drawing):
     objects = doc.objects
     vstyle_dict = doc.rootdict.get_required_dict("ACAD_VISUALSTYLE")
     vstyle_dict_handle = vstyle_dict.dxf.handle

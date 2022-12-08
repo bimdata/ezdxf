@@ -1,7 +1,7 @@
 # Copyright (c) 2010-2022 Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
-from typing import TYPE_CHECKING, Iterable, Union, Sequence, Tuple, Type
+from typing import TYPE_CHECKING, Iterable, Union, Sequence, Type
 import math
 from functools import lru_cache
 
@@ -11,7 +11,7 @@ from ._matrix44 import Matrix44
 from ._construct import arc_angle_span_deg
 
 if TYPE_CHECKING:
-    from ._vector import UVec, AnyVec
+    from ezdxf.math import UVec, AnyVec
     from ezdxf.math.ellipse import ConstructionEllipse
 
 __all__ = [
@@ -149,8 +149,6 @@ class Bezier4P:
                 subdivided.
             segments: minimum segment count
 
-        .. versionadded:: 0.15
-
         """
 
         def subdiv(
@@ -218,18 +216,16 @@ class Bezier4P:
             prev_point = point
         return length
 
-    def reverse(self) -> "Bezier4P":
+    def reverse(self) -> Bezier4P:
         """Returns a new Bèzier-curve with reversed control point order."""
         return Bezier4P(list(reversed(self.control_points)))
 
-    def transform(self, m: Matrix44) -> "Bezier4P":
+    def transform(self, m: Matrix44) -> Bezier4P:
         """General transformation interface, returns a new :class:`Bezier4p`
-        curve and it is always a 3D curve.
+        curve as a 3D curve.
 
         Args:
              m: 4x4 transformation matrix (:class:`ezdxf.math.Matrix44`)
-
-        .. versionadded:: 0.14
 
         """
         defpoints: Iterable[AnyVec]
@@ -329,7 +325,7 @@ TANGENT_FACTOR = DEFAULT_TANGENT_FACTOR
 
 def cubic_bezier_arc_parameters(
     start_angle: float, end_angle: float, segments: int = 1
-) -> Iterable[Tuple[Vec3, Vec3, Vec3, Vec3]]:
+) -> Iterable[tuple[Vec3, Vec3, Vec3, Vec3]]:
     """Yields cubic Bézier-curve parameters for a circular 2D arc with center
     at (0, 0) and a radius of 1 in the form of [start point, 1. control point,
     2. control point, end point].

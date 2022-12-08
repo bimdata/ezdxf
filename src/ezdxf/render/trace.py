@@ -2,14 +2,15 @@
 # License: MIT License
 from __future__ import annotations
 from typing import (
-    List,
     TYPE_CHECKING,
     Iterable,
     Tuple,
     Union,
     cast,
     Sequence,
+    Optional,
 )
+from typing_extensions import TypeAlias
 from abc import abstractmethod
 from collections import namedtuple
 import math
@@ -27,8 +28,8 @@ from ezdxf.math import (
 )
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import (
-        Drawing,
+    from ezdxf.document import Drawing
+    from ezdxf.entities import (
         DXFGraphic,
         Solid,
         Trace,
@@ -47,9 +48,9 @@ LinearStation = namedtuple(
 
 CurveStation = namedtuple("CurveStation", ("vertex0", "vertex1"))
 
-Face = Tuple[Vec2, Vec2, Vec2, Vec2]
-Polygon = Sequence[Vec2]
-Quadrilateral = Union["Solid", "Trace", "Face3d"]
+Face: TypeAlias = Tuple[Vec2, Vec2, Vec2, Vec2]
+Polygon: TypeAlias = Sequence[Vec2]
+Quadrilateral: TypeAlias = Union["Solid", "Trace", "Face3d"]
 
 
 class AbstractTrace:
@@ -74,8 +75,8 @@ class AbstractTrace:
                     yield vertex
                     prev = vertex
 
-        forward_contour: List[Vec2] = []
-        backward_contour: List[Vec2] = []
+        forward_contour: list[Vec2] = []
+        backward_contour: list[Vec2] = []
         for up1, down1, down2, up2 in self.faces():
             forward_contour.extend((down1, down2))
             backward_contour.extend((up1, up2))
@@ -85,7 +86,7 @@ class AbstractTrace:
         return contour
 
     def virtual_entities(
-        self, dxftype="TRACE", dxfattribs=None, doc: "Drawing" = None
+        self, dxftype="TRACE", dxfattribs=None, doc: Optional[Drawing] = None
     ) -> Iterable[Quadrilateral]:
         """
         Yields faces as SOLID, TRACE or 3DFACE entities with DXF attributes
@@ -127,8 +128,8 @@ class LinearTrace(AbstractTrace):
 
     """
 
-    def __init__(self):
-        self._stations: List[LinearStation] = []
+    def __init__(self) -> None:
+        self._stations: list[LinearStation] = []
         self.abs_tol = 1e-12
 
     def __len__(self):
@@ -143,7 +144,7 @@ class LinearTrace(AbstractTrace):
         return bool(self._stations)
 
     def add_station(
-        self, point: UVec, start_width: float, end_width: float = None
+        self, point: UVec, start_width: float, end_width: Optional[float] = None
     ) -> None:
         """Add a trace station (like a vertex) at location `point`,
         `start_width` is the width of the next segment starting at this station,
@@ -188,7 +189,7 @@ class LinearTrace(AbstractTrace):
 
         def offset_rays(
             segment: int,
-        ) -> Tuple[ConstructionRay, ConstructionRay]:
+        ) -> tuple[ConstructionRay, ConstructionRay]:
             """Create offset rays from segment offset vertices."""
 
             def ray(v1, v2):
@@ -318,8 +319,8 @@ class CurvedTrace(AbstractTrace):
 
     """
 
-    def __init__(self):
-        self._stations: List[CurveStation] = []
+    def __init__(self) -> None:
+        self._stations: list[CurveStation] = []
 
     def __len__(self):
         return len(self._stations)
@@ -436,8 +437,8 @@ class TraceBuilder(Sequence):
 
     """
 
-    def __init__(self):
-        self._traces: List[AbstractTrace] = []
+    def __init__(self) -> None:
+        self._traces: list[AbstractTrace] = []
         self.abs_tol = 1e-12
 
     def __len__(self):
@@ -487,7 +488,7 @@ class TraceBuilder(Sequence):
             )
 
     def virtual_entities(
-        self, dxftype="TRACE", dxfattribs=None, doc: Drawing = None
+        self, dxftype="TRACE", dxfattribs=None, doc: Optional[Drawing] = None
     ) -> Iterable[Quadrilateral]:
         """Yields faces as SOLID, TRACE or 3DFACE entities with DXF attributes
         given in `dxfattribs`.

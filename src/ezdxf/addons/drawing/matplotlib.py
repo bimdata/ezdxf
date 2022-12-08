@@ -1,8 +1,8 @@
 # Copyright (c) 2020-2022, Matthew Broadway
 # License: MIT License
 from __future__ import annotations
+from typing import Iterable, Optional, Union
 import math
-from typing import Iterable, TYPE_CHECKING, Optional, List, Tuple, Union
 import logging
 from os import PathLike
 
@@ -13,6 +13,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import PathPatch
 from matplotlib.path import Path
 
+import ezdxf.path
 from ezdxf.addons.drawing.backend import Backend, prepare_string_for_rendering
 from ezdxf.addons.drawing.properties import Properties, LayoutProperties
 from ezdxf.addons.drawing.type_hints import FilterFunc
@@ -21,12 +22,8 @@ from ezdxf.tools.fonts import FontMeasurements
 from ezdxf.addons.drawing.type_hints import Color
 from ezdxf.tools import fonts
 from ezdxf.math import Vec3, Matrix44
-import ezdxf.path
-
+from ezdxf.layouts import Layout
 from .config import Configuration, HatchPolicy
-
-if TYPE_CHECKING:
-    from ezdxf.eztypes import Layout
 
 logger = logging.getLogger("ezdxf")
 # matplotlib docs: https://matplotlib.org/index.html
@@ -57,9 +54,6 @@ def setup_axes(ax: plt.Axes):
 class MatplotlibBackend(Backend):
     """Backend which uses the :mod:`Matplotlib` package for image export.
 
-    The current implementation does not support VIEWPORT clipping and is
-    therefore not very suitable for exporting paperspace layouts.
-
     Args:
         ax: drawing canvas as :class:`matplotlib.pyplot.Axes` object
         adjust_figure: automatically adjust the size of the parent
@@ -68,6 +62,7 @@ class MatplotlibBackend(Backend):
         use_text_cache: use caching for text path rendering
 
     """
+
     def __init__(
         self,
         ax: plt.Axes,
@@ -103,7 +98,7 @@ class MatplotlibBackend(Backend):
         self.ax.set_facecolor(color)
 
     def set_clipping_path(
-        self, path: ezdxf.path.Path = None, scale: float = 1.0
+        self, path: Optional[ezdxf.path.Path] = None, scale: float = 1.0
     ) -> bool:
         from matplotlib.transforms import Transform
 
@@ -159,7 +154,7 @@ class MatplotlibBackend(Backend):
 
     def draw_solid_lines(
         self,
-        lines: Iterable[Tuple[Vec3, Vec3]],
+        lines: Iterable[tuple[Vec3, Vec3]],
         properties: Properties,
     ):
         """Fast method to draw a bunch of solid lines with the same properties."""
@@ -219,7 +214,7 @@ class MatplotlibBackend(Backend):
         if self.config.hatch_policy == HatchPolicy.SHOW_OUTLINE:
             return
         linewidth = 0
-        oriented_paths: List[ezdxf.path.Path] = []
+        oriented_paths: list[ezdxf.path.Path] = []
         for path in paths:
             try:
                 path = path.counter_clockwise()
@@ -278,14 +273,19 @@ class MatplotlibBackend(Backend):
             text_path = self._text_renderer.get_text_path(text, font_properties)
         except (RuntimeError, ValueError):
             return
-
-        transformed_path = _transform_path(
-            text_path,
-            Matrix44.scale(
-                self._text_renderer.get_scale(cap_height, font_properties)
+        try:
+            transformed_path = _transform_path(
+                text_path,
+                Matrix44.scale(
+                    self._text_renderer.get_scale(cap_height, font_properties)
+                )
+                @ transform,
             )
-            @ transform,
-        )
+        except ValueError as e:
+            logger.info(
+                f"ignored transformation error of matplotlib path in draw_text(): {str(e)}"
+            )
+            return
         try:
             patch = PathPatch(
                 transformed_path,
@@ -295,19 +295,24 @@ class MatplotlibBackend(Backend):
                 gid=properties.output_id,
             )
         except ValueError as e:
-            logger.info(f"ignored matplotlib error in draw_text(): {str(e)}")
-        else:
-            self.ax.add_patch(patch)
+            logger.info(
+                f"ignored unknown matplotlib error in draw_text(): {str(e)}"
+            )
+            return
+        self.ax.add_patch(patch)
 
     def get_font_measurements(
-        self, cap_height: float, font: fonts.FontFace = None
+        self, cap_height: float, font: Optional[fonts.FontFace] = None
     ) -> FontMeasurements:
         return self._text_renderer.get_font_measurements(
             self._text_renderer.get_font_properties(font)
         ).scale_from_baseline(desired_cap_height=cap_height)
 
     def get_text_line_width(
-        self, text: str, cap_height: float, font: fonts.FontFace = None
+        self,
+        text: str,
+        cap_height: float,
+        font: Optional[fonts.FontFace] = None,
     ) -> float:
         if not text.strip():
             return 0
@@ -333,6 +338,7 @@ class MatplotlibBackend(Backend):
 
 
 def _transform_path(path: Path, transform: Matrix44) -> Path:
+    # raises ValueError for invalid TextPath objects
     vertices = transform.transform_vertices(
         [Vec3(x, y) for x, y in path.vertices]
     )
@@ -350,7 +356,7 @@ def _get_aspect_ratio(ax: plt.Axes) -> float:
 
 def _get_width_height(
     ratio: float, width: float, height: float
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     if width == 0.0 and height == 0.0:
         raise ValueError("invalid (width, height) values")
     if width == 0.0:
@@ -368,10 +374,11 @@ def qsave(
     fg: Optional[Color] = None,
     dpi: int = 300,
     backend: str = "agg",
-    config: Configuration = None,
-    filter_func: FilterFunc = None,
-    size_inches: Optional[Tuple[float, float]] = None,
+    config: Optional[Configuration] = None,
+    filter_func: Optional[FilterFunc] = None,
+    size_inches: Optional[tuple[float, float]] = None,
     margins=True,
+
 ) -> None:
     """Quick and simplified render export by matplotlib.
 

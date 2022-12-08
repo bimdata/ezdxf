@@ -6,13 +6,12 @@ from typing import (
     Iterable,
     Iterator,
     Union,
-    Tuple,
     Optional,
-    Dict,
     Callable,
     Type,
     TypeVar,
 )
+from typing_extensions import TypeAlias
 from functools import singledispatch, partial
 import enum
 from ezdxf.math import (
@@ -261,17 +260,7 @@ def _from_hatch(hatch: Hatch, **kwargs) -> Path:
 
 
 def from_hatch(hatch: Hatch) -> Iterator[Path]:
-    """Yield all HATCH boundary paths as separated :class:`Path` objects.
-
-
-    .. versionadded:: 0.16
-
-    .. versionchanged:: 17.1
-
-        Attaches the boundary state to each path as
-        :class:`ezdxf.lldxf.const.BoundaryPathState`.
-
-    """
+    """Yield all HATCH boundary paths as separated :class:`Path` objects."""
     ocs = hatch.ocs()
     elevation = hatch.dxf.elevation.z
     for boundary in hatch.paths:
@@ -284,18 +273,12 @@ def from_hatch(hatch: Hatch) -> Iterator[Path]:
 
 def from_hatch_boundary_path(
     boundary: AbstractBoundaryPath,
-    ocs: OCS = None,
+    ocs: Optional[OCS] = None,
     elevation: float = 0,
     offset: Vec3 = NULLVEC,  # ocs offset!
 ) -> "Path":
     """Returns a :class:`Path` object from a :class:`~ezdxf.entities.Hatch`
     polyline- or edge path.
-
-    .. versionchanged:: 17.1
-
-        Attaches the boundary state to each path as
-        :class:`ezdxf.lldxf.const.BoundaryPathState`.
-
     """
     if isinstance(boundary, EdgePath):
         p = from_hatch_edge_path(boundary, ocs, elevation)
@@ -315,7 +298,7 @@ def from_hatch_boundary_path(
 
 
 def from_hatch_polyline_path(
-    polyline: PolylinePath, ocs: OCS = None, elevation: float = 0
+    polyline: PolylinePath, ocs: Optional[OCS] = None, elevation: float = 0
 ) -> Path:
     """Returns a :class:`Path` object from a :class:`~ezdxf.entities.Hatch`
     polyline path.
@@ -323,7 +306,7 @@ def from_hatch_polyline_path(
     path = Path()
     tools.add_2d_polyline(
         path,
-        polyline.vertices,  # List[(x, y, bulge)]
+        polyline.vertices,  # list[(x, y, bulge)]
         close=polyline.is_closed,
         ocs=ocs or OCS(),
         elevation=elevation,
@@ -333,7 +316,7 @@ def from_hatch_polyline_path(
 
 def from_hatch_edge_path(
     edges: EdgePath,
-    ocs: OCS = None,
+    ocs: Optional[OCS] = None,
     elevation: float = 0,
 ) -> Path:
     """Returns a :class:`Path` object from a :class:`~ezdxf.entities.Hatch`
@@ -523,8 +506,6 @@ def to_lwpolylines(
     Returns:
         iterable of :class:`~ezdxf.entities.LWPolyline` objects
 
-    .. versionadded:: 0.16
-
     """
     if isinstance(paths, Path):
         paths = [paths]
@@ -551,7 +532,7 @@ def to_lwpolylines(
             yield p
 
 
-def _get_ocs(extrusion: Vec3, reference_point: Vec3) -> Tuple[OCS, float]:
+def _get_ocs(extrusion: Vec3, reference_point: Vec3) -> tuple[OCS, float]:
     ocs = OCS(extrusion)
     elevation = ocs.from_wcs(reference_point).z  # type: ignore
     return ocs, elevation
@@ -581,8 +562,6 @@ def to_polylines2d(
 
     Returns:
         iterable of 2D :class:`~ezdxf.entities.Polyline` objects
-
-    .. versionadded:: 0.16
 
     """
     if isinstance(paths, Path):
@@ -641,8 +620,6 @@ def to_hatches(
     Returns:
         iterable of :class:`~ezdxf.entities.Hatch` objects
 
-    .. versionadded:: 0.16
-
     """
     boundary_factory: BoundaryFactory
     if edge_path:
@@ -687,8 +664,6 @@ def to_mpolygons(
 
     Returns:
         iterable of :class:`~ezdxf.entities.MPolygon` objects
-
-    .. versionadded:: 0.17
 
     """
     # noinspection PyTypeChecker
@@ -761,7 +736,7 @@ def _polygon_converter(
 
     extrusion = Vec3(extrusion)
     reference_point = paths[0].start
-    _dxfattribs: Dict = dict(dxfattribs or {})
+    _dxfattribs: dict = dict(dxfattribs or {})
     if not Z_AXIS.isclose(extrusion):
         ocs, elevation = _get_ocs(extrusion, reference_point)
         paths = tools.transform_paths_to_ocs(paths, ocs)
@@ -806,8 +781,6 @@ def to_polylines3d(
     Returns:
         iterable of 3D :class:`~ezdxf.entities.Polyline` objects
 
-    .. versionadded:: 0.16
-
     """
     if isinstance(paths, Path):
         paths = [paths]
@@ -839,8 +812,6 @@ def to_lines(
     Returns:
         iterable of :class:`~ezdxf.entities.Line` objects
 
-    .. versionadded:: 0.16
-
     """
     if isinstance(paths, Path):
         paths = [paths]
@@ -860,7 +831,7 @@ def to_lines(
         prev_vertex = None
 
 
-PathParts = Union[BSpline, List[Vec3]]
+PathParts:TypeAlias = Union[BSpline, List[Vec3]]
 
 
 def to_bsplines_and_vertices(
@@ -876,8 +847,6 @@ def to_bsplines_and_vertices(
 
     Returns:
         :class:`~ezdxf.math.BSpline` and lists of :class:`~ezdxf.math.Vec3`
-
-    .. versionadded:: 0.16
 
     """
     from ezdxf.math import bezier_to_bspline
@@ -917,8 +886,8 @@ def to_bsplines_and_vertices(
             curves.append(curve)
             prev = cmd.end
 
-    bezier: List = []
-    polyline: List = []
+    bezier: list = []
+    polyline: list = []
     for curve in curves:
         if isinstance(curve, tuple):
             if bezier:
@@ -953,8 +922,6 @@ def to_splines_and_polylines(
 
     Returns:
         iterable of :class:`~ezdxf.entities.Line` objects
-
-    .. versionadded:: 0.16
 
     """
     if isinstance(paths, Path):
@@ -993,8 +960,6 @@ def multi_path_from_matplotlib_path(mpath, curves=True) -> Path:
     (`TextPath`_)  object. (requires Matplotlib). Returns a multi-path object
     if necessary.
 
-    .. versionadded:: 0.17
-
     .. _TextPath: https://matplotlib.org/3.1.1/api/textpath_api.html
     .. _Path: https://matplotlib.org/3.1.1/api/path_api.html#matplotlib.path.Path
 
@@ -1029,8 +994,6 @@ def from_matplotlib_path(mpath, curves=True) -> Iterator[Path]:
     """Yields multiple :class:`Path` objects from a Matplotlib `Path`_
     (`TextPath`_)  object. (requires Matplotlib)
 
-    .. versionadded:: 0.16
-
     .. _TextPath: https://matplotlib.org/3.1.1/api/textpath_api.html
     .. _Path: https://matplotlib.org/3.1.1/api/path_api.html#matplotlib.path.Path
 
@@ -1057,8 +1020,6 @@ def to_matplotlib_path(paths: Iterable[Path], extrusion: UVec = Z_AXIS):
     Returns:
         matplotlib `Path`_ in OCS!
 
-    .. versionadded:: 0.16
-
     """
     from matplotlib.path import Path as MatplotlibPath
 
@@ -1073,8 +1034,8 @@ def to_matplotlib_path(paths: Iterable[Path], extrusion: UVec = Z_AXIS):
         codes.append(code)
         vertices.append((point.x, point.y))
 
-    vertices: List[Tuple[float, float]] = []
-    codes: List[MplCmd] = []
+    vertices: list[tuple[float, float]] = []
+    codes: list[MplCmd] = []
     for path in paths:
         add_command(MplCmd.MOVETO, path.start)
         for cmd in path.commands():
@@ -1102,14 +1063,12 @@ def multi_path_from_qpainter_path(qpath) -> Path:
     """Returns a :class:`Path` objects from a `QPainterPath`_.
     Returns a multi-path object if necessary. (requires Qt bindings)
 
-    .. versionadded:: 0.17
-
     .. _QPainterPath: https://doc.qt.io/qt-5/qpainterpath.html
 
     """
     # QPainterPath stores only cubic Bèzier curves
     path = Path()
-    vertices: List[Vec3] = []
+    vertices: list[Vec3] = []
     for index in range(qpath.elementCount()):
         element = qpath.elementAt(index)
         cmd = element.type
@@ -1137,8 +1096,6 @@ def from_qpainter_path(qpath) -> Iterator[Path]:
     """Yields multiple :class:`Path` objects from a `QPainterPath`_.
     (requires Qt bindings)
 
-    .. versionadded:: 0.16
-
     .. _QPainterPath: https://doc.qt.io/qt-5/qpainterpath.html
 
     """
@@ -1164,8 +1121,6 @@ def to_qpainter_path(paths: Iterable[Path], extrusion: UVec = Z_AXIS):
 
     Returns:
         `QPainterPath`_ in OCS!
-
-    .. versionadded:: 0.16
 
     """
     from ezdxf.addons.xqt import QPainterPath, QPointF

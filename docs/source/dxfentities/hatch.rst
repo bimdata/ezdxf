@@ -4,8 +4,8 @@ Hatch
 .. module:: ezdxf.entities
     :noindex:
 
-The HATCH entity (`DXF Reference`_) fills an enclosed area defined by one or
-more boundary paths with a hatch pattern, solid fill, or gradient fill.
+The HATCH entity (`DXF Reference`_) fills a closed area defined by one or
+more boundary paths by a hatch pattern, a solid fill, or a gradient fill.
 
 All points in :ref:`OCS` as (x, y) tuples (:attr:`Hatch.dxf.elevation` is the
 z-axis value).
@@ -14,16 +14,13 @@ There are two different hatch pattern default scaling, depending on the HEADER
 variable $MEASUREMENT, one for ISO measurement (m, cm, mm, ...) and one for
 imperial measurement (in, ft, yd, ...).
 
-Starting with `ezdxf` v0.15 the default scaling for predefined hatch pattern
-will be chosen according this measurement setting in the HEADER section, this
-replicates the behavior of BricsCAD and other CAD applications. `ezdxf` uses
-the ISO pattern definitions as a base line and scales this pattern down by
-factor 1/25.6 for imperial measurement usage.
+The default scaling for predefined hatch pattern will be chosen according this
+measurement setting in the HEADER section, this replicates the behavior of
+BricsCAD and other CAD applications. `Ezdxf` uses the ISO pattern definitions as
+a base line and scales this pattern down by factor 1/25.6 for imperial
+measurement usage.
 The pattern scaling is independent from the drawing units of the document
 defined by the HEADER variable $INSUNITS.
-
-Prior to `ezdxf` v0.15 the default scaling was always the ISO
-measurement scaling, no matter which value $MEASUREMENT had.
 
 .. seealso::
 
@@ -39,7 +36,7 @@ Required DXF version     DXF R2000 (``'AC1015'``)
 
 .. _DXF Reference: http://help.autodesk.com/view/OARX/2018/ENU/?guid=GUID-C6C71CED-CE0F-4184-82A5-07AD6241F15B
 
-.. rubric:: Boundary paths helper classes
+.. rubric:: Boundary paths classes
 
 Path manager: :class:`BoundaryPaths`
 
@@ -50,7 +47,7 @@ Path manager: :class:`BoundaryPaths`
     - :class:`EllipseEdge`
     - :class:`SplineEdge`
 
-.. rubric:: Pattern and gradient helper classes
+.. rubric:: Pattern and gradient classes
 
 - :class:`Pattern`
 - :class:`PatternLine`
@@ -65,8 +62,8 @@ Path manager: :class:`BoundaryPaths`
     .. attribute:: dxf.solid_fill
 
         === ==========================================================
-        1   solid fill, better use: :meth:`Hatch.set_solid_fill`
-        0   pattern fill, better use: :meth:`Hatch.set_pattern_fill`
+        1   solid fill,  use method :meth:`Hatch.set_solid_fill`
+        0   pattern fill, use method :meth:`Hatch.set_pattern_fill`
         === ==========================================================
 
     .. attribute:: dxf.associative
@@ -76,8 +73,7 @@ Path manager: :class:`BoundaryPaths`
         0   not associative hatch
         === =========================
 
-        Associations not handled by `ezdxf`, you have to set the handles to the
-        associated DXF entities by yourself.
+        Associations are not managed by `ezdxf`.
 
     .. attribute:: dxf.hatch_style
 
@@ -99,12 +95,12 @@ Path manager: :class:`BoundaryPaths`
 
     .. attribute:: dxf.pattern_angle
 
-        Actual pattern angle in degrees (float). Changing this value does not
+        The actual pattern rotation angle in degrees (float). Changing this value does not
         rotate the pattern, use :meth:`~Hatch.set_pattern_angle` for this task.
 
     .. attribute:: dxf.pattern_scale
 
-        Actual pattern scaling factor (float). Changing this value does not
+        The actual pattern scale factor (float). Changing this value does not
         scale the pattern use :meth:`~Hatch.set_pattern_scale` for this task.
 
     .. attribute:: dxf.pattern_double
@@ -113,7 +109,7 @@ Path manager: :class:`BoundaryPaths`
 
     .. attribute:: dxf.n_seed_points
 
-        Count of seed points (better user: :meth:`get_seed_points`)
+        Count of seed points (use :meth:`get_seed_points`)
 
     .. attribute:: dxf.elevation
 
@@ -133,7 +129,7 @@ Path manager: :class:`BoundaryPaths`
 
     .. attribute:: seeds
 
-        List of ``(x, y)`` tuples.
+        A list of seed points as (x, y) tuples.
 
     .. autoproperty:: has_solid_fill
 
@@ -166,7 +162,7 @@ Path manager: :class:`BoundaryPaths`
 Boundary Paths
 --------------
 
-The hatch entity is build by different functional path types, this are
+The hatch entity is build by different path types, these are the
 filter flags for the :attr:`Hatch.dxf.hatch_style`:
 
 - EXTERNAL: defines the outer boundary of the hatch
@@ -197,8 +193,8 @@ Hatch Style
   marked as EXTERNAL or OUTERMOST.
 - HATCH_STYLE_NESTED: Use all existing paths.
 
-Hatch Boundary Helper Classes
------------------------------
+Hatch Boundary Classes
+----------------------
 
 .. class:: BoundaryPaths
 
@@ -206,7 +202,8 @@ Hatch Boundary Helper Classes
 
     .. attribute:: paths
 
-        List of all boundary paths. Contains :class:`PolylinePath` and :class:`EdgePath` objects. (read/write)
+        List of all boundary paths. Contains :class:`PolylinePath` and
+        :class:`EdgePath` objects. (read/write)
 
     .. automethod:: external_paths
 
@@ -269,13 +266,15 @@ Hatch Boundary Helper Classes
 
         My interpretation of the :attr:`path_type_flags`, see also :ref:`tut_hatch`:
 
-            * external - path is part of the hatch outer border
-            * outermost - path is completely inside of one or more external paths
-            * default - path is completely inside of one or more outermost paths
+            - external: path is part of the hatch outer border
+            - outermost: path is completely inside of one or more external paths
+            - default: path is completely inside of one or more outermost paths
 
-        If there are troubles with AutoCAD, maybe the hatch entity has the :attr:`Hatch.dxf.pixel_size` attribute set -
-        delete it :code:`del hatch.dxf.pixel_size` and maybe the problem is solved. `ezdxf` does not use the
-        :attr:`Hatch.dxf.pixel_size` attribute, but it can occur in DXF files created by other applications.
+        If there are troubles with AutoCAD, maybe the hatch entity has the
+        :attr:`Hatch.dxf.pixel_size` attribute set - delete it
+        :code:`del hatch.dxf.pixel_size` and maybe the problem is solved.
+        `Ezdxf` does not use the :attr:`Hatch.dxf.pixel_size` attribute, but it
+        can occur in DXF files created by other applications.
 
     .. attribute:: PolylinePath.is_closed
 
@@ -287,8 +286,9 @@ Hatch Boundary Helper Classes
 
     .. attribute:: source_boundary_objects
 
-        List of handles of the associated DXF entities for associative hatches. There is no support for
-        associative hatches by `ezdxf`, you have to do it all by yourself. (read/write)
+        List of handles of the associated DXF entities for associative hatches.
+        There is no support for associative hatches by `ezdxf`, you have to do
+        it all by yourself. (read/write)
 
     .. automethod:: set_vertices
 
@@ -486,8 +486,8 @@ Hatch Boundary Helper Classes
         Spline end tangent (vector)  as (x, y)-tuple. (read/write)
 
 
-Hatch Pattern Definition Helper Classes
----------------------------------------
+Hatch Pattern Definition Classes
+--------------------------------
 
 .. class:: Pattern
 
@@ -504,8 +504,8 @@ Hatch Pattern Definition Helper Classes
 
 .. class:: PatternLine
 
-    Represents a pattern definition line, use factory function :meth:`Pattern.add_line` to create new pattern
-    definition lines.
+    Represents a pattern definition line, use factory function :meth:`Pattern.add_line`
+    to create new pattern definition lines.
 
     .. attribute:: angle
 
@@ -523,8 +523,8 @@ Hatch Pattern Definition Helper Classes
 
         List of dash length items (item > 0 is line, < 0 is gap, 0.0 = dot). (read/write)
 
-Hatch Gradient Fill Helper Classes
-----------------------------------
+Hatch Gradient Fill Class
+-------------------------
 
 .. class:: Gradient
 
@@ -547,14 +547,14 @@ Hatch Gradient Fill Helper Classes
 
     .. attribute:: centered
 
-        Specifies a symmetrical gradient configuration. If this option is not selected, the gradient
-        fill is shifted up and to the left, creating the illusion of a light source to the left of
-        the object. (read/write)
+        Specifies a symmetrical gradient configuration. If this option is not
+        selected, the gradient fill is shifted up and to the left, creating the
+        illusion of a light source to the left of the object. (read/write)
 
     .. attribute:: tint
 
-        Specifies the tint (:attr:`color1` mixed with white) of a color to be used for a gradient
-        fill of one color. (read/write)
+        Specifies the tint (:attr:`color1` mixed with white) of a color to be
+        used for a gradient fill of one color. (read/write)
 
 .. seealso::
 

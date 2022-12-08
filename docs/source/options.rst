@@ -1,3 +1,5 @@
+.. _global_options:
+
 Global Options Object
 =====================
 
@@ -20,10 +22,10 @@ To change options, especially the read only attributes, you have to edit the
 config file with a text editor, or set options by the :meth:`set` method and
 write the current configuration into a config file.
 
+.. _config_files:
+
 Config Files
 ============
-
- .. versionadded:: 0.16.5
 
 The default config files are loaded from the user home directory as
 "~/.config/ezdxf/ezdxf.ini", and the current working directory as "./ezdxf.ini".

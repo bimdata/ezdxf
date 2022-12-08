@@ -1,6 +1,7 @@
-# Copyright (c) 2019-2021 Manfred Moitzi
+# Copyright (c) 2019-2022 Manfred Moitzi
 # License: MIT License
-from typing import Sequence, Optional, Dict, Union, List
+from __future__ import annotations
+from typing import Sequence, Optional, Union
 import abc
 import copy
 
@@ -48,14 +49,14 @@ PATTERN_DEFINITION_LINE_CODES = {53, 43, 44, 45, 46, 79, 49}
 class DXFPolygon(DXFGraphic):
     """Base class for the HATCH and the MPOLYGON entity."""
 
-    LOAD_GROUP_CODES: Dict[int, Union[str, List[str]]] = {}
+    LOAD_GROUP_CODES: dict[int, Union[str, list[str]]] = {}
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.paths = BoundaryPaths()
         self.pattern: Optional[Pattern] = None
         self.gradient: Optional[Gradient] = None
-        self.seeds = []  # not supported/exported by MPOLYGON
+        self.seeds: list[tuple[float, float]] = []  # not supported/exported by MPOLYGON
 
     def _copy_data(self, entity: DXFEntity) -> None:
         """Copy paths, pattern, gradient, seeds."""
@@ -66,7 +67,7 @@ class DXFPolygon(DXFGraphic):
         entity.seeds = copy.deepcopy(self.seeds)
 
     def load_dxf_attribs(
-        self, processor: SubclassProcessor = None
+        self, processor: Optional[SubclassProcessor] = None
     ) -> DXFNamespace:
         dxf = super().load_dxf_attribs(processor)
         if processor:
@@ -98,9 +99,7 @@ class DXFPolygon(DXFGraphic):
                 f"boundary paths (loops)' (code=91)."
             )
 
-        path_tags = tags.collect_consecutive_tags(
-            PATH_CODES, start=start_index + 1
-        )
+        path_tags = tags.collect_consecutive_tags(PATH_CODES, start=start_index + 1)
         if len(path_tags):
             self.paths = BoundaryPaths.load_tags(path_tags)
         end_index = start_index + len(path_tags) + 1
@@ -121,7 +120,7 @@ class DXFPolygon(DXFGraphic):
         self.pattern = Pattern.load_tags(pattern_tags)
 
         # Delete pattern data including length tag 78
-        del tags[index: index + len(pattern_tags) + 1]
+        del tags[index : index + len(pattern_tags) + 1]
         return tags
 
     def load_gradient(self, tags: Tags) -> Tags:
@@ -203,22 +202,20 @@ class DXFPolygon(DXFGraphic):
         tint: float = 0.0,
         name: str = "LINEAR",
     ) -> None:
-        """Set :class:`Hatch` and :class:`MPolygon` to gradient fill mode and
-        removes all pattern fill related data. Gradient support requires
-        DXF R2004+.
-        A gradient filled hatch is also a solid filled hatch.
+        """Sets the gradient fill mode and removes all pattern fill related data, requires
+        DXF R2004 or newer.  A gradient filled hatch is also a solid filled hatch.
 
         Valid gradient type names are:
 
-            - ``'LINEAR'``
-            - ``'CYLINDER'``
-            - ``'INVCYLINDER'``
-            - ``'SPHERICAL'``
-            - ``'INVSPHERICAL'``
-            - ``'HEMISPHERICAL'``
-            - ``'INVHEMISPHERICAL'``
-            - ``'CURVED'``
-            - ``'INVCURVED'``
+            - "LINEAR"
+            - "CYLINDER"
+            - "INVCYLINDER"
+            - "SPHERICAL"
+            - "INVSPHERICAL"
+            - "HEMISPHERICAL"
+            - "INVHEMISPHERICAL"
+            - "CURVED"
+            - "INVCURVED"
 
         Args:
             color1: (r, g, b)-tuple for first color, rgb values as int in
@@ -264,19 +261,18 @@ class DXFPolygon(DXFGraphic):
         pattern_type: int = 1,
         definition=None,
     ) -> None:
-        """Set :class:`Hatch` and :class:`MPolygon` to pattern fill mode.
-        Removes all gradient related data.
-        The pattern definition should be designed for scaling
-        factor 1. Predefined hatch pattern like "ANSI33" are scaled according
-        to the HEADER variable $MEASUREMENT for ISO measurement (m, cm, ... ),
-        or imperial units (in, ft, ...), this replicates the behavior of
-        BricsCAD.
+        """Sets the pattern fill mode and removes all gradient related data.
+
+        The pattern definition should be designed for a scale factor 1 and a rotation
+        angle of 0 degrees.  The predefined hatch pattern like "ANSI33" are scaled
+        according to the HEADER variable $MEASUREMENT for ISO measurement (m, cm, ... ),
+        or imperial units (in, ft, ...), this replicates the behavior of BricsCAD.
 
         Args:
             name: pattern name as string
             color: pattern color as :ref:`ACI`
-            angle: angle of pattern fill in degrees
-            scale: pattern scaling as float
+            angle: pattern rotation angle in degrees
+            scale: pattern scale factor
             double: double size flag
             style: hatch style (0 = normal; 1 = outer; 2 = ignore)
             pattern_type: pattern type (0 = user-defined;
@@ -303,9 +299,7 @@ class DXFPolygon(DXFGraphic):
             predefined_pattern = (
                 pattern.ISO_PATTERN if measurement else pattern.IMPERIAL_PATTERN
             )
-            definition = predefined_pattern.get(
-                name, predefined_pattern["ANSI31"]
-            )
+            definition = predefined_pattern.get(name, predefined_pattern["ANSI31"])
         self.set_pattern_definition(
             definition,
             factor=self.dxf.pattern_scale,
@@ -315,20 +309,20 @@ class DXFPolygon(DXFGraphic):
     def set_pattern_definition(
         self, lines: Sequence, factor: float = 1, angle: float = 0
     ) -> None:
-        """Setup pattern definition by a list of definition lines and  a
-        definition line is a 4-tuple (angle, base_point, offset, dash_length_items),
-        the pattern definition should be designed for scaling factor 1 and
-        angle 0.
+        """Setup pattern definition by a list of definition lines and the
+        definition line is a 4-tuple (angle, base_point, offset, dash_length_items).
+        The pattern definition should be designed for a pattern scale factor of 1 and
+        a pattern rotation angle of 0.
 
             - angle: line angle in degrees
-            - base-point: 2-tuple (x, y)
-            - offset: 2-tuple (dx, dy)
+            - base-point: (x, y) tuple
+            - offset: (dx, dy) tuple
             - dash_length_items: list of dash items (item > 0 is a line,
               item < 0 is a gap and item == 0.0 is a point)
 
         Args:
             lines: list of definition lines
-            factor: pattern scaling factor
+            factor: pattern scale factor
             angle: rotation angle in degrees
 
         """
@@ -339,17 +333,16 @@ class DXFPolygon(DXFGraphic):
         )
 
     def set_pattern_scale(self, scale: float) -> None:
-        """Set scaling of pattern definition to `scale`.
+        """Sets the pattern scale factor and scales the pattern definition.
 
-        Starts always from the original base scaling, :code:`set_pattern_scale(1)`
-        reset the pattern scaling to the original appearance as defined by the
-        pattern designer, but only if the pattern attribute
-        :attr:`dxf.pattern_scale` represents the actual scaling, it is not
-        possible to recreate the original pattern scaling from the pattern
-        definition itself.
+        The method always starts from the original base scale, the
+        :code:`set_pattern_scale(1)` call resets the pattern scale to the original
+        appearance as defined by the pattern designer, but only if the pattern attribute
+        :attr:`dxf.pattern_scale` represents the actual scale, it cannot
+        restore the original pattern scale from the pattern definition itself.
 
         Args:
-            scale: pattern scaling factor
+            scale: pattern scale factor
 
         """
         if not self.has_pattern_fill:
@@ -359,17 +352,17 @@ class DXFPolygon(DXFGraphic):
         dxf.pattern_scale = scale
 
     def set_pattern_angle(self, angle: float) -> None:
-        """Set rotation of pattern definition to `angle` in degrees.
+        """Sets the pattern rotation angle and rotates the pattern definition.
 
-        Starts always from the original base rotation 0,
-        :code:`set_pattern_angle(0)` reset the pattern rotation to the original
-        appearance as defined by the pattern designer, but only if the
-        pattern attribute :attr:`dxf.pattern_angle` represents the actual
-        rotation, it is not possible to recreate the original rotation from the
+        The method always starts from the original base rotation of 0, the
+        :code:`set_pattern_angle(0)` call resets the pattern rotation angle to the
+        original appearance as defined by the pattern designer, but only if the
+        pattern attribute :attr:`dxf.pattern_angle` represents the actual pattern
+        rotation, it cannot restore the original rotation angle from the
         pattern definition itself.
 
         Args:
-            angle: rotation angle in degrees
+            angle: pattern rotation angle in degrees
 
         """
         if not self.has_pattern_fill:
@@ -378,21 +371,27 @@ class DXFPolygon(DXFGraphic):
         self.pattern.scale(angle=angle - dxf.pattern_angle)  # type: ignore
         dxf.pattern_angle = angle % 360.0
 
-    def transform(self, m: "Matrix44") -> "DXFPolygon":
+    def transform(self, m: Matrix44) -> DXFPolygon:
         """Transform entity by transformation matrix `m` inplace."""
         dxf = self.dxf
         ocs = OCSTransform(dxf.extrusion, m)
 
         elevation = Vec3(dxf.elevation).z
         self.paths.transform(ocs, elevation=elevation)
-        dxf.elevation = ocs.transform_vertex(Vec3(0, 0, elevation)).replace(
-            x=0, y=0
-        )
+        dxf.elevation = ocs.transform_vertex(Vec3(0, 0, elevation)).replace(x=0, y=0)
         dxf.extrusion = ocs.new_extrusion
-        # todo scale pattern
+        if self.pattern:
+            # todo: non-uniform scaling
+            # take the scaling factor of the x-axis
+            factor = ocs.transform_length((self.dxf.pattern_scale, 0, 0))
+            angle = ocs.transform_deg_angle(self.dxf.pattern_angle)
+            # todo: non-uniform pattern scaling is not supported
+            self.pattern.scale(factor, angle)
+            self.dxf.pattern_scale = factor
+            self.dxf.pattern_angle = angle
         self.post_transform(m)
         return self
 
     @abc.abstractmethod
-    def set_solid_fill(self, color: int = 7, style: int = 1, rgb: "RGB" = None):
+    def set_solid_fill(self, color: int = 7, style: int = 1, rgb: Optional[RGB] = None):
         ...

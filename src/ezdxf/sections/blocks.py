@@ -6,42 +6,40 @@ from typing import (
     Iterable,
     Iterator,
     Union,
-    List,
     cast,
+    Optional,
 )
-from ezdxf.lldxf.const import (
-    DXFStructureError,
-    DXFBlockInUseError,
-    DXFTableEntryError,
-    DXFKeyError,
-)
-from ezdxf.lldxf import const, validator
-from ezdxf.entities import (
-    factory,
-    entity_linker,
-    Block,
-    EndBlk,
-    BlockRecord,
-    is_graphic_entity,
-    Attrib,
-)
-from ezdxf.layouts.blocklayout import BlockLayout
-from ezdxf.math import UVec, NULLVEC, Vec3
-from ezdxf.render.arrows import ARROWS
-from ezdxf.audit import Auditor, AuditError
 import logging
 
-logger = logging.getLogger("ezdxf")
+from ezdxf.audit import Auditor, AuditError
+from ezdxf.layouts.blocklayout import BlockLayout
+from ezdxf.lldxf import const, validator
+from ezdxf.lldxf.const import (
+    DXFBlockInUseError,
+    DXFKeyError,
+    DXFStructureError,
+    DXFTableEntryError,
+)
+from ezdxf.entities import (
+    Attrib,
+    Block,
+    BlockRecord,
+    EndBlk,
+    entity_linker,
+    factory,
+    is_graphic_entity,
+)
+from ezdxf.math import UVec, NULLVEC, Vec3
+from ezdxf.render.arrows import ARROWS
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import (
-        TagWriter,
-        Drawing,
-        EntityDB,
-        DXFEntity,
-        DXFTagStorage,
-        Table,
-    )
+    from ezdxf.document import Drawing
+    from ezdxf.entities import DXFEntity, DXFTagStorage
+    from ezdxf.entitydb import EntityDB
+    from ezdxf.lldxf.tagwriter import AbstractTagWriter
+    from ezdxf.sections.table import Table
+
+logger = logging.getLogger("ezdxf")
 
 
 def is_special_block(name: str) -> bool:
@@ -83,7 +81,9 @@ class BlocksSection:
     """
 
     def __init__(
-        self, doc: "Drawing" = None, entities: List[DXFEntity] = None
+        self,
+        doc: Optional[Drawing] = None,
+        entities: Optional[list[DXFEntity]] = None,
     ):
         self.doc = doc
         if entities is not None:
@@ -108,7 +108,7 @@ class BlocksSection:
     def entitydb(self) -> EntityDB:
         return self.doc.entitydb  # type: ignore
 
-    def load(self, entities: List[DXFEntity]) -> None:
+    def load(self, entities: list[DXFEntity]) -> None:
         """
         Load DXF entities into BlockLayouts. `entities` is a list of
         entity tags, separated by BLOCK and ENDBLK entities.
@@ -118,7 +118,7 @@ class BlocksSection:
         def load_block_record(
             block: Block,
             endblk: EndBlk,
-            block_entities: List[DXFEntity],
+            block_entities: list[DXFEntity],
         ) -> BlockRecord:
             try:
                 block_record = cast(
@@ -158,7 +158,7 @@ class BlocksSection:
             )
         # Remove SECTION entity
         del entities[0]
-        content: List["DXFEntity"] = []
+        content: list["DXFEntity"] = []
         block: Block = _MISSING_BLOCK_
         for entity in link_entities():
             if isinstance(entity, Block):
@@ -178,7 +178,7 @@ class BlocksSection:
                 content.clear()
             else:
                 # No check for valid entities here:
-                # Use the audit- or the recover module to fix invalid DXF files!
+                # Use the audit or the recover module to fix invalid DXF files!
                 content.append(entity)
 
     def _reconstruct_orphaned_block_records(self):
@@ -204,7 +204,7 @@ class BlocksSection:
                 block_record.set_block(block, endblk)
                 self.add(block_record)
 
-    def export_dxf(self, tagwriter: TagWriter) -> None:
+    def export_dxf(self, tagwriter: AbstractTagWriter) -> None:
         tagwriter.write_str("  0\nSECTION\n  2\nBLOCKS\n")
         for block_record in self.block_records:
             assert isinstance(block_record, BlockRecord)
@@ -271,8 +271,8 @@ class BlocksSection:
         self,
         name: str,
         base_point: UVec = NULLVEC,
-        dxfattribs: dict = None,
-    ) -> "BlockLayout":
+        dxfattribs=None,
+    ) -> BlockLayout:
         """Create and add a new :class:`~ezdxf.layouts.BlockLayout`, `name`
         is the BLOCK name, `base_point` is the insertion point of the BLOCK.
         """
@@ -334,7 +334,15 @@ class BlocksSection:
                 return blockname
 
     def rename_block(self, old_name: str, new_name: str) -> None:
-        """Rename :class:`~ezdxf.layouts.BlockLayout` `old_name` to `new_name`"""
+        """Rename :class:`~ezdxf.layouts.BlockLayout` `old_name` to `new_name`
+
+        .. warning::
+
+            This is a low-level tool and does not rename the block references,
+            so all block references to `old_name` are pointing to a non-existing
+            block definition!
+
+        """
         block_record = cast(BlockRecord, self.block_records.get(old_name))
         block_record.rename(new_name)
         self.block_records.replace(old_name, block_record)
@@ -342,16 +350,16 @@ class BlocksSection:
 
     def delete_block(self, name: str, safe: bool = True) -> None:
         """
-        Delete block. If `save` is ``True``, check if block is still referenced.
+        Delete block. Checks if the block is still referenced if `safe` is ``True``.
 
         Args:
             name: block name (case insensitive)
-            safe: check if block is still referenced or special block without
+            safe: check if the block is still referenced or a special block without
                   explicit references
 
         Raises:
             DXFKeyError: if block not exists
-            DXFBlockInUseError: if block is still referenced, and save is True
+            DXFBlockInUseError: if block is still referenced, and safe is ``True``
 
         """
         if safe:
@@ -374,13 +382,9 @@ class BlocksSection:
 
         .. warning::
 
-            There could exist undiscovered references to blocks which are
-            not documented in the DXF reference, hidden in extended data
-            sections or application defined data, which could produce invalid
-            DXF documents if such referenced blocks will be deleted.
-
-        .. versionchanged:: 0.14
-            removed unsafe mode
+            There could exist references to blocks which are not documented in the DXF
+            reference, hidden in extended data sections or application defined data,
+            which could invalidate a DXF document if these blocks will be deleted.
 
         """
         assert self.doc is not None
@@ -408,8 +412,8 @@ class BlocksSection:
 
         .. important::
 
-            Do not delete entities while auditing process, because this
-            would alter the entity database while iterating, instead use::
+            Do not delete entities during the auditing process as this will alter
+            the entity database while iterating it, instead use::
 
                 auditor.trash(entity)
 

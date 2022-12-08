@@ -1,44 +1,40 @@
-# Purpose: dimension lines as composite entities build with basic dxf entities,
-#   but not the DIMENSION entity.
-# Created: 10.03.2010, 2018 adapted for ezdxf
 # Copyright (c) 2010-2022, Manfred Moitzi
 # License: MIT License
-"""
-Dimension lines as composite entities build with basic dxf entities, but not the
-DIMENSION entity.
+"""Dimension lines as composite entities build up by DXF primitives.
 
-OBJECTS
+This add-on exist just for an easy transition from `dxfwrite` to `ezdxf`.
+
+Classes
+-------
 
 - LinearDimension
 - AngularDimension
 - ArcDimension
 - RadiusDimension
+- DimStyle
 
-PUBLIC MEMBERS
+This code was written long before I had any understanding of the DIMENSION
+entity and therefore, the classes have completely different implementations and
+styling features than the dimensions based on the DIMENSION entity .
 
-dimstyles
-    dimstyle container
+.. warning::
 
-    - new(name, kwargs) to create a new dimstyle
-    - get(name) to get a dimstyle, 'Default' if name does not exist
-    - setup(drawing) create Blocks and Layers in drawing
-
-This add-on exist only for porting 'dxfwrite' projects to 'ezdxf'.
-
-This add-on was written long before I had any understanding of the DIMENSION
-entity and therefore, they have completely different implementations and
-parameters.
+    Try to not use these classes beside porting `dxfwrite` code to `ezdxf`
+    and even for that case the usage of the regular DIMENSION entity is to
+    prefer because this module will not get much maintenance and may be removed
+    in the future.
 
 """
-from __future__  import annotations
-from typing import Any, Dict, TYPE_CHECKING, Iterable, List, Tuple
+from __future__ import annotations
+from typing import Any, TYPE_CHECKING, Iterable, Optional
 from math import radians, degrees, pi
 from abc import abstractmethod
 from ezdxf.enums import TextEntityAlignment
 from ezdxf.math import Vec3, Vec2, distance, lerp, ConstructionRay, UVec
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import Drawing, GenericLayoutType
+    from ezdxf.document import Drawing
+    from ezdxf.eztypes import GenericLayoutType
 
 DIMENSIONS_MIN_DISTANCE = 0.05
 DIMENSIONS_FLOATINGPOINT = "."
@@ -49,9 +45,7 @@ ANGLE_RAD = 1.0
 
 
 class DimStyle(dict):
-    """
-    DimStyle parameter struct, a dumb object just to store values
-
+    """DimStyle parameter struct, a dumb object just to store values
     """
 
     default_values = [
@@ -114,8 +108,8 @@ class DimStyles:
 
     """
 
-    def __init__(self):
-        self._styles = {}  # type: Dict[str, DimStyle]
+    def __init__(self) -> None:
+        self._styles: dict[str, DimStyle] = {}
         self.default = DimStyle("Default")
 
         self.new(
@@ -267,8 +261,8 @@ class LinearDimension(_DimensionBase):
         measure_points: Iterable[UVec],
         angle: float = 0.0,
         dimstyle: str = "Default",
-        layer: str = None,
-        roundval: int = None,
+        layer: Optional[str] = None,
+        roundval: Optional[int] = None,
     ):
         """
         LinearDimension Constructor.
@@ -314,7 +308,7 @@ class LinearDimension(_DimensionBase):
         """
         return self.dimline_points[self.point_order[index]]
 
-    def _get_section_points(self, section: int) -> Tuple[Vec3, Vec3]:
+    def _get_section_points(self, section: int) -> tuple[Vec3, Vec3]:
         """
         Get start and end point on the dimension line of dimension section.
         """
@@ -322,7 +316,7 @@ class LinearDimension(_DimensionBase):
             section + 1
         )
 
-    def _get_dimline_bounds(self) -> Tuple[Vec3, Vec3]:
+    def _get_dimline_bounds(self) -> tuple[Vec3, Vec3]:
         """
         Get the first and the last point of dimension line.
         """
@@ -348,7 +342,7 @@ class LinearDimension(_DimensionBase):
         self._draw_ticks(layout)
 
     @staticmethod
-    def _indices_of_sorted_points(points: Iterable[UVec]) -> List[int]:
+    def _indices_of_sorted_points(points: Iterable[UVec]) -> list[int]:
         """get indices of points, for points sorted by x, y values"""
         indexed_points = [(point, idx) for idx, point in enumerate(points)]
         indexed_points.sort()
@@ -486,8 +480,8 @@ class AngularDimension(_DimensionBase):
         start: UVec,
         end: UVec,
         dimstyle: str = "angle.deg",
-        layer: str = None,
-        roundval: int = None,
+        layer: Optional[str] = None,
+        roundval: Optional[int] = None,
     ):
         """
         AngularDimension constructor.
@@ -625,8 +619,8 @@ class ArcDimension(AngularDimension):
         end: UVec,
         arc3points: bool = False,
         dimstyle: str = "Default",
-        layer: str = None,
-        roundval: int = None,
+        layer: Optional[str] = None,
+        roundval: Optional[int] = None,
     ):
         """
         Args:
@@ -679,8 +673,8 @@ class RadialDimension(_DimensionBase):
         target: UVec,
         length: float = 1.0,
         dimstyle: str = "Default",
-        layer: str = None,
-        roundval: int = None,
+        layer: Optional[str] = None,
+        roundval: Optional[int] = None,
     ):
         """
         Args:
@@ -758,9 +752,7 @@ class RadialDimension(_DimensionBase):
         )
 
 
-def center_of_3points_arc(
-    point1: UVec, point2: UVec, point3: UVec
-) -> Vec2:
+def center_of_3points_arc(point1: UVec, point2: UVec, point3: UVec) -> Vec2:
     """
     Calc center point of 3 point arc. ConstructionCircle is defined by 3 points
     on the circle: point1, point2 and point3.

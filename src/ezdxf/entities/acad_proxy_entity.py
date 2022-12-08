@@ -1,6 +1,7 @@
-#  Copyright (c) 2021, Manfred Moitzi
+#  Copyright (c) 2021-2022, Manfred Moitzi
 #  License: MIT License
-from typing import TYPE_CHECKING, Optional, Iterable
+from __future__ import annotations
+from typing import TYPE_CHECKING, Optional, Iterator
 from ezdxf.lldxf import const
 from ezdxf.lldxf.tags import Tags
 from .dxfentity import SubclassProcessor
@@ -8,7 +9,8 @@ from .dxfgfx import DXFGraphic
 from . import factory
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import DXFNamespace, TagWriter, DXFEntity
+    from ezdxf.lldxf.tagwriter import AbstractTagWriter
+    from ezdxf.entities import DXFNamespace
 
 
 # Group Codes of AcDbProxyEntity
@@ -45,7 +47,7 @@ class ACADProxyEntity(DXFGraphic):
     DXFTYPE = "ACAD_PROXY_ENTITY"
     MIN_DXF_VERSION_FOR_EXPORT = const.DXF2000
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.acdb_proxy_entity: Optional[Tags] = None
 
@@ -53,8 +55,8 @@ class ACADProxyEntity(DXFGraphic):
         raise const.DXFTypeError(f"Cloning of {self.dxftype()} not supported.")
 
     def load_dxf_attribs(
-        self, processor: SubclassProcessor = None
-    ) -> "DXFNamespace":
+        self, processor: Optional[SubclassProcessor] = None
+    ) -> DXFNamespace:
         dxf = super().load_dxf_attribs(processor)
         if processor:
             self.acdb_proxy_entity = processor.subclass_by_index(2)
@@ -70,7 +72,7 @@ class ACADProxyEntity(DXFGraphic):
                 self.acdb_proxy_entity, length_code, 310
             )
 
-    def export_dxf(self, tagwriter: "TagWriter") -> None:
+    def export_dxf(self, tagwriter: AbstractTagWriter) -> None:
         # Proxy graphic is stored in AcDbProxyEntity and not as usual in
         # AcDbEntity!
         preserve_proxy_graphic = self.proxy_graphic
@@ -78,7 +80,7 @@ class ACADProxyEntity(DXFGraphic):
         super().export_dxf(tagwriter)
         self.proxy_graphic = preserve_proxy_graphic
 
-    def export_entity(self, tagwriter: "TagWriter") -> None:
+    def export_entity(self, tagwriter: AbstractTagWriter) -> None:
         """Export entity specific data as DXF tags. (internal API)"""
         # Base class and AcDbEntity export is done by parent class
         super().export_entity(tagwriter)
@@ -86,17 +88,20 @@ class ACADProxyEntity(DXFGraphic):
             tagwriter.write_tags(self.acdb_proxy_entity)
         # XDATA export is done by the parent class
 
-    def __virtual_entities__(self) -> Iterable[DXFGraphic]:
-        """Implements the SupportsVirtualEntities protocol. """
+    def __virtual_entities__(self) -> Iterator[DXFGraphic]:
+        """Implements the SupportsVirtualEntities protocol."""
         from ezdxf.proxygraphic import ProxyGraphic
+
         if self.proxy_graphic:
-            for e in ProxyGraphic(self.proxy_graphic, self.doc).virtual_entities():
+            for e in ProxyGraphic(
+                self.proxy_graphic, self.doc
+            ).virtual_entities():
                 e.set_source_of_copy(self)
                 yield e
         return []
 
-    def virtual_entities(self) -> Iterable[DXFGraphic]:
-        """Yields proxy graphic as "virtual" entities. """
+    def virtual_entities(self) -> Iterator[DXFGraphic]:
+        """Yields proxy graphic as "virtual" entities."""
         return self.__virtual_entities__()
 
 
@@ -108,7 +113,7 @@ def load_proxy_data(
     except const.DXFValueError:
         return None
     binary_data = []
-    for code, value in tags[index + 1:]:
+    for code, value in tags[index + 1 :]:
         if code == data_code:
             binary_data.append(value)
         else:

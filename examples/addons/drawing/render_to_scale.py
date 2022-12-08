@@ -47,52 +47,73 @@ def render_limits(
     size_in_inches: tuple[float, float],
     scale: float,
 ) -> tuple[float, float, float, float]:
-    """Returns the render limits in drawing units. """
+    """Returns the final render limits in drawing units.
+
+    Args:
+         origin: lower left corner of the modelspace area to render
+         size_in_inches: paper size in inches
+         scale: render scale, e.g. scale=100 means 1:100, 1m is
+            rendered as 0.01m or 1cm on paper
+
+    """
     min_x, min_y = origin
     max_x = min_x + size_in_inches[0] * scale
     max_y = min_y + size_in_inches[1] * scale
     return min_x, min_y, max_x, max_y
 
 
-def save_to_scale(
-    size_in_inches: tuple[float, float] = (8.5, 11),
-    origin: tuple[float, float] = (0, 0),  # of modelspace area to render
+def export_to_scale(
+    paper_size: tuple[float, float] = (8.5, 11),
+    origin: tuple[float, float] = (0, 0),
     scale: float = 1,
     dpi: int = 300,
 ):
+    """Render the modelspace content with to a specific paper size and scale.
+
+    Args:
+        paper_size: paper size in inches
+        origin: lower left corner of the modelspace area to render
+        scale: render scale, e.g. scale=100 means 1:100, 1m is
+            rendered as 0.01m or 1cm on paper
+        dpi: pixel density on paper as dots per inch
+
+    """
     doc = make_doc(offset=(1, 2), size=(6.5, 8))
     msp = doc.modelspace()
     msp.add_mtext(
         f"scale = 1:{scale}\n"
-        f"canvas = {size_in_inches[0]:.1f} inch x {size_in_inches[1]:.1f} inch ",
+        f"paper size = {paper_size[0]:.1f} inch x {paper_size[1]:.1f} inch ",
         dxfattribs={"style": "OpenSans", "char_height": 0.25},
     ).set_location(
         (0.2, 0.2), attachment_point=MTextEntityAlignment.BOTTOM_LEFT
     )
 
     ctx = RenderContext(doc)
-    fig = plt.figure(dpi=dpi)
-    ax = fig.add_axes([0, 0, 1, 1])
+    fig: plt.Figure = plt.figure(dpi=dpi)
+    ax: plt.Axes = fig.add_axes([0, 0, 1, 1])
 
-    # Get render limits in drawing units:
+    # disable all margins
+    ax.margins(0)
+
+    # get the final render limits in drawing units:
     min_x, min_y, max_x, max_y = render_limits(
-        origin, size_in_inches, scale
+        origin, paper_size, scale
     )
 
     ax.set_xlim(min_x, max_x)
     ax.set_ylim(min_y, max_y)
 
     out = MatplotlibBackend(ax)
-    # Finalizing invokes auto-scaling by default!
+    # finalizing invokes auto-scaling by default!
     Frontend(ctx, out).draw_layout(msp, finalize=False)
 
-    # Set output size in inches:
-    fig.set_size_inches(size_in_inches[0], size_in_inches[1], forward=True)
+    # set output size in inches:
+    fig.set_size_inches(paper_size[0], paper_size[1], forward=True)
 
     fig.savefig(CWD / f"image_scale_1_{scale}.pdf", dpi=dpi)
     plt.close(fig)
 
 
 if __name__ == "__main__":
-    save_to_scale(scale=1)
-    save_to_scale(scale=2)
+    export_to_scale(scale=1)
+    export_to_scale(scale=2)

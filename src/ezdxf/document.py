@@ -8,22 +8,28 @@ from typing import (
     Iterable,
     Iterator,
     Union,
-    Tuple,
     Callable,
     cast,
     Optional,
-    List,
-    Dict,
 )
-from datetime import datetime, timezone
-import io
 import abc
 import base64
+import io
 import logging
+import os
+from datetime import datetime, timezone
 from itertools import chain
 
 import ezdxf
+from ezdxf.audit import Auditor
+from ezdxf.entities.dxfgroups import GroupCollection
+from ezdxf.entities.material import MaterialCollection
+from ezdxf.entities.mleader import MLeaderStyleCollection
+from ezdxf.entities.mline import MLineStyleCollection
+from ezdxf.entitydb import EntityDB
+from ezdxf.groupby import groupby
 from ezdxf.layouts import Modelspace, Paperspace
+from ezdxf.layouts.layouts import Layouts
 from ezdxf.lldxf import const
 from ezdxf.lldxf.const import (
     BLK_XREF,
@@ -37,45 +43,29 @@ from ezdxf.lldxf.const import (
 )
 from ezdxf.lldxf import loader
 from ezdxf.lldxf.tagwriter import TagWriter, BinaryTagWriter
-
-from ezdxf.entitydb import EntityDB
-from ezdxf.layouts.layouts import Layouts
+from ezdxf.query import EntityQuery
+from ezdxf.render.dimension import DimensionRenderer
+from ezdxf.sections.acdsdata import AcDsDataSection, new_acds_data_section
+from ezdxf.sections.blocks import BlocksSection
+from ezdxf.sections.classes import ClassesSection
+from ezdxf.sections.entities import EntitySection, StoredSection
+from ezdxf.sections.header import HeaderSection
+from ezdxf.sections.objects import ObjectsSection
+from ezdxf.sections.tables import TablesSection
+from ezdxf.tools import guid
 from ezdxf.tools.codepage import tocodepage, toencoding
 from ezdxf.tools.juliandate import juliandate
 from ezdxf.tools.text import safe_string, MAX_STR_LEN
 
-from ezdxf.tools import guid
-from ezdxf.query import EntityQuery
-from ezdxf.groupby import groupby
-from ezdxf.render.dimension import DimensionRenderer
-
-from ezdxf.sections.header import HeaderSection
-from ezdxf.sections.classes import ClassesSection
-from ezdxf.sections.tables import TablesSection
-from ezdxf.sections.blocks import BlocksSection
-from ezdxf.sections.entities import EntitySection, StoredSection
-from ezdxf.sections.objects import ObjectsSection
-from ezdxf.sections.acdsdata import AcDsDataSection, new_acds_data_section
-
-from ezdxf.entities.dxfgroups import GroupCollection
-from ezdxf.entities.material import MaterialCollection
-from ezdxf.entities.mleader import MLeaderStyleCollection
-from ezdxf.entities.mline import MLineStyleCollection
-from ezdxf.audit import Auditor
 
 logger = logging.getLogger("ezdxf")
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import (
-        DXFTag,
-        Tags,
-        VPort,
-        Dictionary,
-        Layout,
-        DXFEntity,
-        Layer,
-        GenericLayoutType,
-    )
+    from ezdxf.entities import DXFEntity, Layer, VPort, Dictionary
+    from ezdxf.eztypes import GenericLayoutType
+    from ezdxf.layouts import Layout
+    from ezdxf.lldxf.tags import Tags
+    from ezdxf.lldxf.types import DXFTag
     from ezdxf.sections.tables import (
         LayerTable,
         LinetypeTable,
@@ -87,7 +77,6 @@ if TYPE_CHECKING:
         ViewportTable,
         BlockRecordTable,
     )
-    from pathlib import Path
 
 CONST_GUID = "{00000000-0000-0000-0000-000000000000}"
 CONST_MARKER_STRING = "0.0 @ 2000-01-01T00:00:00.000000+00:00"
@@ -111,16 +100,14 @@ def _validate_handle_seed(seed: str) -> str:
 
 
 class Drawing:
-    def __init__(self, dxfversion=DXF2013):
+    def __init__(self, dxfversion=DXF2013) -> None:
         self.entitydb = EntityDB()
         target_dxfversion = dxfversion.upper()
         self._dxfversion: str = const.acad_release_to_dxf_version.get(
             target_dxfversion, target_dxfversion
         )
         if self._dxfversion not in const.versions_supported_by_new:
-            raise const.DXFVersionError(
-                f'Unsupported DXF version "{self.dxfversion}".'
-            )
+            raise const.DXFVersionError(f'Unsupported DXF version "{self.dxfversion}".')
         # Store original dxf version if loaded (and maybe converted R13/14)
         # from file.
         self._loaded_dxfversion: Optional[str] = None
@@ -150,7 +137,7 @@ class Drawing:
         # DXF R2013 and later
         self.acdsdata: AcDsDataSection = None  # type: ignore
 
-        self.stored_sections: List[StoredSection] = []
+        self.stored_sections: list[StoredSection] = []
         self.layouts: Layouts = None  # type: ignore
         self.groups: GroupCollection = None  # type: ignore
         self.materials: MaterialCollection = None  # type: ignore
@@ -160,7 +147,7 @@ class Drawing:
         # Set to False if the generated DXF file will be incompatible to AutoCAD
         self._acad_compatible = True
         # Store reasons for AutoCAD incompatibility:
-        self._acad_incompatibility_reason = set()
+        self._acad_incompatibility_reason: set[str] = set()
 
         # DIMENSION rendering engine can be replaced by a custom Dimension
         # render: see property Drawing.dimension_renderer
@@ -168,13 +155,13 @@ class Drawing:
 
         # Some fixes can't be applied while the DXF document is not fully
         # initialized, store this fixes as callable object:
-        self._post_init_commands: List[Callable] = []
+        self._post_init_commands: list[Callable] = []
         # Don't create any new entities here:
         # New created handles could collide with handles loaded from DXF file.
         assert len(self.entitydb) == 0
 
     @classmethod
-    def new(cls, dxfversion: str = DXF2013) -> "Drawing":
+    def new(cls, dxfversion: str = DXF2013) -> Drawing:
         """Create new drawing. Package users should use the factory function
         :func:`ezdxf.new`. (internal API)
         """
@@ -276,7 +263,7 @@ class Drawing:
         return self._dxfversion
 
     @dxfversion.setter
-    def dxfversion(self, version) -> None:
+    def dxfversion(self, version: str) -> None:
         """Set current DXF version."""
         self._dxfversion = self._validate_dxf_version(version)
         self.header["$ACADVER"] = version
@@ -327,7 +314,7 @@ class Drawing:
         return version
 
     @classmethod
-    def read(cls, stream: TextIO) -> "Drawing":
+    def read(cls, stream: TextIO) -> Drawing:
         """Open an existing drawing. Package users should use the factory
         function :func:`ezdxf.read`. To preserve possible binary data in
         XRECORD entities use :code:`errors='surrogateescape'` as error handler
@@ -343,7 +330,7 @@ class Drawing:
         return cls.load(tag_loader)
 
     @classmethod
-    def load(cls, tag_loader: Iterable["DXFTag"]) -> "Drawing":
+    def load(cls, tag_loader: Iterable[DXFTag]) -> Drawing:
         """Load DXF document from a DXF tag loader, in general an external
         untrusted source.
 
@@ -359,13 +346,13 @@ class Drawing:
         return doc
 
     @classmethod
-    def from_tags(cls, compiled_tags: Iterable["DXFTag"]) -> "Drawing":
+    def from_tags(cls, compiled_tags: Iterable[DXFTag]) -> Drawing:
         """Create new drawing from compiled tags. (internal API)"""
         doc = cls()
         doc._load(tagger=compiled_tags)
         return doc
 
-    def _load(self, tagger: Iterable["DXFTag"]) -> None:
+    def _load(self, tagger: Iterable[DXFTag]) -> None:
         # 1st Loading stage: load complete DXF entity structure
         self.is_loading = True
         sections = loader.load_dxf_structure(tagger)
@@ -377,9 +364,7 @@ class Drawing:
         """Internal API to load a DXF document from a section dict."""
         self.is_loading = True
         # Create header section:
-        header_entities: List["Tags"] = sections.get(
-            "HEADER", []  # type: ignore
-        )
+        header_entities: list[Tags] = sections.get("HEADER", [])  # type: ignore
         if header_entities:
             # All header tags are the first DXF structure entity
             self.header = HeaderSection.load(header_entities[0])  # type: ignore
@@ -408,18 +393,14 @@ class Drawing:
         self.classes = ClassesSection(
             self, sections.get("CLASSES", None)  # type: ignore
         )
-        self.tables = TablesSection(
-            self, sections.get("TABLES", None)  # type: ignore
-        )
+        self.tables = TablesSection(self, sections.get("TABLES", None))  # type: ignore
 
         # Create *Model_Space and *Paper_Space BLOCK_RECORDS
         # BlockSection setup takes care about the rest:
         self._create_required_block_records()
 
         # At this point all table entries are required:
-        self.blocks = BlocksSection(
-            self, sections.get("BLOCKS", None)  # type: ignore
-        )
+        self.blocks = BlocksSection(self, sections.get("BLOCKS", None))  # type: ignore
         self.entities = EntitySection(
             self, sections.get("ENTITIES", None)  # type: ignore
         )
@@ -508,8 +489,8 @@ class Drawing:
 
     def saveas(
         self,
-        filename: Union[str, "Path"],
-        encoding: str = None,
+        filename: Union[os.PathLike, str],
+        encoding: Optional[str] = None,
         fmt: str = "asc",
     ) -> None:
         """Set :class:`Drawing` attribute :attr:`filename` to `filename` and
@@ -527,7 +508,7 @@ class Drawing:
         self.filename = str(filename)
         self.save(encoding=encoding, fmt=fmt)
 
-    def save(self, encoding: str = None, fmt: str = "asc") -> None:
+    def save(self, encoding: Optional[str] = None, fmt: str = "asc") -> None:
         """Write drawing to file-system by using the :attr:`filename` attribute
         as filename. Override file encoding by argument `encoding`, handle with
         care, but this option allows you to create DXF files for applications
@@ -628,7 +609,7 @@ class Drawing:
         # Create Windows line endings and do base64 encoding:
         return base64.encodebytes(binary_data.replace(b"\n", b"\r\n"))
 
-    def export_sections(self, tagwriter: "TagWriter") -> None:
+    def export_sections(self, tagwriter: TagWriter) -> None:
         """DXF export sections. (internal API)"""
         dxfversion = tagwriter.dxfversion
         self.header.export_dxf(tagwriter)
@@ -669,9 +650,7 @@ class Drawing:
         material = self.entitydb.get(self.header.get("$CMATERIAL", None))
         if material is None or material.dxftype() != "MATERIAL":
             if "ByLayer" in self.materials:
-                self.header["$CMATERIAL"] = self.materials.get(
-                    "ByLayer"
-                ).dxf.handle
+                self.header["$CMATERIAL"] = self.materials.get("ByLayer").dxf.handle
             else:  # set any handle, except '0' which crashes BricsCAD
                 self.header["$CMATERIAL"] = "45"
 
@@ -695,19 +674,13 @@ class Drawing:
         self.header["$HANDSEED"] = str(self.entitydb.handles)  # next handle
         self.header["$DWGCODEPAGE"] = tocodepage(self.encoding)
 
-    def ezdxf_metadata(self) -> "MetaData":
+    def ezdxf_metadata(self) -> MetaData:
         """Returns the *ezdxf* :class:`ezdxf.document.MetaData` object, which
         manages  *ezdxf* and custom metadata in DXF files.
         For more information see:  :ref:`ezdxf_metadata`.
 
-        .. versionadded:: 0.17
-
         """
-        return (
-            R12MetaData(self)
-            if self.dxfversion <= DXF12
-            else R2000MetaData(self)
-        )
+        return R12MetaData(self) if self.dxfversion <= DXF12 else R2000MetaData(self)
 
     def _create_ezdxf_metadata(self):
         ezdxf_meta = self.ezdxf_metadata()
@@ -731,43 +704,43 @@ class Drawing:
         return const.acad_release.get(self.dxfversion, "unknown")
 
     @property
-    def layers(self) -> "LayerTable":
+    def layers(self) -> LayerTable:
         return self.tables.layers
 
     @property
-    def linetypes(self) -> "LinetypeTable":
+    def linetypes(self) -> LinetypeTable:
         return self.tables.linetypes
 
     @property
-    def styles(self) -> "TextstyleTable":
+    def styles(self) -> TextstyleTable:
         return self.tables.styles
 
     @property
-    def dimstyles(self) -> "DimStyleTable":
+    def dimstyles(self) -> DimStyleTable:
         return self.tables.dimstyles
 
     @property
-    def ucs(self) -> "UCSTable":
+    def ucs(self) -> UCSTable:
         return self.tables.ucs
 
     @property
-    def appids(self) -> "AppIDTable":
+    def appids(self) -> AppIDTable:
         return self.tables.appids
 
     @property
-    def views(self) -> "ViewTable":
+    def views(self) -> ViewTable:
         return self.tables.views
 
     @property
-    def block_records(self) -> "BlockRecordTable":
+    def block_records(self) -> BlockRecordTable:
         return self.tables.block_records
 
     @property
-    def viewports(self) -> "ViewportTable":
+    def viewports(self) -> ViewportTable:
         return self.tables.viewports
 
     @property
-    def plotstyles(self) -> "Dictionary":
+    def plotstyles(self) -> Dictionary:
         return self.rootdict["ACAD_PLOTSTYLENAME"]  # type: ignore
 
     @property
@@ -892,7 +865,7 @@ class Drawing:
         """
         return groupby(self.chain_layouts_and_blocks(), dxfattrib, key)
 
-    def chain_layouts_and_blocks(self) -> Iterator["DXFEntity"]:
+    def chain_layouts_and_blocks(self) -> Iterator[DXFEntity]:
         """Chain entity spaces of all layouts and blocks. Yields an iterator
         for all entities in all layouts and blocks.
 
@@ -900,7 +873,7 @@ class Drawing:
         layouts = list(self.layouts_and_blocks())
         return chain.from_iterable(layouts)
 
-    def layouts_and_blocks(self) -> Iterator["GenericLayoutType"]:
+    def layouts_and_blocks(self) -> Iterator[GenericLayoutType]:
         """Iterate over all layouts (modelspace and paperspace) and all
         block definitions.
 
@@ -919,7 +892,7 @@ class Drawing:
         else:
             self.layouts.delete(name)
 
-    def new_layout(self, name, dxfattribs=None) -> "Layout":
+    def new_layout(self, name, dxfattribs=None) -> Layout:
         """
         Create a new paperspace layout `name`. Returns a
         :class:`~ezdxf.layouts.Layout` object.
@@ -1016,9 +989,7 @@ class Drawing:
         elif name not in self.blocks:
             raise const.DXFValueError(f'Arrow block "{name}" does not exist.')
 
-    def add_image_def(
-        self, filename: str, size_in_pixel: Tuple[int, int], name=None
-    ):
+    def add_image_def(self, filename: str, size_in_pixel: tuple[int, int], name=None):
         """Add an image definition to the objects section.
 
         Add an :class:`~ezdxf.entities.image.ImageDef` entity to the drawing
@@ -1052,9 +1023,7 @@ class Drawing:
             name = filename
         return self.objects.add_image_def(filename, size_in_pixel, name)
 
-    def set_raster_variables(
-        self, frame: int = 0, quality: int = 1, units: str = "m"
-    ):
+    def set_raster_variables(self, frame: int = 0, quality: int = 1, units: str = "m"):
         """
         Set raster variables.
 
@@ -1077,9 +1046,7 @@ class Drawing:
                 ===== ===========================
 
         """
-        self.objects.set_raster_variables(
-            frame=frame, quality=quality, units=units
-        )
+        self.objects.set_raster_variables(frame=frame, quality=quality, units=units)
 
     def set_wipeout_variables(self, frame=0):
         """
@@ -1094,7 +1061,7 @@ class Drawing:
         var_dict.set_or_add_dict_var("WIPEOUTFRAME", str(frame))
 
     def add_underlay_def(
-        self, filename: str, fmt: str = "ext", name: str = None
+        self, filename: str, fmt: str = "ext", name: Optional[str] = None
     ):
         """Add an :class:`~ezdxf.entities.underlay.UnderlayDef` entity to the
         drawing (OBJECTS section).
@@ -1130,9 +1097,7 @@ class Drawing:
             flags: block flags
 
         """
-        self.blocks.new(
-            name=name, dxfattribs={"flags": flags, "xref_path": filename}
-        )
+        self.blocks.new(name=name, dxfattribs={"flags": flags, "xref_path": filename})
 
     def audit(self) -> Auditor:
         """Checks document integrity and fixes all fixable problems, not
@@ -1140,7 +1105,7 @@ class Drawing:
 
         If you are messing around with internal structures, call this method
         before saving to be sure to export valid DXF documents, but be aware
-        this is a long running task.
+        this is a long-running task.
 
         """
         auditor = Auditor(self)
@@ -1166,9 +1131,7 @@ class Drawing:
         else:
             return True
 
-    def set_modelspace_vport(
-        self, height, center=(0, 0), *, dxfattribs=None
-    ) -> "VPort":
+    def set_modelspace_vport(self, height, center=(0, 0), *, dxfattribs=None) -> VPort:
         r"""Set initial view/zoom location for the modelspace, this replaces
         the current "\*Active" viewport configuration
         (:class:`~ezdxf.entities.VPort`) and reset the coordinate system to the
@@ -1180,17 +1143,10 @@ class Drawing:
                 application window.
              dxfattribs: additional DXF attributes for the VPORT entity
 
-        .. versionchanged:: 0.17.2
-
-            added argument `dxfattribs` to pass additional DXF attributes to
-            the VPORT entity
-
         """
         self.viewports.delete_config("*Active")
         dxfattribs = dict(dxfattribs or {})
-        vport = cast(
-            "VPort", self.viewports.new("*Active", dxfattribs=dxfattribs)
-        )
+        vport = cast("VPort", self.viewports.new("*Active", dxfattribs=dxfattribs))
         vport.dxf.center = center
         vport.dxf.height = height
         vport.reset_wcs()
@@ -1199,7 +1155,7 @@ class Drawing:
 
 
 class MetaData(abc.ABC):
-    """Manage ezdxf meta data by dict-like interface. Values are limited to
+    """Manage ezdxf meta-data by dict-like interface. Values are limited to
     strings with a maximum length of 254 characters.
     """
 
@@ -1288,7 +1244,7 @@ class R12MetaData(MetaData):
             tags.append((1000, str(value)))
         self._msp_block.set_xdata("EZDXF", tags)  # type: ignore
 
-    def _load(self) -> Dict:
+    def _load(self) -> dict:
         data = dict()
         if self._msp_block.has_xdata("EZDXF"):  # type: ignore
             xdata = self._msp_block.get_xdata("EZDXF")  # type: ignore
@@ -1302,12 +1258,12 @@ class R12MetaData(MetaData):
 
 
 class R2000MetaData(MetaData):
-    """Manage ezdxf meta data for DXF version R2000+ as DICTIONARY object in
+    """Manage ezdxf metadata for DXF version R2000+ as DICTIONARY object in
     the rootdict.
     """
 
     def __init__(self, doc: Drawing):
-        self._data: "Dictionary" = doc.rootdict.get_required_dict(
+        self._data: Dictionary = doc.rootdict.get_required_dict(
             EZDXF_META, hard_owned=True
         )
 
@@ -1327,7 +1283,7 @@ class R2000MetaData(MetaData):
         self._data.remove(safe_string(key, MAX_STR_LEN))
 
 
-def info(doc: Drawing, verbose=False, content=False, fmt="ASCII") -> List[str]:
+def info(doc: Drawing, verbose=False, content=False, fmt="ASCII") -> list[str]:
     from ezdxf.units import unit_name
     from collections import Counter
 
@@ -1343,7 +1299,7 @@ def info(doc: Drawing, verbose=False, content=False, fmt="ASCII") -> List[str]:
         data.append(f"{name} {container} entries: {len(table)}")
         if verbose:
             if name == "STYLE":
-                names: List[str] = []
+                names: list[str] = []
                 for entry in table:
                     name = entry.dxf.name
                     if name == "":
@@ -1362,21 +1318,17 @@ def info(doc: Drawing, verbose=False, content=False, fmt="ASCII") -> List[str]:
                 yield f"{indent}{name}={header[name]}"
 
     def append_header_var(name: str, indent=""):
-        data.append(
-            f"{indent}{name}: {header.get(name, '<undefined>').strip()}"
-        )
+        data.append(f"{indent}{name}: {header.get(name, '<undefined>').strip()}")
 
     header = doc.header
     loaded_dxf_version = doc.loaded_dxfversion
     if loaded_dxf_version is None:
         loaded_dxf_version = doc.dxfversion
-    data: List[str] = []
+    data: list[str] = []
     data.append(f'Filename: "{doc.filename}"')
     data.append(f"Format: {fmt}")
     if loaded_dxf_version != doc.dxfversion:
-        msg = (
-            f"Loaded content was upgraded from DXF Version {loaded_dxf_version}"
-        )
+        msg = f"Loaded content was upgraded from DXF Version {loaded_dxf_version}"
         release = const.acad_release.get(loaded_dxf_version, "")
         if release:
             msg += f" ({release})"

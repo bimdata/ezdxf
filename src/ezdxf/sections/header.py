@@ -1,33 +1,32 @@
-# Copyright (c) 2011-2021, Manfred Moitzi
+# Copyright (c) 2011-2022, Manfred Moitzi
 # License: MIT License
+from __future__ import annotations
 from typing import (
-    TYPE_CHECKING,
-    Iterable,
-    List,
-    Tuple,
-    KeysView,
     Any,
+    Iterable,
     Iterator,
-    Union,
+    KeysView,
+    Optional,
     Sequence,
-    Dict,
+    TYPE_CHECKING,
+    Union,
 )
-
+import logging
 from collections import OrderedDict
-from ezdxf.lldxf.types import strtag
-from ezdxf.lldxf.tags import group_tags, Tags, DXFTag
+
 from ezdxf.lldxf import const
+from ezdxf.lldxf.tags import group_tags, Tags, DXFTag
+from ezdxf.lldxf.types import strtag
 from ezdxf.lldxf.validator import header_validator
 from ezdxf.sections.headervars import (
     HEADER_VAR_MAP,
     version_specific_group_code,
 )
-import logging
-
-logger = logging.getLogger("ezdxf")
 
 if TYPE_CHECKING:
-    from ezdxf.eztypes import TagWriter
+    from ezdxf.lldxf.tagwriter import AbstractTagWriter
+
+logger = logging.getLogger("ezdxf")
 
 MIN_HEADER_TEXT = """  0
 SECTION
@@ -64,21 +63,21 @@ FF
 
 
 class CustomVars:
-    """Stores custom properties in the DXF header as $CUSTOMPROPERTYTAG and
-    $CUSTOMPROPERTY values. Custom properties are just supported by DXF R2004
-    (AC1018) or later. `ezdxf` can create custom properties at older DXF
-    versions, but AutoCAD will not show this properties.
+    """The :class:`CustomVars` class stores custom properties in the DXF header as
+    $CUSTOMPROPERTYTAG and $CUSTOMPROPERTY values. Custom properties require DXF R2004
+    or later, `ezdxf` can create custom properties for older DXF versions as well, but
+    AutoCAD will not show that properties.
 
     """
 
-    def __init__(self):
-        self.properties: List[Tuple[str, str]] = list()
+    def __init__(self) -> None:
+        self.properties: list[tuple[str, str]] = list()
 
     def __len__(self) -> int:
         """Count of custom properties."""
         return len(self.properties)
 
-    def __iter__(self) -> Iterable[Tuple[str, str]]:
+    def __iter__(self) -> Iterator[tuple[str, str]]:
         """Iterate over all custom properties as ``(tag, value)`` tuples."""
         return iter(self.properties)
 
@@ -91,7 +90,7 @@ class CustomVars:
         # custom properties always stored as strings
         self.properties.append((tag, str(value)))
 
-    def get(self, tag: str, default: str = None):
+    def get(self, tag: str, default: Optional[str] = None):
         """Returns the value of the first custom property `tag`."""
         for key, value in self.properties:
             if key == tag:
@@ -136,7 +135,7 @@ class CustomVars:
 
         raise const.DXFValueError(f"Tag '{tag}' does not exist")
 
-    def write(self, tagwriter: "TagWriter") -> None:
+    def write(self, tagwriter: AbstractTagWriter) -> None:
         """Export custom properties as DXF tags. (internal API)"""
         for tag, value in self.properties:
             s = f"  9\n$CUSTOMPROPERTYTAG\n  1\n{tag}\n  9\n$CUSTOMPROPERTY\n  1\n{value}\n"
@@ -154,12 +153,12 @@ class HeaderSection:
     MIN_HEADER_TAGS = Tags.from_text(MIN_HEADER_TEXT)
     name = "HEADER"
 
-    def __init__(self):
-        self.hdrvars: Dict[str, "HeaderVar"] = OrderedDict()
+    def __init__(self) -> None:
+        self.hdrvars: dict[str, HeaderVar] = OrderedDict()
         self.custom_vars = CustomVars()
 
     @classmethod
-    def load(cls, tags: Iterator[DXFTag] = None) -> "HeaderSection":
+    def load(cls, tags: Optional[Iterable[DXFTag]] = None) -> HeaderSection:
         """Constructor to generate header variables loaded from DXF files
         (untrusted environment).
 
@@ -176,13 +175,13 @@ class HeaderSection:
         return section
 
     @classmethod
-    def new(cls, dxfversion=const.LATEST_DXF_VERSION) -> "HeaderSection":
+    def new(cls, dxfversion=const.LATEST_DXF_VERSION) -> HeaderSection:
         section = HeaderSection()
         section.hdrvars = default_vars()
         section["$ACADVER"] = dxfversion
         return section
 
-    def load_tags(self, tags: Iterator[DXFTag]) -> None:
+    def load_tags(self, tags: Iterable[DXFTag]) -> None:
         """Constructor to generate header variables loaded from DXF files
         (untrusted environment).
 
@@ -195,9 +194,7 @@ class HeaderSection:
         name_tag = next(_tags)
 
         if section_tag != (0, "SECTION") or name_tag != (2, "HEADER"):
-            raise const.DXFStructureError(
-                "Critical structure error in HEADER section."
-            )
+            raise const.DXFStructureError("Critical structure error in HEADER section.")
 
         groups = group_tags(header_validator(_tags), splitcode=9)
         custom_property_stack = []  # collect $CUSTOMPROPERTY/TAG
@@ -220,7 +217,7 @@ class HeaderSection:
                 break
 
     @classmethod
-    def from_text(cls, text: str) -> "HeaderSection":
+    def from_text(cls, text: str) -> HeaderSection:
         """Load constructor from text for testing"""
         return cls.load(Tags.from_text(text))  # type: ignore
 
@@ -243,7 +240,7 @@ class HeaderSection:
         """Returns an iterable of all header variable names."""
         return self.hdrvars.keys()
 
-    def export_dxf(self, tagwriter: "TagWriter") -> None:
+    def export_dxf(self, tagwriter: AbstractTagWriter) -> None:
         """Exports header section as DXF tags. (internal API)"""
 
         def _write(name: str, value: Any) -> None:
@@ -331,15 +328,13 @@ class HeaderSection:
 
 
 def header_vars_by_priority(
-    header_vars: Dict[str, "HeaderVar"], dxfversion: str
-) -> Iterable[Tuple]:
+    header_vars: dict[str, HeaderVar], dxfversion: str
+) -> Iterable[tuple]:
     order = []
     for name, value in header_vars.items():
         vardef = HEADER_VAR_MAP.get(name, None)
         if vardef is None:
-            logger.info(
-                f"Header variable {name} ignored, dxfversion={dxfversion}."
-            )
+            logger.info(f"Header variable {name} ignored, dxfversion={dxfversion}.")
             continue
         if vardef.mindxf <= dxfversion <= vardef.maxdxf:
             order.append((vardef.priority, (name, value)))
