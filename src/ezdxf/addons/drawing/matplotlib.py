@@ -116,13 +116,13 @@ class MatplotlibBackend(Backend):
         self.ax.scatter(
             [pos.x],
             [pos.y],
-            marker = ".", #BIMDATA update
+            marker=".",  # BIMDATA update
             linewidths=self.config.pdsize,
             # s=SCATTER_POINT_SIZE,
-            s= self.config.pdsize * 0.1,
+            s=self.config.pdsize * 0.1,
             c=color,
             zorder=self._get_z(),
-            gid=properties.output_id, #BIMDATA update
+            gid=properties.output_id,  # BIMDATA update
         )
 
     def get_lineweight(self, properties: Properties) -> float:
@@ -172,7 +172,14 @@ class MatplotlibBackend(Backend):
                 _lines.append(((s.x, s.y), (e.x, e.y)))
 
         self.ax.scatter(
-            point_x, point_y, c=color, zorder=z, gid=properties.output_id, marker = ".", linewidths=self.config.pdsize, s=self.config.pdsize * 0.1
+            point_x,
+            point_y,
+            c=color,
+            zorder=z,
+            gid=properties.output_id,
+            marker=".",
+            linewidths=self.config.pdsize,
+            s=self.config.pdsize * 0.1,
         )
         self.ax.add_collection(
             LineCollection(
@@ -198,6 +205,7 @@ class MatplotlibBackend(Backend):
                 color=properties.color,
                 zorder=self._get_z(),
                 gid=properties.output_id,
+                hatch=getattr(properties, "hatch_type", None),
             )
         except ValueError as e:
             logger.info(f"ignored matplotlib error: {str(e)}")
@@ -239,9 +247,7 @@ class MatplotlibBackend(Backend):
                 gid=properties.output_id,
             )
         except ValueError as e:
-            logger.info(
-                f"ignored matplotlib error in draw_filled_paths(): {str(e)}"
-            )
+            logger.info(f"ignored matplotlib error in draw_filled_paths(): {str(e)}")
         else:
             self.ax.add_patch(patch)
 
@@ -264,9 +270,7 @@ class MatplotlibBackend(Backend):
     ):
         if not text.strip():
             return  # no point rendering empty strings
-        font_properties = self._text_renderer.get_font_properties(
-            properties.font
-        )
+        font_properties = self._text_renderer.get_font_properties(properties.font)
         assert self.current_entity is not None
         text = prepare_string_for_rendering(text, self.current_entity.dxftype())
         try:
@@ -295,9 +299,7 @@ class MatplotlibBackend(Backend):
                 gid=properties.output_id,
             )
         except ValueError as e:
-            logger.info(
-                f"ignored unknown matplotlib error in draw_text(): {str(e)}"
-            )
+            logger.info(f"ignored unknown matplotlib error in draw_text(): {str(e)}")
             return
         self.ax.add_patch(patch)
 
@@ -332,16 +334,12 @@ class MatplotlibBackend(Backend):
             data_width, data_height = maxx - minx, maxy - miny
             if not math.isclose(data_width, 0):
                 width, height = plt.figaspect(data_height / data_width)
-                self.ax.get_figure().set_size_inches(
-                    width, height, forward=True
-                )
+                self.ax.get_figure().set_size_inches(width, height, forward=True)
 
 
 def _transform_path(path: Path, transform: Matrix44) -> Path:
     # raises ValueError for invalid TextPath objects
-    vertices = transform.transform_vertices(
-        [Vec3(x, y) for x, y in path.vertices]
-    )
+    vertices = transform.transform_vertices([Vec3(x, y) for x, y in path.vertices])
     return Path([(v.x, v.y) for v in vertices], path.codes)  # type: ignore
 
 
@@ -354,9 +352,7 @@ def _get_aspect_ratio(ax: plt.Axes) -> float:
     return 1.0
 
 
-def _get_width_height(
-    ratio: float, width: float, height: float
-) -> tuple[float, float]:
+def _get_width_height(ratio: float, width: float, height: float) -> tuple[float, float]:
     if width == 0.0 and height == 0.0:
         raise ValueError("invalid (width, height) values")
     if width == 0.0:
@@ -378,7 +374,6 @@ def qsave(
     filter_func: Optional[FilterFunc] = None,
     size_inches: Optional[tuple[float, float]] = None,
     margins=True,
-
 ) -> None:
     """Quick and simplified render export by matplotlib.
 
@@ -446,9 +441,7 @@ def qsave(
             ratio = _get_aspect_ratio(ax)
             w, h = _get_width_height(ratio, size_inches[0], size_inches[1])
             fig.set_size_inches(w, h, True)
-        fig.savefig(
-            filename, dpi=dpi, facecolor=ax.get_facecolor(), transparent=True
-        )
+        fig.savefig(filename, dpi=dpi, facecolor=ax.get_facecolor(), transparent=True)
         plt.close(fig)
     finally:
         matplotlib.use(old_backend)
