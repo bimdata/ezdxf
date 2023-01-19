@@ -75,9 +75,6 @@ from ezdxf.tools.text import has_inline_formatting_codes
 from ezdxf.lldxf import const
 from ezdxf.render import hatching
 
-# Fork adding
-from ezdxf.addons.drawing.matplotlib_hatch import HATCH_NAME_MAPPING
-
 __all__ = ["Frontend"]
 
 
@@ -503,24 +500,18 @@ class Frontend:
             show_only_outline = True
 
         polygon = cast(DXFPolygon, entity)
-
-        if properties.filling.name in HATCH_NAME_MAPPING.keys():
-            # Bimdata - Using a matplotlib hatch if the hatch type is generic
-            properties.hatch_type = HATCH_NAME_MAPPING[properties.filling.name]
+        try:
+            if filling.type == Filling.PATTERN:
+                if loops is None:
+                    loops = hatching.hatch_boundary_paths(
+                        polygon, filter_text_boxes=True
+                    )
+                self.draw_hatch_pattern(polygon, loops, properties)
+                return
+        except ezdxf.render.hatching.DenseHatchingLinesError:
+            # Bugfix 170 - hatching lines are too narrow : use SHOW_OUTLINE
+            filling = Filling()
             show_only_outline = True
-        else:
-            try:
-                if filling.type == Filling.PATTERN:
-                    if loops is None:
-                        loops = hatching.hatch_boundary_paths(
-                            polygon, filter_text_boxes=True
-                        )
-                    self.draw_hatch_pattern(polygon, loops, properties)
-                    return
-            except ezdxf.render.hatching.DenseHatchingLinesError:
-                # Bugfix 170 - hatching lines are too narrow : use SHOW_OUTLINE
-                filling = Filling()
-                show_only_outline = True
 
         # draw SOLID filling
         ocs = polygon.ocs()

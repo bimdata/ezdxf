@@ -77,6 +77,12 @@ def get_gid(entity: Optional[DXFGraphic]) -> str:
     if handle is not None:
         return handle
 
+    # BIMDATA suffix for sub-hatch
+    if entity.DXFTYPE == "HATCH":
+        hatch_reference = f"@{entity.origin_of_copy.dxf.handle}"
+    else:
+        hatch_reference = ""
+
     # entity has no handle
     suffix = ""
     if entity.has_source_block_reference:
@@ -285,9 +291,7 @@ class LayoutProperties:
         )
 
     @staticmethod
-    def from_layout(
-        layout: Layout, units: Optional[int] = None
-    ) -> LayoutProperties:
+    def from_layout(layout: Layout, units: Optional[int] = None) -> LayoutProperties:
         """Setup default layout properties."""
         if layout.name == "Model":
             bg = MODEL_SPACE_BG_COLOR
@@ -314,9 +318,7 @@ class LayoutProperties:
                 raise ValueError(f"Invalid foreground color: {fg}")
             self._default_color = fg
         else:
-            self._default_color = (
-                "#ffffff" if self._has_dark_background else "#000000"
-            )
+            self._default_color = "#ffffff" if self._has_dark_background else "#000000"
 
 
 LayerPropsOverride = Callable[[Sequence[LayerProperties]], None]
@@ -379,9 +381,7 @@ class RenderContext:
             except ValueError:
                 self.units = InsertUnits.Unitless
             try:
-                self.measurement = Measurement(
-                    doc.header.get("$MEASUREMENT", 0)
-                )
+                self.measurement = Measurement(doc.header.get("$MEASUREMENT", 0))
             except ValueError:
                 self.measurement = Measurement.Imperial
             if self.units == InsertUnits.Unitless:
@@ -391,9 +391,7 @@ class RenderContext:
                     self.units = InsertUnits.Inches
         self.current_layout_properties.units = self.units  # default modelspace
 
-    def set_layer_properties_override(
-        self, func: Optional[LayerPropsOverride] = None
-    ):
+    def set_layer_properties_override(self, func: Optional[LayerPropsOverride] = None):
         """The function `func` is called with the current layer properties as
         argument after resetting them, so the function can override the layer
         properties.
@@ -518,9 +516,7 @@ class RenderContext:
         properties.linetype_pattern = self.line_pattern.get(
             properties.linetype_name, CONTINUOUS_PATTERN
         )
-        properties.lineweight = self._true_layer_lineweight(
-            layer.dxf.lineweight
-        )
+        properties.lineweight = self._true_layer_lineweight(layer.dxf.lineweight)
         properties.is_visible = layer.is_on() and not layer.is_frozen()
         if self.export_mode:
             properties.is_visible &= bool(layer.dxf.plot)
@@ -604,13 +600,9 @@ class RenderContext:
         p.linetype_name, p.linetype_pattern = self.resolve_linetype(
             entity, resolved_layer=resolved_layer
         )
-        p.lineweight = self.resolve_lineweight(
-            entity, resolved_layer=resolved_layer
-        )
+        p.lineweight = self.resolve_lineweight(entity, resolved_layer=resolved_layer)
         p.linetype_scale = self.resolve_linetype_scale(entity)
-        p.is_visible = self.resolve_visible(
-            entity, resolved_layer=resolved_layer
-        )
+        p.is_visible = self.resolve_visible(entity, resolved_layer=resolved_layer)
         if entity.is_supported_dxf_attrib("style"):
             p.font = self.resolve_font(entity)
         if isinstance(entity, DXFPolygon):
@@ -673,9 +665,7 @@ class RenderContext:
             aci = entity.dxf.color  # defaults to BYLAYER
 
         entity_layer = resolved_layer or layer_key(self.resolve_layer(entity))
-        layer_properties = self.layers.get(
-            entity_layer, DEFAULT_LAYER_PROPERTIES
-        )
+        layer_properties = self.layers.get(entity_layer, DEFAULT_LAYER_PROPERTIES)
 
         if aci == const.BYLAYER:
             color = layer_properties.get_entity_color_from_layer(
@@ -720,9 +710,7 @@ class RenderContext:
     def resolve_aci_color(self, aci: int, resolved_layer: str) -> Color:
         """Resolve the `aci` color as hex color string: "#RRGGBB" """
         if aci == const.BYLAYER:
-            layer = self.layers.get(
-                layer_key(resolved_layer), DEFAULT_LAYER_PROPERTIES
-            )
+            layer = self.layers.get(layer_key(resolved_layer), DEFAULT_LAYER_PROPERTIES)
             color = layer.get_entity_color_from_layer(
                 self.current_layout_properties.default_color
             )
@@ -747,9 +735,7 @@ class RenderContext:
         elif 0 < aci < 256:
             return self._aci_to_true_color(aci)
         else:
-            return (
-                self.current_layout_properties.default_color
-            )  # unknown / invalid
+            return self.current_layout_properties.default_color  # unknown / invalid
 
     def _aci_to_true_color(self, aci: int) -> Color:
         """Returns the `aci` value (AutoCAD Color Index) as rgb value in
@@ -780,9 +766,7 @@ class RenderContext:
             pass
         name = entity.dxf.linetype.upper()  # default is 'BYLAYER'
         if name == "BYLAYER":
-            entity_layer = resolved_layer or layer_key(
-                self.resolve_layer(entity)
-            )
+            entity_layer = resolved_layer or layer_key(self.resolve_layer(entity))
             layer = self.layers.get(entity_layer, DEFAULT_LAYER_PROPERTIES)
             name = layer.linetype_name
             pattern = layer.linetype_pattern
@@ -790,9 +774,7 @@ class RenderContext:
         elif name == "BYBLOCK":
             if self.inside_block_reference:
                 name = self.current_block_reference_properties.linetype_name  # type: ignore
-                pattern = (
-                    self.current_block_reference_properties.linetype_pattern  # type: ignore
-                )
+                pattern = self.current_block_reference_properties.linetype_pattern  # type: ignore
             else:
                 # There is no default layout linetype
                 name = "STANDARD"
@@ -827,9 +809,7 @@ class RenderContext:
                 return self.plot_styles.get_lineweight(aci)
             lineweight = entity.dxf.lineweight  # default is BYLAYER
             if lineweight == const.LINEWEIGHT_BYLAYER:
-                entity_layer = resolved_layer or layer_key(
-                    self.resolve_layer(entity)
-                )
+                entity_layer = resolved_layer or layer_key(self.resolve_layer(entity))
                 return self.layers.get(
                     entity_layer, DEFAULT_LAYER_PROPERTIES
                 ).lineweight
@@ -940,9 +920,7 @@ def is_valid_color(color: Color) -> bool:
     return False
 
 
-def rgb_to_hex(
-    rgb: Union[tuple[int, int, int], tuple[float, float, float]]
-) -> Color:
+def rgb_to_hex(rgb: Union[tuple[int, int, int], tuple[float, float, float]]) -> Color:
     """Returns color in hex format: "#RRGGBB"."""
     assert all(0 <= x <= 255 for x in rgb), f"invalid RGB color: {rgb}"
     r, g, b = rgb
