@@ -107,7 +107,7 @@ def get_gid(entity: Optional[DXFGraphic]) -> str:
         # virtual entity without a handle or handle is None
         handle = ""
 
-    return handle + suffix
+    return handle + suffix + hatch_reference
 
 
 def is_dark_color(color: Color, dark: float = 0.2) -> bool:
