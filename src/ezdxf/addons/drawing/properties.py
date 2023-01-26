@@ -79,7 +79,10 @@ def get_gid(entity: Optional[DXFGraphic]) -> str:
 
     # BIMDATA suffix for sub-hatch
     if entity.DXFTYPE == "HATCH":
-        hatch_reference = f"@{entity.origin_of_copy.dxf.handle}"
+        if entity.origin_of_copy.DXFTYPE == "HATCH":
+            hatch_reference = f"@{entity.origin_of_copy.dxf.handle}"
+        else:
+            hatch_reference = ""
     else:
         hatch_reference = ""
 
