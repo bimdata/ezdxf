@@ -118,8 +118,7 @@ class MatplotlibBackend(Backend):
             [pos.y],
             marker=".",  # BIMDATA update
             linewidths=self.config.pdsize,
-            # s=SCATTER_POINT_SIZE,
-            s=self.config.pdsize * 0.1,
+            s=SCATTER_POINT_SIZE,
             c=color,
             zorder=self._get_z(),
             gid=properties.output_id,  # BIMDATA update
