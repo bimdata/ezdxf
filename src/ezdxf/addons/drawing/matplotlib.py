@@ -97,9 +97,7 @@ class MatplotlibBackend(Backend):
     def set_background(self, color: Color):
         self.ax.set_facecolor(color)
 
-    def set_clipping_path(
-        self, path: Optional[ezdxf.path.Path] = None, scale: float = 1.0
-    ) -> bool:
+    def set_clipping_path(self, path: Optional[ezdxf.path.Path] = None, scale: float = 1.0) -> bool:
         from matplotlib.transforms import Transform
 
         if path:
@@ -116,13 +114,9 @@ class MatplotlibBackend(Backend):
         self.ax.scatter(
             [pos.x],
             [pos.y],
-            marker=".",  # BIMDATA update
-            linewidths=SCATTER_POINT_SIZE * self.config.pdsize,
-            # s=SCATTER_POINT_SIZE,
-            s=SCATTER_POINT_SIZE * self.config.pdsize,
+            s=SCATTER_POINT_SIZE,
             c=color,
             zorder=self._get_z(),
-            gid=properties.output_id,  # BIMDATA update
         )
 
     def get_lineweight(self, properties: Properties) -> float:
@@ -177,9 +171,8 @@ class MatplotlibBackend(Backend):
             c=color,
             zorder=z,
             gid=properties.output_id,
-            marker=".",
-            linewidths=self.config.pdsize,
             s=self.config.pdsize * 0.1,
+            marker=".",
         )
         self.ax.add_collection(
             LineCollection(
@@ -280,15 +273,10 @@ class MatplotlibBackend(Backend):
         try:
             transformed_path = _transform_path(
                 text_path,
-                Matrix44.scale(
-                    self._text_renderer.get_scale(cap_height, font_properties)
-                )
-                @ transform,
+                Matrix44.scale(self._text_renderer.get_scale(cap_height, font_properties)) @ transform,
             )
         except ValueError as e:
-            logger.info(
-                f"ignored transformation error of matplotlib path in draw_text(): {str(e)}"
-            )
+            logger.info(f"ignored transformation error of matplotlib path in draw_text(): {str(e)}")
             return
         try:
             patch = PathPatch(
@@ -303,12 +291,8 @@ class MatplotlibBackend(Backend):
             return
         self.ax.add_patch(patch)
 
-    def get_font_measurements(
-        self, cap_height: float, font: Optional[fonts.FontFace] = None
-    ) -> FontMeasurements:
-        return self._text_renderer.get_font_measurements(
-            self._text_renderer.get_font_properties(font)
-        ).scale_from_baseline(desired_cap_height=cap_height)
+    def get_font_measurements(self, cap_height: float, font: Optional[fonts.FontFace] = None) -> FontMeasurements:
+        return self._text_renderer.get_font_measurements(self._text_renderer.get_font_properties(font)).scale_from_baseline(desired_cap_height=cap_height)
 
     def get_text_line_width(
         self,
