@@ -111,13 +111,13 @@ class MatplotlibBackend(Backend):
     def draw_point(self, pos: Vec3, properties: Properties):
         """Draw a real dimensionless point."""
         color = properties.color
-        self.ax.scatter(
-            [pos.x],
-            [pos.y],
-            s=SCATTER_POINT_SIZE,
-            c=color,
-            zorder=self._get_z(),
-        )
+        # self.ax.scatter(
+        #     [pos.x],
+        #     [pos.y],
+        #     s=SCATTER_POINT_SIZE,
+        #     c=color,
+        #     zorder=self._get_z(),
+        # )
 
     def get_lineweight(self, properties: Properties) -> float:
         """Set lineweight_scaling=0 to use a constant minimal lineweight."""
@@ -165,15 +165,15 @@ class MatplotlibBackend(Backend):
             else:
                 _lines.append(((s.x, s.y), (e.x, e.y)))
 
-        self.ax.scatter(
-            point_x,
-            point_y,
-            c=color,
-            zorder=z,
-            gid=properties.output_id,
-            s=self.config.pdsize * 0.1,
-            marker=".",
-        )
+        # self.ax.scatter(
+        #     point_x,
+        #     point_y,
+        #     c=color,
+        #     zorder=z,
+        #     gid=properties.output_id,
+        #     s=self.config.pdsize * 0.1,
+        #     marker=".",
+        # )
         self.ax.add_collection(
             LineCollection(
                 _lines,
