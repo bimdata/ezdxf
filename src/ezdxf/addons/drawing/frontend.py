@@ -689,23 +689,26 @@ class Frontend:
                 )
             )
 
-        if isinstance(entity, Insert):
-            self.ctx.push_state(properties)
-            if entity.mcount > 1:
-                for virtual_insert in entity.multi_insert():
-                    draw_insert(virtual_insert)
+        try:
+            if isinstance(entity, Insert):
+                self.ctx.push_state(properties)
+                if entity.mcount > 1:
+                    for virtual_insert in entity.multi_insert():
+                        draw_insert(virtual_insert)
+                else:
+                    draw_insert(entity)
+                self.ctx.pop_state()
+            elif isinstance(entity, SupportsVirtualEntities):
+                # draw_entities() includes the visibility check:
+                try:
+                    self.draw_entities(virtual_entities(entity))
+                except ProxyGraphicError as e:
+                    print(str(e))
+                    print(POST_ISSUE_MSG)
             else:
-                draw_insert(entity)
-            self.ctx.pop_state()
-        elif isinstance(entity, SupportsVirtualEntities):
-            # draw_entities() includes the visibility check:
-            try:
-                self.draw_entities(virtual_entities(entity))
-            except ProxyGraphicError as e:
-                print(str(e))
-                print(POST_ISSUE_MSG)
-        else:
-            raise TypeError(entity.dxftype())
+                raise TypeError(entity.dxftype())
+        except ezdxf.lldxf.const.DXFTypeError:
+            pass
 
     def draw_proxy_graphic(self, data: bytes, doc) -> None:
         if data:
