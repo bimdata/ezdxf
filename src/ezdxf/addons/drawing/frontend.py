@@ -1003,8 +1003,12 @@ def _draw_entities(
             else:
                 frontend.skip_entity(entity, "Cannot parse DXF entity")
                 continue
-        properties = ctx.resolve_all(entity)
-        frontend.override_properties(entity, properties)
+        try:
+            properties = ctx.resolve_all(entity)
+            frontend.override_properties(entity, properties)
+        except ZeroDivisionError:
+            frontend.skip_entity(entity, "ZeroDivisionError")
+
         if properties.is_visible:
             frontend.draw_entity(entity, properties)
         else:
