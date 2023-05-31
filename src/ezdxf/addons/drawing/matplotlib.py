@@ -19,7 +19,7 @@ from ezdxf.addons.drawing.type_hints import FilterFunc
 from ezdxf.addons.drawing.type_hints import Color
 from ezdxf.math import Vec3, Matrix44, AnyVec
 from ezdxf.layouts import Layout
-
+from .config import Configuration, HatchPolicy
 
 logger = logging.getLogger("ezdxf")
 # matplotlib docs: https://matplotlib.org/index.html
