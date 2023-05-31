@@ -55,7 +55,10 @@ File Structure:
     [core]
     default_dimension_text_style = OpenSansCondensed-Light
     test_files = D:\Source\dxftest
-    font_cache_directory =
+    support_dirs =
+        "C:\Program Files\Bricsys\BricsCAD V23 en_US\Fonts",
+        "~/dir2",
+        "~/dir3",
     load_proxy_graphics = true
     store_proxy_graphics = true
     log_unprocessed_tags = false
@@ -217,7 +220,6 @@ Core Options
 For all core options the section name is ``core``.
 
 
-
 Default Dimension Text Style
 ++++++++++++++++++++++++++++
 
@@ -243,42 +245,6 @@ Shortcut attribute:
 
     (Read/Write) Get/Set default text style for DIMENSION rendering, default
     value is ``OpenSansCondensed-Light``.
-
-Font Cache Directory
-++++++++++++++++++++
-
-`Ezdxf` has a bundled font cache to have faster access to font metrics.
-This font cache includes only fonts installed on the developing workstation.
-To add the fonts of your computer to this cache, you have to create your
-own external font cache. This has to be done only once after `ezdxf` was
-installed, or to add new installed fonts to the cache, and this requires the
-`Matplotlib` package.
-
-This example shows, how to create an external font cache in the recommended
-directory of the `XDG Base Directory specification`_: ``"~/.cache/ezdxf"``.
-
-.. code-block:: Python
-
-    import ezdxf
-    from ezdxf.tools import fonts
-
-    # xdg_path() returns "$XDG_CACHE_HOME/ezdxf" or "~/.cache/ezdxf" if
-    # $XDG_CACHE_HOME is not set
-    font_cache_dir = ezdxf.options.xdg_path("XDG_CACHE_HOME", ".cache")
-    fonts.build_system_font_cache(path=font_cache_dir)
-    ezdxf.options.font_cache_directory = font_cache_dir
-    # Save changes to the default config file "~/.config/ezdxf/ezdxf.ini"
-    # to load the font cache always from the new location.
-    ezdxf.options.write_home_config()
-
-Config file key: ``font_cache_directory``
-
-Shortcut attribute:
-
-.. attribute:: font_cache_directory
-
-    (Read/Write) Get/set the font cache directory, if the directory is an empty
-    string, the bundled font cache is used. Expands "~" construct automatically.
 
 Load Proxy Graphic
 ++++++++++++++++++
@@ -315,7 +281,10 @@ Shortcut attribute:
 Support Directories
 +++++++++++++++++++
 
-Search directories for support files like `.ctb` or `.stb` files.
+Search directories for support files:
+
+- plot style tables, the .ctb or .stb pen assignment files
+- shape font files of type .shx or .shp or .lff
 
 Config file key: ``support_dirs``
 
@@ -324,6 +293,16 @@ Shortcut attribute:
 .. attribute:: support_dirs
 
     (Read/Write) Search directories as list of strings.
+
+Use quotes for paths including spaces:
+
+.. code-block:: ini
+
+    [core]
+    support_dirs =
+        ~/dir1,
+        ~/dir2,
+        "~/dir 3",
 
 Debugging Options
 -----------------
@@ -422,21 +401,6 @@ Use C-Extensions
 .. attribute:: use_c_ext
 
     (Read only) Shows the actual state of C-extensions usage.
-
-Use Matplotlib
-++++++++++++++
-
-This option can deactivate Matplotlib support for testing. This option is not
-stored in the :class:`ConfigParser` object and is therefore not supported by
-config files!
-
-Only attribute access is supported:
-
-.. attribute:: use_matplotlib
-
-    (Read/Write) Activate/deactivate Matplotlib support (e.g. for testing) if
-    Matplotlib is installed, else :attr:`use_matplotlib` is always ``False``.
-
 
 .. _environment_variables:
 

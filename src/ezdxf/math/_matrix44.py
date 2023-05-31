@@ -2,16 +2,18 @@
 # Home-page: http://code.google.com/p/gameobjects/
 # Author: Will McGugan
 # Download-URL: http://code.google.com/p/gameobjects/downloads/list
-# Copyright (c) 2011-2022 Manfred Moitzi
+# Copyright (c) 2011-2023 Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
 from typing import Sequence, Iterable, Iterator, TYPE_CHECKING, Optional
 import math
+import numpy as np
+
 from math import sin, cos, tan
 from itertools import chain
 
 # The pure Python implementation can't import from ._ctypes or ezdxf.math!
-from ._vector import Vec3, X_AXIS, Y_AXIS, Z_AXIS, NULLVEC
+from ._vector import Vec3, X_AXIS, Y_AXIS, Z_AXIS, NULLVEC, Vec2
 
 if TYPE_CHECKING:
     from ezdxf.math import UVec
@@ -68,7 +70,7 @@ class Matrix44:
         """
         nargs = len(args)
         if nargs == 0:
-            self._matrix = floats(Matrix44._identity)
+            self._matrix = list(Matrix44._identity)
         elif nargs == 1:
             self._matrix = floats(args[0])
         elif nargs == 4:
@@ -89,9 +91,7 @@ class Matrix44:
         def format_row(row):
             return "(%s)" % ", ".join(str(value) for value in row)
 
-        return "Matrix44(%s)" % ", ".join(
-            format_row(row) for row in self.rows()
-        )
+        return "Matrix44(%s)" % ", ".join(format_row(row) for row in self.rows())
 
     def get_2d_transformation(self) -> tuple[float, ...]:
         """Returns a 2D transformation as a row-major matrix in a linear
@@ -102,6 +102,26 @@ class Matrix44:
         """
         m = self._matrix
         return m[0], m[1], 0.0, m[4], m[5], 0.0, m[12], m[13], 1.0
+
+    @staticmethod
+    def from_2d_transformation(components: Sequence[float]) -> Matrix44:
+        """Returns the :class:`Matrix44` class for an affine 2D (3x3) transformation
+        matrix defined by 6 float values: m11, m12, m21, m22, m31, m32.
+        """
+        if len(components) != 6:
+            raise ValueError(
+                "First 2 columns of a 3x3 matrix required: m11, m12, m21, m22, m31, m32"
+            )
+
+        m44 = Matrix44()
+        m = m44._matrix
+        m[0] = components[0]
+        m[1] = components[1]
+        m[4] = components[2]
+        m[5] = components[3]
+        m[12] = components[4]
+        m[13] = components[5]
+        return m44
 
     def get_row(self, row: int) -> tuple[float, ...]:
         """Get row as list of four float values.
@@ -326,9 +346,7 @@ class Matrix44:
         # fmt: on
 
     @classmethod
-    def xyz_rotate(
-        cls, angle_x: float, angle_y: float, angle_z: float
-    ) -> Matrix44:
+    def xyz_rotate(cls, angle_x: float, angle_y: float, angle_z: float) -> Matrix44:
         """Returns a rotation matrix for rotation about each axis.
 
         Args:
@@ -532,11 +550,11 @@ class Matrix44:
         # fmt: on
         return self
 
-    def rows(self) -> Iterable[tuple[float, ...]]:
+    def rows(self) -> Iterator[tuple[float, ...]]:
         """Iterate over rows as 4-tuples."""
         return (self.get_row(index) for index in (0, 1, 2, 3))
 
-    def columns(self) -> Iterable[tuple[float, ...]]:
+    def columns(self) -> Iterator[tuple[float, ...]]:
         """Iterate over columns as 4-tuples."""
         return (self.get_col(index) for index in (0, 1, 2, 3))
 
@@ -567,7 +585,7 @@ class Matrix44:
 
     ocs_to_wcs = transform_direction
 
-    def transform_vertices(self, vectors: Iterable[UVec]) -> Iterable[Vec3]:
+    def transform_vertices(self, vectors: Iterable[UVec]) -> Iterator[Vec3]:
         """Returns an iterable of transformed vertices."""
         # fmt: off
         (
@@ -587,9 +605,65 @@ class Matrix44:
             )
             # fmt: on
 
+    def fast_2d_transform(self, points: Iterable[UVec]) -> Iterator[Vec2]:
+        """Fast transformation of 2D points. For 3D input points the z-axis will be
+        ignored.  This only works reliable if only 2D transformations have been applied
+        to the 4x4 matrix!
+
+        Profiling results - speed gains over :meth:`transform_vertices`:
+
+            - pure Python code: ~1.6x
+            - Python with C-extensions: less than 1.1x
+            - PyPy 3.8: ~4.3x
+
+        But speed isn't everything, returning the processed input points as :class:`Vec2`
+        instances is another advantage.
+
+        .. versionadded:: 1.1
+
+        """
+        m = self._matrix
+        m0 = m[0]
+        m1 = m[1]
+        m4 = m[4]
+        m5 = m[5]
+        m12 = m[12]
+        m13 = m[13]
+        for pnt in points:
+            v = Vec2(pnt)
+            x = v.x
+            y = v.y
+            yield Vec2(x * m0 + y * m4 + m12, x * m1 + y * m5 + m13)
+
+    def transform_array_inplace(self, array: np.ndarray, ndim: int) -> None:
+        """Transforms a numpy array inplace, the argument `ndim` defines the dimensions
+        to transform, this allows 2D/3D transformation on arrays with more columns
+        e.g. a polyline array which stores points as (x, y, start_width, end_width,
+        bulge) values.
+
+        .. versionadded:: 1.1
+
+        """
+        # This implementation exist only for compatibility to the Cython implementation!
+        # This version is 3.4x faster than the Cython version of Matrix44.fast_2d_transform()
+        # for larger point arrays but 10.5x slower than the Cython version of this method.
+        if ndim == 2:
+            m = np.array(self.get_2d_transformation(), dtype=np.float64)
+            m.shape = (3, 3)
+        elif ndim == 3:
+            m = np.array(self._matrix, dtype=np.float64)
+            m.shape = (4, 4)
+        else:
+            raise ValueError("ndim has to be 2 or 3")
+
+        v = np.matmul(
+            np.concatenate((array[:, :ndim], np.ones((array.shape[0], 1))), axis=1), m
+        )
+        array[:, :ndim] = v[:, :ndim].copy()
+
     def transform_directions(
         self, vectors: Iterable[UVec], normalize=False
-    ) -> Iterable[Vec3]:
+    ) -> Iterator[Vec3]:
         """Returns an iterable of transformed direction vectors without
         translation.
 

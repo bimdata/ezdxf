@@ -1,4 +1,4 @@
-# Copyright (c) 2011-2022, Manfred Moitzi
+# Copyright (c) 2011-2023, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
 from typing import (
@@ -39,9 +39,7 @@ logger = logging.getLogger("ezdxf")
 
 
 class ObjectsSection:
-    def __init__(
-        self, doc: Drawing, entities: Optional[Iterable[DXFObject]] = None
-    ):
+    def __init__(self, doc: Drawing, entities: Optional[Iterable[DXFObject]] = None):
         self.doc = doc
         self.underlay_key_generator = UnderlayKeyGenerator()
         self._entity_space = EntitySpace()
@@ -66,16 +64,17 @@ class ObjectsSection:
     def _build(self, entities: Iterator[DXFObject]) -> None:
         section_head = cast("DXFTagStorage", next(entities))
 
-        if section_head.dxftype() != "SECTION" or section_head.base_class[
-            1
-        ] != (2, "OBJECTS"):
+        if section_head.dxftype() != "SECTION" or section_head.base_class[1] != (
+            2,
+            "OBJECTS",
+        ):
             raise const.DXFStructureError(
                 "Critical structure error in the OBJECTS section."
             )
 
         for entity in entities:
             # No check for valid entities here:
-            # Use the audit- or the recover module to fix invalid DXF files!
+            # Use the audit or the recover module to fix invalid DXF files!
             self._entity_space.add(entity)
 
     def export_dxf(self, tagwriter: AbstractTagWriter) -> None:
@@ -129,9 +128,7 @@ class ObjectsSection:
                 owner=rootdict.dxf.handle,
                 hard_owned=False,
             )
-            placeholder = self.add_placeholder(
-                owner=plot_style_name_dict.dxf.handle
-            )
+            placeholder = self.add_placeholder(owner=plot_style_name_dict.dxf.handle)
             plot_style_name_dict.set_default(placeholder)
             plot_style_name_dict["Normal"] = placeholder
             rootdict["ACAD_PLOTSTYLENAME"] = plot_style_name_dict
@@ -141,9 +138,9 @@ class ObjectsSection:
             # used by some DXF entities. Try to restore the original table
             # handle.
             new_table = rootdict.get(table_name)
-            if isinstance(
-                new_table, Dictionary
-            ) and self.doc.entitydb.reset_handle(new_table, handle):
+            if isinstance(new_table, Dictionary) and self.doc.entitydb.reset_handle(
+                new_table, handle
+            ):
                 logger.debug(f"reset handle of table {table_name} to #{handle}")
 
         # check required object tables:
@@ -173,9 +170,7 @@ class ObjectsSection:
                 f"invalid DXF type {entity.dxftype()} for OBJECTS section"
             )
 
-    def add_dxf_object_with_reactor(
-        self, dxftype: str, dxfattribs
-    ) -> DXFObject:
+    def add_dxf_object_with_reactor(self, dxftype: str, dxfattribs) -> DXFObject:
         """Add DXF object with reactor. (internal API)"""
         dxfobject = self.new_entity(dxftype, dxfattribs)
         dxfobject.set_reactors([dxfattribs["owner"]])
@@ -256,10 +251,10 @@ class ObjectsSection:
                     f"from OBJECTS section.",
                 )
                 auditor.trash(entity)
+        self.reorg(auditor)
+        self._entity_space.audit(auditor)
 
-    def add_dictionary(
-        self, owner: str = "0", hard_owned: bool = True
-    ) -> Dictionary:
+    def add_dictionary(self, owner: str = "0", hard_owned: bool = True) -> Dictionary:
         """Add new :class:`~ezdxf.entities.Dictionary` object.
 
         Args:
@@ -297,9 +292,7 @@ class ObjectsSection:
         )
         return cast("DictionaryWithDefault", entity)
 
-    def add_dictionary_var(
-        self, owner: str = "0", value: str = ""
-    ) -> DictionaryVar:
+    def add_dictionary_var(self, owner: str = "0", value: str = "") -> DictionaryVar:
         """Add a new :class:`~ezdxf.entities.DictionaryVar` object.
 
         Args:
@@ -318,9 +311,7 @@ class ObjectsSection:
             owner: handle to owner as hex string.
 
         """
-        return self.new_entity(  # type: ignore
-            "XRECORD", dxfattribs={"owner": owner}
-        )
+        return self.new_entity("XRECORD", dxfattribs={"owner": owner})  # type: ignore
 
     def add_placeholder(self, owner: str = "0") -> Placeholder:
         """Add a new :class:`~ezdxf.entities.Placeholder` object.
@@ -343,8 +334,9 @@ class ObjectsSection:
         Args:
             frame: ``0`` = do not show image frame; ``1`` = show image frame
             quality: ``0`` = draft; ``1`` = high
-            units: units for inserting images. This defines the real world unit for one drawing unit for the purpose of
-                   inserting and scaling images with an associated resolution.
+            units: units for inserting images. This defines the real world unit for one
+                drawing unit for the purpose of inserting and scaling images with an
+                associated resolution.
 
                    ===== ===========================
                    mm    Millimeter
@@ -355,6 +347,7 @@ class ObjectsSection:
                    ft    Foot
                    yd    Yard
                    mi    Mile
+                   none  None
                    ===== ===========================
 
         (internal API), public interface :meth:`~ezdxf.drawing.Drawing.set_raster_variables`
@@ -379,6 +372,17 @@ class ObjectsSection:
             raster_vars.dxf.quality = quality
             raster_vars.dxf.units = units_
 
+    def get_raster_variables(self) -> tuple[int, int, str]:
+        try:
+            raster_vars = self.rootdict["ACAD_IMAGE_VARS"]
+        except const.DXFKeyError:
+            return 0, 1, "none"
+        return (
+            raster_vars.dxf.frame,
+            raster_vars.dxf.quality,
+            const.REVERSE_RASTER_UNITS.get(raster_vars.dxf.units, "none"),
+        )
+
     def set_wipeout_variables(self, frame: int = 0) -> None:
         """Set wipeout variables.
 
@@ -400,6 +404,13 @@ class ObjectsSection:
             self.rootdict["ACAD_WIPEOUT_VARS"] = wipeout_vars
         else:
             wipeout_vars.dxf.frame = int(frame)
+
+    def get_wipeout_frame_setting(self) -> int:
+        try:
+            wipeout_vars = self.rootdict["ACAD_WIPEOUT_VARS"]
+        except const.DXFKeyError:
+            return 0
+        return wipeout_vars.dxf.frame
 
     def add_image_def(
         self,
@@ -440,7 +451,7 @@ class ObjectsSection:
                 "image_size": size_in_pixel,
             },
         )
-        image_dict[name] = image_def.dxf.handle
+        image_dict[name] = image_def
         return cast("ImageDef", image_def)
 
     def add_image_def_reactor(self, image_handle: str) -> ImageDefReactor:
@@ -498,15 +509,13 @@ class ObjectsSection:
 
         # auto-generated underlay key
         key = self.next_underlay_key(lambda k: k not in underlay_dict)
-        underlay_dict[key] = underlay_def.dxf.handle
+        underlay_dict[key] = underlay_def
         return cast("UnderlayDefinition", underlay_def)
 
-    def add_geodata(
-        self, owner: str = "0", dxfattribs=None
-    ) -> GeoData:
+    def add_geodata(self, owner: str = "0", dxfattribs=None) -> GeoData:
         """Creates a new :class:`GeoData` entity and replaces existing ones.
         The GEODATA entity resides in the OBJECTS section and NOT in the layout
-        entity space and it is linked to the layout by an extension dictionary
+        entity space, and it is linked to the layout by an extension dictionary
         located in BLOCK_RECORD of the layout.
 
         The GEODATA entity requires DXF version R2010+. The DXF Reference does
@@ -522,9 +531,16 @@ class ObjectsSection:
         if dxfattribs is None:
             dxfattribs = {}
         dxfattribs["owner"] = owner
-        return cast(
-            "GeoData", self.add_dxf_object_with_reactor("GEODATA", dxfattribs)
-        )
+        return cast("GeoData", self.add_dxf_object_with_reactor("GEODATA", dxfattribs))
+
+    def reorg(self, auditor: Optional[Auditor] = None) -> Auditor:
+        """Validate and recreate the integrity of the OBJECTS section."""
+        if auditor is None:
+            assert self.doc is not None, "valid document required"
+            auditor = Auditor(self.doc)
+        sanitizer = _Sanitizer(auditor, self)
+        sanitizer.execute()
+        return auditor
 
 
 _OBJECT_TABLE_NAMES = [
@@ -540,3 +556,162 @@ _OBJECT_TABLE_NAMES = [
     "ACAD_TABLESTYLE",
     "ACAD_VISUALSTYLE",
 ]
+
+KNOWN_DICT_CONTENT: dict[str, str] = {
+    "ACAD_COLOR": "DBCOLOR",
+    "ACAD_GROUP": "GROUP",
+    "ACAD_IMAGE_DICT": "IMAGEDEF",
+    "ACAD_DETAILVIEWSTYLE": "ACDBDETAILVIEWSTYLE",
+    "ACAD_LAYOUT": "LAYOUT",
+    "ACAD_MATERIAL": "MATERIAL",
+    "ACAD_MLEADERSTYLE": "MLEADERSTYLE",
+    "ACAD_MLINESTYLE": "MLINESTYLE",
+    "ACAD_PLOTSETTINGS": "PLOTSETTINGS",
+    "ACAD_RENDER_ACTIVE_SETTINGS": "MENTALRAYRENDERSETTINGS",
+    "ACAD_SCALELIST": "SCALE",
+    "ACAD_SECTIONVIEWSTYLE": "ACDBSECTIONVIEWSTYLE",
+    "ACAD_TABLESTYLE": "TABLESTYLE",
+    "ACAD_PDFDEFINITIONS": "PDFDEFINITION",
+    "ACAD_DWFDEFINITIONS": "DWFDEFINITION",
+    "ACAD_DGNDEFINITIONS": "DGNDEFINITION",
+    "ACAD_VISUALSTYLE": "VISUALSTYLE",
+    "AcDbVariableDictionary": "DICTIONARYVAR",
+}
+
+
+class _Sanitizer:
+    def __init__(self, auditor: Auditor, objects: ObjectsSection) -> None:
+        self.objects = objects
+        self.auditor = auditor
+        self.rootdict = objects.rootdict
+        self.removed_entity = True
+
+    def dictionaries(self) -> Iterator[Dictionary]:
+        for d in self.objects:
+            if isinstance(d, Dictionary):
+                yield d
+
+    def execute(self, max_loops=100) -> None:
+        self.restore_owner_handles_of_dictionary_entries()
+        self.validate_known_dictionaries()
+        loops = 0
+        self.removed_entity = True
+        while self.removed_entity and loops < max_loops:
+            loops += 1
+            self.removed_entity = False
+            self.remove_orphaned_dictionaries()
+            # Run audit on all entities of the OBJECTS section to take the removed
+            # dictionaries into account.
+            self.audit_objects()
+        self.create_required_structures()
+
+    def restore_owner_handles_of_dictionary_entries(self) -> None:
+        def reclaim_entity() -> None:
+            entity.dxf.owner = dict_handle
+            self.auditor.fixed_error(
+                AuditError.INVALID_OWNER_HANDLE,
+                f"Fixed invalid owner handle of {entity}.",
+            )
+
+        def purge_key():
+            purge.append(key)
+            self.auditor.fixed_error(
+                AuditError.INVALID_OWNER_HANDLE,
+                f"Removed invalid key {key} in {str(dictionary)}.",
+            )
+
+        entitydb = self.auditor.entitydb
+        for dictionary in self.dictionaries():
+            purge: list[str] = []  # list of keys to discard
+            dict_handle = dictionary.dxf.handle
+            for key, entity in dictionary.items():
+                if isinstance(entity, str):
+                    # handle is not resolved -> entity does not exist
+                    purge_key()
+                    continue
+                owner_handle = entity.dxf.get("owner")
+                if owner_handle == dict_handle:
+                    continue
+                parent_dict = entitydb.get(owner_handle)
+                if isinstance(parent_dict, Dictionary) and parent_dict.find_key(entity):
+                    # entity belongs to parent_dict, discard key
+                    purge_key()
+                else:
+                    reclaim_entity()
+            for key in purge:
+                dictionary.discard(key)
+
+    def remove_orphaned_dictionaries(self) -> None:
+        def kill_dictionary():
+            entitydb.discard(dictionary)
+            dictionary._silent_kill()
+
+        entitydb = self.auditor.entitydb
+        rootdict = self.rootdict
+        for dictionary in self.dictionaries():
+            if dictionary is rootdict:
+                continue
+            owner = entitydb.get(dictionary.dxf.get("owner"))
+            if owner is None:
+                # owner does not exist:
+                # A DICTIONARY without an owner has no purpose and the owner can not be
+                # determined, except for searching all dictionaries for an entry that
+                # references this DICTIONARY, this is done in the method
+                # restore_owner_handles_of_dictionary_entries().
+                kill_dictionary()
+                continue
+            if not isinstance(owner, Dictionary):
+                continue
+            key = owner.find_key(dictionary)
+            if not key:  # owner dictionary has no entry for this dict
+                kill_dictionary()
+
+    def validate_known_dictionaries(self) -> None:
+        from ezdxf.entities import DXFEntity
+
+        auditor = self.auditor
+        for dict_name, expected_type in KNOWN_DICT_CONTENT.items():
+            object_dict = self.rootdict.get(dict_name)
+            if not isinstance(object_dict, Dictionary):
+                continue
+            purge_keys: list[str] = []
+            for key, entry in object_dict.items():
+                if isinstance(entry, DXFEntity) and entry.dxftype() != expected_type:
+                    auditor.fixed_error(
+                        AuditError.REMOVED_INVALID_DXF_OBJECT,
+                        f"Removed invalid type {entry} from {object_dict}<{dict_name}>, "
+                        f"expected type {expected_type}",
+                    )
+                    purge_keys.append(key)
+                    auditor.trash(entry)
+            for key in purge_keys:
+                object_dict.discard(key)
+
+    def create_required_structures(self):
+        self.objects.setup_object_management_tables(self.rootdict)
+        doc = self.objects.doc
+        # update ObjectCollections:
+        doc.materials.update_object_dict()
+        doc.materials.create_required_entries()
+        doc.mline_styles.update_object_dict()
+        doc.mline_styles.create_required_entries()
+        doc.mleader_styles.update_object_dict()
+        doc.mleader_styles.create_required_entries()
+        doc.groups.update_object_dict()
+
+    def cleanup_entitydb(self):
+        self.auditor.empty_trashcan()
+        self.auditor.entitydb.purge()
+
+    def audit_objects(self):
+        self.cleanup_entitydb()
+        auditor = self.auditor
+        current_db_size = len(auditor.entitydb)
+
+        for entity in self.objects:
+            auditor.check_owner_exist(entity)
+            entity.audit(auditor)
+
+        auditor.empty_trashcan()
+        if current_db_size != len(auditor.entitydb):
+            self.removed_entity = True

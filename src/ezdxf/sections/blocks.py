@@ -252,6 +252,10 @@ class BlocksSection:
         else:
             raise DXFKeyError(name)
 
+    def block_names(self) -> list[str]:
+        """Returns a list of all block names."""
+        return list(self.doc.block_records.entries.keys())  # type: ignore
+
     def get(self, name: str, default=None) -> BlockLayout:
         """Returns :class:`~ezdxf.layouts.BlockLayout` `name`, returns
         `default` if `name` not exist.
@@ -309,11 +313,11 @@ class BlocksSection:
             ========= ==========
 
         """
-        blockname = self.anonymous_blockname(type_char)
-        block = self.new(blockname, base_point, {"flags": const.BLK_ANONYMOUS})
+        block_name = self.anonymous_block_name(type_char)
+        block = self.new(block_name, base_point, {"flags": const.BLK_ANONYMOUS})
         return block
 
-    def anonymous_blockname(self, type_char: str) -> str:
+    def anonymous_block_name(self, type_char: str) -> str:
         """Create name for an anonymous block. (internal API)
 
         Args:
@@ -329,9 +333,9 @@ class BlocksSection:
         """
         while True:
             self._anonymous_block_counter += 1
-            blockname = f"*{type_char}{self._anonymous_block_counter}"
-            if not self.__contains__(blockname):
-                return blockname
+            block_name = f"*{type_char}{self._anonymous_block_counter}"
+            if not self.block_records.has_entry(block_name):
+                return block_name
 
     def rename_block(self, old_name: str, new_name: str) -> None:
         """Rename :class:`~ezdxf.layouts.BlockLayout` `old_name` to `new_name`

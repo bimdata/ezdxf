@@ -40,6 +40,7 @@ from ezdxf.tools.text import (
     escape_dxf_line_endings,
     fast_plain_mtext,
     plain_mtext,
+    scale_mtext_inline_commands,
 )
 from . import factory
 from .dxfentity import base_class, SubclassProcessor
@@ -52,6 +53,7 @@ if TYPE_CHECKING:
     from ezdxf.entities import DXFNamespace, DXFEntity
     from ezdxf.lldxf.tagwriter import AbstractTagWriter
     from ezdxf.entitydb import EntityDB
+    from ezdxf import xref
 
 __all__ = [
     "MText",
@@ -253,7 +255,7 @@ class MTextColumns:
         # Storage for handles of linked MTEXT entities at loading stage:
         self.linked_handles: Optional[list[str]] = None
         # Storage for linked MTEXT entities for DXF versions < R2018:
-        self.linked_columns: list["MText"] = []
+        self.linked_columns: list[MText] = []
         # R2018+: heights of all columns if auto_height is False
         self.heights: list[float] = []
 
@@ -325,9 +327,7 @@ class MTextColumns:
     def update_total_width(self):
         count = self.count
         if count > 0:
-            self.total_width = (
-                count * self.width + (count - 1) * self.gutter_width
-            )
+            self.total_width = count * self.width + (count - 1) * self.gutter_width
         else:
             self.total_width = 0.0
 
@@ -418,9 +418,7 @@ class MTextColumns:
             if column.is_alive:
                 handle = column.dxf.handle
                 if handle is None:
-                    raise const.DXFStructureError(
-                        "Linked MTEXT column has no handle."
-                    )
+                    raise const.DXFStructureError("Linked MTEXT column has no handle.")
                 handles.append(handle)
             else:
                 raise const.DXFStructureError("Linked MTEXT column deleted!")
@@ -578,9 +576,7 @@ def load_mtext_defined_height(tags: Tags) -> float:
     return height
 
 
-def load_columns_from_xdata(
-    dxf: DXFNamespace, xdata: XData
-) -> Optional[MTextColumns]:
+def load_columns_from_xdata(dxf: DXFNamespace, xdata: XData) -> Optional[MTextColumns]:
     # The ACAD section in XDATA of the main MTEXT entity stores all column
     # related information:
     if "ACAD" in xdata:
@@ -686,7 +682,7 @@ class MText(DXFGraphic):
     def has_columns(self) -> bool:
         return self._columns is not None
 
-    def _copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity) -> None:
         assert isinstance(entity, MText)
         entity.text = self.text
         if self.has_columns:
@@ -755,9 +751,7 @@ class MText(DXFGraphic):
         columns = self._columns
         if columns and tagwriter.dxfversion < const.DXF2018:
             if columns.count != len(columns.linked_columns) + 1:
-                logger.debug(
-                    f"{str(self)}: column count does not match linked columns"
-                )
+                logger.debug(f"{str(self)}: column count does not match linked columns")
                 # just log for debugging, because AutoCAD accept this!
             if not all(column.is_alive for column in columns.linked_columns):
                 logger.debug(f"{str(self)}: contains destroyed linked columns")
@@ -860,9 +854,7 @@ class MText(DXFGraphic):
     def export_linked_entities(self, tagwriter: AbstractTagWriter):
         for mtext in self._columns.linked_columns:  # type: ignore
             if mtext.dxf.handle is None:
-                raise const.DXFStructureError(
-                    "Linked MTEXT column has no handle."
-                )
+                raise const.DXFStructureError("Linked MTEXT column has no handle.")
             # Export linked columns as separated DXF entities:
             mtext.export_dxf(tagwriter)
 
@@ -898,10 +890,7 @@ class MText(DXFGraphic):
                 column.set_xdata("ACAD", tags)
 
     def get_rotation(self) -> float:
-        """Get text rotation in degrees, independent if it is defined by
-        :attr:`dxf.rotation` or :attr:`dxf.text_direction`.
-
-        """
+        """Returns the text rotation in degrees."""
         if self.dxf.hasattr("text_direction"):
             vector = self.dxf.text_direction
             radians = math.atan2(vector[1], vector[0])  # ignores z-axis
@@ -911,9 +900,8 @@ class MText(DXFGraphic):
         return rotation
 
     def set_rotation(self, angle: float) -> MText:
-        """Set attribute :attr:`rotation` to `angle` (in degrees) and deletes
+        """Sets the attribute :attr:`rotation` to `angle` (in degrees) and deletes
         :attr:`dxf.text_direction` if present.
-
         """
         # text_direction has higher priority than rotation, therefore delete it
         self.dxf.discard("text_direction")
@@ -926,7 +914,7 @@ class MText(DXFGraphic):
         rotation: Optional[float] = None,
         attachment_point: Optional[int] = None,
     ) -> MText:
-        """Set attributes :attr:`dxf.insert`, :attr:`dxf.rotation` and
+        """Sets the attributes :attr:`dxf.insert`, :attr:`dxf.rotation` and
         :attr:`dxf.attachment_point`, ``None`` for :attr:`dxf.rotation` or
         :attr:`dxf.attachment_point` preserves the existing value.
 
@@ -944,19 +932,15 @@ class MText(DXFGraphic):
         scale: float = 1.5,
         text_frame=False,
     ):
-        """Set background color as :ref:`ACI` value or as name string or as RGB
-        tuple ``(r, g, b)``.
+        """Sets the background color as :ref:`ACI` value, as name string or as
+        (r, g, b) tuple.
 
-        Use special color name ``canvas``, to set background color to canvas
-        background color.
-
-        Use `color` = ``None`` to remove the background filling.
-
-        Setting only a text border is supported (`color`=``None``), but in this
-        case the scaling is always 1.5.
+        Use the special color name ``canvas``, to set the background color to the canvas
+        background color.  Remove the background filling by setting argument `color` to
+        ``None``.
 
         Args:
-            color: color as :ref:`ACI`, string, RGB tuple or ``None``
+            color: color as :ref:`ACI`, string, (r, g, b) tuple or ``None``
             scale: determines how much border there is around the text, the
                 value is based on the text height, and should be in the range
                 of [1, 5], where 1 fits exact the MText entity.
@@ -1048,10 +1032,19 @@ class MText(DXFGraphic):
         new_text_direction = m.transform_direction(old_text_direction)
 
         old_vertical_direction = old_extrusion.cross(old_text_direction)
-        old_char_height_vec = old_vertical_direction.normalize(dxf.char_height)
+        old_char_height = float(dxf.char_height)
+        old_char_height_vec = old_vertical_direction.normalize(old_char_height)
         new_char_height_vec = m.transform_direction(old_char_height_vec)
         oblique = new_text_direction.angle_between(new_char_height_vec)
-        dxf.char_height = new_char_height_vec.magnitude * math.sin(oblique)
+        new_char_height = new_char_height_vec.magnitude * math.sin(oblique)
+        dxf.char_height = new_char_height
+        if (
+            not math.isclose(old_char_height, new_char_height)
+            and abs(old_char_height) > 1e-12
+        ):
+            factor = new_char_height / old_char_height
+            # Column content is transformed by the sub-entities itself!
+            self.text = scale_mtext_inline_commands(self.text, factor)
 
         if dxf.hasattr("width"):
             width_vec = old_text_direction.normalize(dxf.width)
@@ -1061,12 +1054,8 @@ class MText(DXFGraphic):
         dxf.text_direction = new_text_direction
         dxf.extrusion = new_extrusion
         if self.has_columns:
-            hscale = m.transform_direction(
-                old_text_direction.normalize()
-            ).magnitude
-            vscale = m.transform_direction(
-                old_vertical_direction.normalize()
-            ).magnitude
+            hscale = m.transform_direction(old_text_direction.normalize()).magnitude
+            vscale = m.transform_direction(old_vertical_direction.normalize()).magnitude
             self._columns.transform(m, hscale, vscale)  # type: ignore
         self.post_transform(m)
         return self
@@ -1181,9 +1170,7 @@ class MText(DXFGraphic):
                 if entity.is_alive:
                     func(entity)
 
-    def setup_columns(
-        self, columns: MTextColumns, linked: bool = False
-    ) -> None:
+    def setup_columns(self, columns: MTextColumns, linked: bool = False) -> None:
         assert columns.column_type != ColumnType.NONE
         assert columns.count > 0, "one or more columns required"
         assert columns.width > 0, "column width has to be > 0"
@@ -1238,6 +1225,28 @@ class MText(DXFGraphic):
         # WCS entity which supports the "extrusion" attribute in a
         # different way!
         return OCS()
+
+    def register_resources(self, registry: xref.Registry) -> None:
+        """Register required resources to the resource registry."""
+        super().register_resources(registry)
+        if self.dxf.hasattr("style"):
+            registry.add_text_style(self.dxf.style)
+        if self._columns:
+            for mtext in self._columns.linked_columns:
+                mtext.register_resources(registry)
+
+    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+        """Translate resources from self to the copied entity."""
+        assert isinstance(clone, MText)
+        super().map_resources(clone, mapping)
+
+        if clone.dxf.hasattr("style"):
+            clone.dxf.style = mapping.get_text_style(clone.dxf.style)
+        if self._columns and clone._columns:
+            for col_self, col_clone in zip(
+                self._columns.linked_columns, clone._columns.linked_columns
+            ):
+                col_self.map_resources(col_clone, mapping)
 
 
 def export_mtext_content(text, tagwriter: AbstractTagWriter) -> None:

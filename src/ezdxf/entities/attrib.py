@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from ezdxf.lldxf.tagwriter import AbstractTagWriter
     from ezdxf.lldxf.tags import Tags
     from ezdxf.entities import DXFEntity
+    from ezdxf import xref
 
 
 __all__ = ["AttDef", "Attrib", "copy_attrib_as_text", "BaseAttrib"]
@@ -133,6 +134,11 @@ acdb_attdef_group_codes = group_code_mapping(acdb_attdef)
 acdb_attrib = DefSubclass("AcDbAttribute", attrib_fields)
 acdb_attrib_group_codes = group_code_mapping(acdb_attrib)
 
+# --------------------------------------------------------------------------------------
+# Does subclass AcDbXrecord really exist? Only the documentation in the DXF reference
+# exists, no real world examples seen so far - it wouldn't be the first error or misleading
+# information in the DXF reference.
+# --------------------------------------------------------------------------------------
 # For XRECORD the tag order is important and group codes appear multiple times,
 # therefore this attribute definition needs a special treatment!
 acdb_attdef_xrecord = DefSubclass(
@@ -160,7 +166,7 @@ acdb_attdef_xrecord = DefSubclass(
         # Number of secondary attributes or attribute definitions:
         ("secondary_attribs_count", DXFAttr(70, default=0)),
         # Hard-pointer id of secondary attribute(s) or attribute definition(s):
-        ("secondary_attribs_handle", DXFAttr(70, default=0)),
+        ("secondary_attribs_handle", DXFAttr(340, default="0")),
         # Alignment point of attribute or attribute definition:
         ("align_point", DXFAttr(10, xtype=XType.point3d, default=NULLVEC)),
         ("current_annotation_scale", DXFAttr(40, default=0)),
@@ -205,7 +211,7 @@ class BaseAttrib(Text):
         self._xrecord: Optional[Tags] = None
         self._embedded_mtext: Optional[EmbeddedMText] = None
 
-    def _copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity) -> None:
         """Copy entity data, xrecord data and embedded MTEXT are not stored
         in the entity database.
         """
@@ -356,6 +362,20 @@ class BaseAttrib(Text):
         """
         self.set_mtext(mtext, graphic_properties)
         mtext.destroy()
+
+    def register_resources(self, registry: xref.Registry) -> None:
+        """Register required resources to the resource registry."""
+        super().register_resources(registry)
+        if self._embedded_mtext:
+            self._embedded_mtext.register_resources(registry)
+
+    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+        """Translate resources from self to the copied entity."""
+        assert isinstance(clone, BaseAttrib)
+        super().map_resources(clone, mapping)
+        if self._embedded_mtext and clone._embedded_mtext:
+            self._embedded_mtext.map_resources(clone._embedded_mtext, mapping)
+        # todo: map handles in embedded XRECORD if a real world example shows up
 
 
 def _update_content_from_mtext(text: Text, mtext: MText) -> None:
@@ -661,3 +681,13 @@ class EmbeddedMText:
                 "bg_fill_transparency",
             ],
         )
+
+    def register_resources(self, registry: xref.Registry) -> None:
+        """Register required resources to the resource registry."""
+        if self.dxf.hasattr("style"):
+            registry.add_text_style(self.dxf.style)
+
+    def map_resources(self, clone: EmbeddedMText, mapping: xref.ResourceMapper) -> None:
+        """Translate resources from self to the copied entity."""
+        if clone.dxf.hasattr("style"):
+            clone.dxf.style = mapping.get_text_style(clone.dxf.style)

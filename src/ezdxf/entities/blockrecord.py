@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from ezdxf.entitydb import EntitySpace
     from ezdxf.layouts import BlockLayout
     from ezdxf.lldxf.tagwriter import AbstractTagWriter
+    from ezdxf import xref
 
 __all__ = ["BlockRecord"]
 logger = logging.getLogger("ezdxf")
@@ -87,9 +88,7 @@ class BlockRecord(DXFEntity):
     """
 
     DXFTYPE = "BLOCK_RECORD"
-    DXFATTRIBS = DXFAttributes(
-        base_class, acdb_symbol_table_record, acdb_blockrec
-    )
+    DXFATTRIBS = DXFAttributes(base_class, acdb_symbol_table_record, acdb_blockrec)
 
     def __init__(self) -> None:
         from ezdxf.entitydb import EntitySpace
@@ -157,6 +156,45 @@ class BlockRecord(DXFEntity):
         if not (self.is_modelspace or self.is_active_paperspace):
             self.entity_space.export_dxf(tagwriter)
         self.endblk.export_dxf(tagwriter)
+
+    def register_resources(self, registry: xref.Registry) -> None:
+        """Register required resources to the resource registry."""
+        assert self.doc is not None, "BLOCK_RECORD entity must be assigned to document"
+        assert self.doc.entitydb is not None, "entity database required"
+        super().register_resources(registry)
+        key = self.dxf.handle
+        assert key in self.doc.entitydb, "invalid BLOCK_RECORD handle"
+
+        if self.block is not None:
+            registry.add_entity(self.block, block_key=key)
+        else:
+            raise DXFInternalEzdxfError(
+                f"BLOCK entity in BLOCK_RECORD #{key} is invalid"
+            )
+        if self.endblk is not None:
+            registry.add_entity(self.endblk, block_key=key)
+        else:
+            raise DXFInternalEzdxfError(
+                f"ENDBLK entity in BLOCK_RECORD #{key} is invalid"
+            )
+        for e in self.entity_space:
+            registry.add_entity(e, block_key=key)
+        # todo: Modelspace and Paperspace layouts
+
+    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+        """Translate resources from self to the copied entity."""
+        assert isinstance(clone, BlockRecord)
+        super().map_resources(clone, mapping)
+
+        assert self.block is not None
+        mapping.map_resources_of_copy(self.block)
+
+        assert self.endblk is not None
+        mapping.map_resources_of_copy(self.endblk)
+
+        for entity in self.entity_space:
+            mapping.map_resources_of_copy(entity)
+        # todo: Modelspace and Paperspace layouts
 
     def destroy(self):
         """Destroy associated data:
@@ -227,13 +265,9 @@ class BlockRecord(DXFEntity):
         """
         # assign layout
         try:
-            entity.set_owner(
-                self.dxf.handle, paperspace=int(self.is_any_paperspace)
-            )
+            entity.set_owner(self.dxf.handle, paperspace=int(self.is_any_paperspace))
         except AttributeError:
-            logger.debug(
-                f"Unexpected DXF entity {str(entity)} in {str(self.block)}"
-            )
+            logger.debug(f"Unexpected DXF entity {str(entity)} in {str(self.block)}")
         # Add unexpected entities also to the entity space - auditor should fix
         # errors!
         self.entity_space.add(entity)
@@ -270,25 +304,4 @@ class BlockRecord(DXFEntity):
         if not self.is_alive:
             return
         super().audit(auditor)
-        entitydb = auditor.entitydb
-        rec_name = self.dxf.name
-        trash = []
-        for entity in self.entity_space:
-            if entity.is_alive:
-                check = entitydb.get(entity.dxf.handle)
-                if check is not entity:
-                    # Different entity stored in the database for this handle,
-                    # scenario #604:
-                    # - document has entities without handles (invalid for DXF R13+)
-                    # - $HANDSEED is not the next usable handle (dubious, causes error #1)
-                    # - entity gets an already used handle (loading error #1)
-                    # - entity overwrites existing entity or will be
-                    #   overwritten by an entity loaded afterwards (loading error #2)
-                    trash.append(entity)
-                    auditor.fixed_error(
-                        code=AuditError.REMOVED_ENTITY_FROM_BLOCK_RECORD,
-                        message=f"Removed invalid database entry {str(entity)}"
-                        f' from BLOCK_RECORD "{rec_name}".',
-                    )
-        for e in trash:
-            self.entity_space.remove(e)
+        self.entity_space.audit(auditor)

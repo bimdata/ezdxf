@@ -1,7 +1,7 @@
-# Copyright (C) 2018-2022, Manfred Moitzi
+# Copyright (C) 2018-2023, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
-from typing import TextIO, Iterable, Optional, cast, Sequence
+from typing import TextIO, Iterable, Optional, cast, Sequence, Iterator
 import logging
 import io
 import bisect
@@ -25,54 +25,130 @@ from .const import (
     TRANSPARENCY_BYBLOCK,
 )
 
-from .tagger import ascii_tags_loader
+from .tagger import ascii_tags_loader, binary_tags_loader
 from .types import is_embedded_object_marker, DXFTag, NONE_TAG
 from ezdxf.tools.codepage import toencoding
-from ezdxf.math import NULLVEC
+from ezdxf.math import NULLVEC, Vec3
 
 logger = logging.getLogger("ezdxf")
 
 
 class DXFInfo:
-    def __init__(self):
-        self.release = "R12"
-        self.version = "AC1009"
-        self.encoding = "cp1252"
-        self.handseed = "0"
+    """DXF Info Record
 
-    def set_header_var(self, name: str, value: str) -> int:
+    .. attribute:: release
+
+    .. attribute:: version
+
+    .. attribute:: encoding
+
+    .. attribute:: handseed
+
+    .. attribute:: insert_units
+
+    .. attribute:: insert_base
+
+    """
+
+    EXPECTED_COUNT = 5
+
+    def __init__(self) -> None:
+        self.release: str = "R12"
+        self.version: str = "AC1009"
+        self.encoding: str = "cp1252"
+        self.handseed: str = "0"
+        self.insert_units: int = 0  # unitless
+        self.insert_base: Vec3 = NULLVEC
+
+    def __str__(self) -> str:
+        return "\n".join(self.data_strings())
+
+    def data_strings(self) -> list[str]:
+        from ezdxf import units
+
+        return [
+            f"release: {self.release}",
+            f"version: {self.version}",
+            f"encoding: {self.encoding}",
+            f"next handle: 0x{self.handseed}",
+            f"insert units: {self.insert_units} <{units.decode(self.insert_units)}>",
+            f"insert base point: {self.insert_base}",
+        ]
+
+    def set_header_var(self, name: str, value) -> int:
         if name == "$ACADVER":
-            self.version = value
+            self.version = str(value)
             self.release = acad_release.get(value, "R12")
         elif name == "$DWGCODEPAGE":
             self.encoding = toencoding(value)
         elif name == "$HANDSEED":
-            self.handseed = value
+            self.handseed = str(value)
+        elif name == "$INSUNITS":
+            try:
+                self.insert_units = int(value)
+            except ValueError:
+                pass
+        elif name == "$INSBASE":
+            try:
+                self.insert_base = Vec3(value)
+            except (ValueError, TypeError):
+                pass
         else:
             return 0
         return 1
 
 
 def dxf_info(stream: TextIO) -> DXFInfo:
+    """Scans the HEADER section of an ASCII DXF document and returns a :class:`DXFInfo`
+    object, which contains information about the DXF version, text encoding, drawing
+    units and insertion base point.
+    """
+    return _detect_dxf_info(ascii_tags_loader(stream))
+
+
+def binary_dxf_info(data: bytes) -> DXFInfo:
+    """Scans the HEADER section of a binary DXF document and returns a :class:`DXFInfo`
+    object, which contains information about the DXF version, text encoding, drawing
+    units and insertion base point.
+    """
+    return _detect_dxf_info(binary_tags_loader(data))
+
+
+def _detect_dxf_info(tagger: Iterator[DXFTag]) -> DXFInfo:
     info = DXFInfo()
-    tagger = ascii_tags_loader(stream)
-    # comments already removed
+    # comments will be skipped
     if next(tagger) != (0, "SECTION"):
-        # maybe a DXF structure error, handled by later processing
+        # unexpected or invalid DXF structure
         return info
     if next(tagger) != (2, "HEADER"):
-        # no leading HEADER section like DXF R12 with only ENTITIES section
+        # Without a leading HEADER section the document is processed as DXF R12 file
+        # with only an ENTITIES section.
         return info
     tag = NONE_TAG
+    undo_tag = NONE_TAG
     found: int = 0
-    while tag != (0, "ENDSEC"):  # until end of HEADER section
-        tag = next(tagger)
+    while tag != (0, "ENDSEC"):
+        if undo_tag is NONE_TAG:
+            tag = next(tagger)
+        else:
+            tag = undo_tag
+            undo_tag = NONE_TAG
         if tag.code != HEADER_VAR_MARKER:
             continue
-        name = cast(str, tag.value)
-        value = cast(str, next(tagger).value)
-        found += info.set_header_var(name, value)
-        if found > 2:  # all expected values collected
+        var_name = str(tag.value)
+        code, value = next(tagger)
+        if code == 10:
+            x = float(value)
+            y = float(next(tagger).value)
+            z = 0.0
+            tag = next(tagger)
+            if tag.code == 30:
+                z = float(tag.value)
+            else:
+                undo_tag = tag
+            value = Vec3(x, y, z)
+        found += info.set_header_var(var_name, value)
+        if found >= DXFInfo.EXPECTED_COUNT:
             break
     return info
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2011-2021 Manfred Moitzi
+# Copyright (c) 2011-2023 Manfred Moitzi
 # License: MIT License
 import os
 import sys
@@ -121,9 +121,9 @@ def read(fname, until=""):
         return "File '%s' not found.\n" % fname
 
 
-DRAW = ["matplotlib", "PySide6", "Pillow"]
-DRAW5 = ["matplotlib", "PyQt5", "Pillow"]
-TEST = ["pytest", "geomdl"]
+DRAW = ["matplotlib", "PySide6", "PyMuPDF"]
+DRAW5 = ["matplotlib", "PyQt5", "PyMuPDF"]
+TEST = ["pytest"]
 DEV = ["setuptools", "wheel", "Cython"]
 
 setup(
@@ -134,7 +134,7 @@ setup(
     url="https://ezdxf.mozman.at",
     download_url="https://pypi.org/project/ezdxf/",
     author_email="me@mozman.at",
-    python_requires=">=3.7",
+    python_requires=">=3.8",
     package_dir={"": "src"},
     packages=find_packages("src"),
     zip_safe=False,
@@ -143,8 +143,6 @@ setup(
             "pp/*.html",
             "pp/*.js",
             "pp/*.css",
-            "tools/font_face_cache.json",
-            "tools/font_measurement_cache.json",
             "resources/*.png",
             "py.typed",
         ]
@@ -157,9 +155,9 @@ setup(
     provides=["ezdxf"],
     cmdclass=commands,
     ext_modules=ext_modules,
-    install_requires=["pyparsing>=2.0.1", "typing_extensions"],
+    install_requires=["pyparsing>=2.0.1", "typing_extensions", "numpy", "fonttools"],
     setup_requires=["wheel"],
-    tests_require=["pytest", "geomdl"],
+    tests_require=["pytest"],
     extras_require={
         "draw": DRAW,
         "draw5": DRAW5,
@@ -179,10 +177,10 @@ setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: Implementation :: CPython",
         "Programming Language :: Python :: Implementation :: PyPy",
         "Intended Audience :: Developers",

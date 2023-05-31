@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from ezdxf.lldxf.tagwriter import AbstractTagWriter
     from ezdxf.math import Matrix44
     from ezdxf.query import EntityQuery
+    from ezdxf import xref
 
 __all__ = ["MLine", "MLineVertex", "MLineStyle", "MLineStyleCollection"]
 logger = logging.getLogger("ezdxf")
@@ -293,9 +294,7 @@ class MLineVertex:
         vtx.line_params = list(line_params or [])
         vtx.fill_params = list(fill_params or [])
         if len(vtx.line_params) != len(vtx.fill_params):
-            raise const.DXFValueError(
-                "Count mismatch of line- and fill parameters"
-            )
+            raise const.DXFValueError("Count mismatch of line- and fill parameters")
         return vtx
 
     def transform(self, m: Matrix44) -> MLineVertex:
@@ -310,6 +309,7 @@ class MLineVertex:
 class MLine(DXFGraphic):
     DXFTYPE = "MLINE"
     DXFATTRIBS = DXFAttributes(base_class, acdb_entity, acdb_mline)
+    MIN_DXF_VERSION_FOR_EXPORT = const.DXF2000
     TOP = const.MLINE_TOP
     ZERO = const.MLINE_ZERO
     BOTTOM = const.MLINE_BOTTOM
@@ -330,7 +330,7 @@ class MLine(DXFGraphic):
         """Count of MLINE vertices."""
         return len(self.vertices)
 
-    def _copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity) -> None:
         assert isinstance(entity, MLine)
         entity.vertices = [v.copy() for v in self.vertices]
 
@@ -368,6 +368,25 @@ class MLine(DXFGraphic):
     def export_vertices(self, tagwriter: AbstractTagWriter) -> None:
         for vertex in self.vertices:
             vertex.export_dxf(tagwriter)
+
+    def register_resources(self, registry: xref.Registry) -> None:
+        """Register required resources to the resource registry."""
+        super().register_resources(registry)
+        registry.add_handle(self.dxf.style_handle)
+
+    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+        """Translate resources from self to the copied entity."""
+        super().map_resources(clone, mapping)
+        style = mapping.get_reference_of_copy(self.dxf.style_handle)
+        if not isinstance(style, MLineStyle):
+            assert clone.doc is not None
+            style = clone.doc.mline_styles.get("Standard")
+        if isinstance(style, MLineStyle):
+            clone.dxf.style_handle = style.dxf.handle
+            clone.dxf.style_name = style.dxf.name
+        else:
+            clone.dxf.style_handle = "0"
+            clone.dxf.style_name = "Standard"
 
     @property
     def is_closed(self) -> bool:
@@ -510,9 +529,7 @@ class MLine(DXFGraphic):
         style = self.style
         assert style is not None, "valid MLINE style required"
         if len(style.elements) == 0:
-            raise const.DXFStructureError(
-                f"No line elements defined in {str(style)}."
-            )
+            raise const.DXFStructureError(f"No line elements defined in {str(style)}.")
 
         def miter(dir1: Vec3, dir2: Vec3):
             return ((dir1 + dir2) * 0.5).normalize().orthogonal()
@@ -581,8 +598,7 @@ class MLine(DXFGraphic):
             except ZeroDivisionError:
                 stretch = 1.0
             vertex.line_params = [
-                ((element.offset + shift) * stretch, 0.0)
-                for element in style.elements
+                ((element.offset + shift) * stretch, 0.0) for element in style.elements
             ]
             vertex.fill_params = [tuple() for _ in style.elements]
 
@@ -614,9 +630,9 @@ class MLine(DXFGraphic):
         self.dxf.extrusion = m.transform_direction(self.dxf.extrusion)
         scale = self.dxf.scale_factor
         scale_vec = m.transform_direction(Vec3(scale, scale, scale))
-        if math.isclose(
-            scale_vec.x, scale_vec.y, abs_tol=1e-6
-        ) and math.isclose(scale_vec.y, scale_vec.z, abs_tol=1e-6):
+        if math.isclose(scale_vec.x, scale_vec.y, abs_tol=1e-6) and math.isclose(
+            scale_vec.y, scale_vec.z, abs_tol=1e-6
+        ):
             self.dxf.scale_factor = sum(scale_vec) / 3  # average error
         # None uniform scaling will not be applied to the scale_factor!
         self.update_geometry()
@@ -636,7 +652,8 @@ class MLine(DXFGraphic):
             yield e
 
     def virtual_entities(self) -> Iterator[DXFGraphic]:
-        """Yields 'virtual' parts of MLINE as LINE, ARC and HATCH entities.
+        """Yields virtual DXF primitives of the MLINE entity  as LINE, ARC and HATCH
+        entities.
 
         These entities are located at the original positions, but are not stored
         in the entity database, have no handle and are not assigned to any
@@ -645,17 +662,16 @@ class MLine(DXFGraphic):
         """
         return self.__virtual_entities__()
 
-    def explode(
-        self, target_layout: Optional[BaseLayout] = None
-    ) -> EntityQuery:
-        """Explode parts of MLINE as LINE, ARC and HATCH entities into target
+    def explode(self, target_layout: Optional[BaseLayout] = None) -> EntityQuery:
+        """Explode the MLINE entity as LINE, ARC and HATCH entities into target
         layout, if target layout is ``None``, the target layout is the layout
-        of the MLINE.
+        of the MLINE. This method destroys the source entity.
 
-        Returns an :class:`~ezdxf.query.EntityQuery` container with all DXF parts.
+        Returns an :class:`~ezdxf.query.EntityQuery` container referencing all DXF
+        primitives.
 
         Args:
-            target_layout: target layout for DXF parts, ``None`` for same layout
+            target_layout: target layout for DXF primitives, ``None`` for same layout
                 as source entity.
         """
         from ezdxf.explode import explode_entity
@@ -682,7 +698,7 @@ class MLine(DXFGraphic):
 
         # Audit associated MLINESTYLE name and handle:
         style = doc.entitydb.get(self.dxf.style_handle)
-        if style is None:  # handle is invalid, get style by name
+        if not isinstance(style, MLineStyle):  # handle is invalid, get style by name
             style = doc.mline_styles.get(self.dxf.style_name, None)
             if style is None:
                 reset_mline_style()
@@ -782,6 +798,12 @@ class MLineStyleElements:
                 )
                 self.elements.append(data)
 
+    def copy(self) -> MLineStyleElements:
+        elements = MLineStyleElements()
+        # new list of immutable data
+        elements.elements = list(self.elements)
+        return elements
+
     def __len__(self):
         return len(self.elements)
 
@@ -799,9 +821,7 @@ class MLineStyleElements:
             write_tag(62, color)
             write_tag(6, linetype)
 
-    def append(
-        self, offset: float, color: int = 0, linetype: str = "BYLAYER"
-    ) -> None:
+    def append(self, offset: float, color: int = 0, linetype: str = "BYLAYER") -> None:
         """Append a new line element.
 
         Args:
@@ -853,8 +873,9 @@ class MLineStyle(DXFObject):
         super().__init__()
         self.elements = MLineStyleElements()
 
-    def copy(self):
-        raise const.DXFTypeError("Copying of MLINESTYLE not supported.")
+    def copy_data(self, entity: DXFEntity) -> None:
+        assert isinstance(entity, MLineStyle)
+        entity.elements = self.elements.copy()
 
     def load_dxf_attribs(
         self, processor: Optional[SubclassProcessor] = None
@@ -877,9 +898,7 @@ class MLineStyle(DXFObject):
                 self.elements = MLineStyleElements(tags[index71 + 1 :])  # type: ignore
                 # Remove processed tags:
                 del tags[index71:]
-            processor.fast_load_dxfattribs(
-                dxf, acdb_mline_style_group_codes, tags
-            )
+            processor.fast_load_dxfattribs(dxf, acdb_mline_style_group_codes, tags)
         return dxf
 
     def export_entity(self, tagwriter: AbstractTagWriter) -> None:
@@ -897,9 +916,7 @@ class MLineStyle(DXFObject):
         """
         if self.doc:
             handle = self.dxf.handle
-            mlines = (
-                e for e in self.doc.entitydb.values() if e.dxftype() == "MLINE"
-            )
+            mlines = (e for e in self.doc.entitydb.values() if e.dxftype() == "MLINE")
             for mline in mlines:
                 if mline.dxf.style_handle == handle:
                     mline.update_geometry()
@@ -916,12 +933,29 @@ class MLineStyle(DXFObject):
                 dxf_entity=self,
             )
 
+    def register_resources(self, registry: xref.Registry) -> None:
+        """Register required resources to the resource registry."""
+        super().register_resources(registry)
+        for element in self.elements:
+            registry.add_linetype(element.linetype)
+
+    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+        """Translate resources from self to the copied entity."""
+        assert isinstance(clone, MLineStyle)
+        super().map_resources(clone, mapping)
+        self.elements.elements = [
+            MLineStyleElement(
+                element.offset,
+                element.color,
+                mapping.get_linetype(element.linetype),
+            )
+            for element in self.elements
+        ]
+
 
 class MLineStyleCollection(ObjectCollection[MLineStyle]):
     def __init__(self, doc: Drawing):
-        super().__init__(
-            doc, dict_name="ACAD_MLINESTYLE", object_type="MLINESTYLE"
-        )
+        super().__init__(doc, dict_name="ACAD_MLINESTYLE", object_type="MLINESTYLE")
         self.create_required_entries()
 
     def create_required_entries(self) -> None:

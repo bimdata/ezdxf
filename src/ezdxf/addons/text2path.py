@@ -1,10 +1,8 @@
-#  Copyright (c) 2021-2022, Manfred Moitzi
+#  Copyright (c) 2021-2023, Manfred Moitzi
 #  License: MIT License
 from __future__ import annotations
 from typing import Union
 import enum
-from matplotlib.textpath import TextPath
-from matplotlib.font_manager import FontProperties, findfont
 
 from ezdxf.entities import Text, Attrib, Hatch, DXFGraphic
 from ezdxf.lldxf import const
@@ -12,7 +10,7 @@ from ezdxf.enums import TextEntityAlignment, MAP_TEXT_ENUM_TO_ALIGN_FLAGS
 from ezdxf.math import Matrix44, BoundingBox
 from ezdxf import path
 from ezdxf.path import Path
-from ezdxf.tools import fonts
+from ezdxf.fonts import fonts
 from ezdxf.query import EntityQuery
 
 __all__ = [
@@ -56,15 +54,14 @@ def make_path_from_str(
     """
     if len(s) == 0:
         return Path()
-    font_properties, font_measurements = _get_font_data(font)
+    abstract_font = get_font(font)
     # scale font rendering units to drawing units:
-    render_size = size / font_measurements.cap_height
-    p = _str_to_path(s, font_properties, render_size)
+    p = _str_to_path(s, abstract_font, size)
     bbox = path.bbox([p], fast=True)
 
     # Text is rendered in drawing units,
     # therefore do alignment in drawing units:
-    draw_units_fm = font_measurements.scale_from_baseline(size)
+    draw_units_fm = abstract_font.measurements.scale_from_baseline(size)
     matrix = alignment_transformation(draw_units_fm, bbox, align, length)
     if m is not None:
         matrix *= m
@@ -102,25 +99,13 @@ def make_paths_from_str(
     return list(p.sub_paths())
 
 
-def _get_font_data(
-    font: fonts.FontFace,
-) -> tuple[FontProperties, fonts.FontMeasurements]:
-    fp = FontProperties(
-        family=font.family,
-        style=font.style,
-        stretch=font.stretch,
-        weight=font.weight,
-    )
-    ttf_path = findfont(fp)
-    fonts.load()  # not expensive if already loaded
-    # The ttf file path is the cache key for font measurements:
-    fm = fonts.get_font_measurements(ttf_path)
-    return fp, fm
+def get_font(font: fonts.FontFace) -> fonts.AbstractFont:
+    font_name = fonts.font_manager.find_font_name(font)
+    return fonts.make_font(font_name, cap_height=1.0)
 
 
-def _str_to_path(s: str, fp: FontProperties, size: float = 1.0) -> Path:
-    text_path = TextPath((0, 0), s, size=size, prop=fp, usetex=False)
-    return path.multi_path_from_matplotlib_path(text_path)
+def _str_to_path(s: str, render_engine: fonts.AbstractFont, size: float = 1.0) -> Path:
+    return render_engine.text_path_ex(s, cap_height=size).to_3d_path()
 
 
 def alignment_transformation(
@@ -198,6 +183,10 @@ def make_hatches_from_str(
     The HATCH entities are aligned to this insertion point. BASELINE means the
     bottom of the letter "X".
 
+    .. important::
+
+        Returns an empty list for .shx, .shp and .lff fonts a.k.a. stroke fonts.
+
     Args:
          s: text to convert
          font: font face definition as :class:`~ezdxf.tools.fonts.FontFace` object
@@ -209,6 +198,10 @@ def make_hatches_from_str(
          m: transformation :class:`~ezdxf.math.Matrix44`
 
     """
+    font_ = get_font(font)
+    if font_.font_render_type is fonts.FontRenderType.STROKE:
+        return []
+
     # HATCH is an OCS entity, transforming just the polyline paths
     # is not correct! The Hatch has to be created in the xy-plane!
     paths = make_paths_from_str(s, font, size, align, length)
@@ -327,22 +320,16 @@ def virtual_entities(entity: AnyText, kind: int = Kind.HATCHES) -> EntityQuery:
     if kind & (Kind.SPLINES + Kind.LWPOLYLINES):
         paths = make_paths_from_entity(entity)
         if kind & Kind.SPLINES:
-            entities.extend(
-                path.to_splines_and_polylines(paths, dxfattribs=attribs)
-            )
+            entities.extend(path.to_splines_and_polylines(paths, dxfattribs=attribs))
         if kind & Kind.LWPOLYLINES:
             entities.extend(
-                path.to_lwpolylines(
-                    paths, extrusion=extrusion, dxfattribs=attribs
-                )
+                path.to_lwpolylines(paths, extrusion=extrusion, dxfattribs=attribs)
             )
 
     return EntityQuery(entities)
 
 
-def explode(
-    entity: AnyText, kind: int = Kind.HATCHES, target=None
-) -> EntityQuery:
+def explode(entity: AnyText, kind: int = Kind.HATCHES, target=None) -> EntityQuery:
     """Explode the text `entity` into virtual entities,
     see :func:`virtual_entities`. The source entity will be destroyed.
 

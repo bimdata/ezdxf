@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2021 Manfred Moitzi
+# Copyright (c) 2019-2023 Manfred Moitzi
 # License: MIT License
 from typing import Optional
 from ezdxf.enums import InsertUnits
@@ -6,6 +6,8 @@ from ezdxf.enums import InsertUnits
 # Documentation: https://ezdxf.mozman.at/docs/concepts/units.html#insunits
 
 MSP_METRIC_UNITS_FACTORS = {
+    # length in units / factor = length in meters
+    # length in meters * factor = length in units
     "km": 0.001,
     "m": 1.0,
     "dm": 10.0,
@@ -199,10 +201,9 @@ def conversion_factor(
 def unit_name(enum: int) -> str:
     """Returns the name of the unit enum."""
     try:
-        name = str(InsertUnits(enum)).split(".")[1]
-    except ValueError:
-        name = f"unitless"
-    return name
+        return str(InsertUnits(enum)).split(".")[1]
+    except (ValueError, IndexError):
+        return "unitless"
 
 
 ANGLE_UNITS = {

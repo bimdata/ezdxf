@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2022, Matthew Broadway
+# Copyright (c) 2020-2023, Matthew Broadway
 # License: MIT License
 from __future__ import annotations
 from typing import Iterable, Optional, Union
@@ -8,22 +8,18 @@ from os import PathLike
 
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
-from matplotlib.font_manager import FontProperties
 from matplotlib.lines import Line2D
 from matplotlib.patches import PathPatch
 from matplotlib.path import Path
 
 import ezdxf.path
-from ezdxf.addons.drawing.backend import Backend, prepare_string_for_rendering
-from ezdxf.addons.drawing.properties import Properties, LayoutProperties
+from ezdxf.addons.drawing.backend import Backend
+from ezdxf.addons.drawing.properties import BackendProperties, LayoutProperties
 from ezdxf.addons.drawing.type_hints import FilterFunc
-from ezdxf.addons.drawing.mpl_text_renderer import MplTextRenderer
-from ezdxf.tools.fonts import FontMeasurements
 from ezdxf.addons.drawing.type_hints import Color
-from ezdxf.tools import fonts
-from ezdxf.math import Vec3, Matrix44
+from ezdxf.math import Vec3, Matrix44, AnyVec
 from ezdxf.layouts import Layout
-from .config import Configuration, HatchPolicy
+
 
 logger = logging.getLogger("ezdxf")
 # matplotlib docs: https://matplotlib.org/index.html
@@ -58,9 +54,6 @@ class MatplotlibBackend(Backend):
         ax: drawing canvas as :class:`matplotlib.pyplot.Axes` object
         adjust_figure: automatically adjust the size of the parent
             :class:`matplotlib.pyplot.Figure` to display all content
-        font: default font properties
-        use_text_cache: use caching for text path rendering
-
     """
 
     def __init__(
@@ -68,16 +61,12 @@ class MatplotlibBackend(Backend):
         ax: plt.Axes,
         *,
         adjust_figure: bool = True,
-        font: FontProperties = FontProperties(),
-        use_text_cache: bool = True,
     ):
-
         super().__init__()
         setup_axes(ax)
         self.ax = ax
         self._adjust_figure = adjust_figure
         self._current_z = 0
-        self._text_renderer = MplTextRenderer(font, use_text_cache)
 
     def configure(self, config: Configuration) -> None:
         if config.min_lineweight is None:
@@ -85,9 +74,6 @@ class MatplotlibBackend(Backend):
             config = config.with_changes(min_lineweight=72 / self.ax.get_figure().dpi)
         super().configure(config)
         # LinePolicy.ACCURATE is handled by the frontend since v0.18.1
-
-    def clear_text_cache(self):
-        self._text_renderer.clear_cache()
 
     def _get_z(self) -> int:
         z = self._current_z
@@ -97,18 +83,7 @@ class MatplotlibBackend(Backend):
     def set_background(self, color: Color):
         self.ax.set_facecolor(color)
 
-    def set_clipping_path(self, path: Optional[ezdxf.path.Path] = None, scale: float = 1.0) -> bool:
-        from matplotlib.transforms import Transform
-
-        if path:
-            # This does not work!!!
-            mpl_path = ezdxf.path.to_matplotlib_path([path])
-            self.ax.set_clip_path(mpl_path, Transform())
-        else:
-            self.ax.set_clip_path(None)
-        return True  # confirm clipping support
-
-    def draw_point(self, pos: Vec3, properties: Properties):
+    def draw_point(self, pos: AnyVec, properties: BackendProperties):
         """Draw a real dimensionless point."""
         color = properties.color
         # self.ax.scatter(
@@ -119,7 +94,7 @@ class MatplotlibBackend(Backend):
         #     zorder=self._get_z(),
         # )
 
-    def get_lineweight(self, properties: Properties) -> float:
+    def get_lineweight(self, properties: BackendProperties) -> float:
         """Set lineweight_scaling=0 to use a constant minimal lineweight."""
         assert self.config.min_lineweight is not None
         return max(
@@ -127,7 +102,7 @@ class MatplotlibBackend(Backend):
             self.config.min_lineweight,
         )
 
-    def draw_line(self, start: Vec3, end: Vec3, properties: Properties):
+    def draw_line(self, start: AnyVec, end: AnyVec, properties: BackendProperties):
         """Draws a single solid line, line type rendering is done by the
         frontend since v0.18.1
         """
@@ -148,8 +123,8 @@ class MatplotlibBackend(Backend):
 
     def draw_solid_lines(
         self,
-        lines: Iterable[tuple[Vec3, Vec3]],
-        properties: Properties,
+        lines: Iterable[tuple[AnyVec, AnyVec]],
+        properties: BackendProperties,
     ):
         """Fast method to draw a bunch of solid lines with the same properties."""
         color = properties.color
@@ -165,15 +140,7 @@ class MatplotlibBackend(Backend):
             else:
                 _lines.append(((s.x, s.y), (e.x, e.y)))
 
-        # self.ax.scatter(
-        #     point_x,
-        #     point_y,
-        #     c=color,
-        #     zorder=z,
-        #     gid=properties.output_id,
-        #     s=self.config.pdsize * 0.1,
-        #     marker=".",
-        # )
+        # self.ax.scatter(point_x, point_y, s=SCATTER_POINT_SIZE, c=color, zorder=z)
         self.ax.add_collection(
             LineCollection(
                 _lines,
@@ -185,7 +152,9 @@ class MatplotlibBackend(Backend):
             )
         )
 
-    def draw_path(self, path: ezdxf.path.Path, properties: Properties):
+    def draw_path(
+        self, path: ezdxf.path.Path | ezdxf.path.Path2d, properties: BackendProperties
+    ):
         """Draw a solid line path, line type rendering is done by the
         frontend since v0.18.1
         """
@@ -207,15 +176,12 @@ class MatplotlibBackend(Backend):
 
     def draw_filled_paths(
         self,
-        paths: Iterable[ezdxf.path.Path],
-        holes: Iterable[ezdxf.path.Path],
-        properties: Properties,
+        paths: Iterable[ezdxf.path.Path | ezdxf.path.Path2d],
+        holes: Iterable[ezdxf.path.Path | ezdxf.path.Path2d],
+        properties: BackendProperties,
     ):
-        # Hatch patterns are handled by the frontend since v0.18.1
-        if self.config.hatch_policy == HatchPolicy.SHOW_OUTLINE:
-            return
         linewidth = 0
-        oriented_paths: list[ezdxf.path.Path] = []
+        oriented_paths: list[ezdxf.path.Path | ezdxf.path.Path2d] = []
         for path in paths:
             try:
                 path = path.counter_clockwise()
@@ -244,67 +210,16 @@ class MatplotlibBackend(Backend):
         else:
             self.ax.add_patch(patch)
 
-    def draw_filled_polygon(self, points: Iterable[Vec3], properties: Properties):
-        if hasattr(properties, "output_id"):
-            self.ax.fill(
-                *zip(*((p.x, p.y) for p in points)),
-                color=properties.color,
-                linewidth=0,
-                zorder=self._get_z(),
-                gid=properties.output_id,
-            )
-
-    def draw_text(
-        self,
-        text: str,
-        transform: Matrix44,
-        properties: Properties,
-        cap_height: float,
+    def draw_filled_polygon(
+        self, points: Iterable[AnyVec], properties: BackendProperties
     ):
-        if not text.strip():
-            return  # no point rendering empty strings
-        font_properties = self._text_renderer.get_font_properties(properties.font)
-        assert self.current_entity is not None
-        text = prepare_string_for_rendering(text, self.current_entity.dxftype())
-        try:
-            text_path = self._text_renderer.get_text_path(text, font_properties)
-        except (RuntimeError, ValueError):
-            return
-        try:
-            transformed_path = _transform_path(
-                text_path,
-                Matrix44.scale(self._text_renderer.get_scale(cap_height, font_properties)) @ transform,
-            )
-        except ValueError as e:
-            logger.info(f"ignored transformation error of matplotlib path in draw_text(): {str(e)}")
-            return
-        try:
-            patch = PathPatch(
-                transformed_path,
-                facecolor=properties.color,
-                linewidth=0,
-                zorder=self._get_z(),
-                gid=properties.output_id,
-            )
-        except ValueError as e:
-            logger.info(f"ignored unknown matplotlib error in draw_text(): {str(e)}")
-            return
-        self.ax.add_patch(patch)
-
-    def get_font_measurements(self, cap_height: float, font: Optional[fonts.FontFace] = None) -> FontMeasurements:
-        return self._text_renderer.get_font_measurements(self._text_renderer.get_font_properties(font)).scale_from_baseline(desired_cap_height=cap_height)
-
-    def get_text_line_width(
-        self,
-        text: str,
-        cap_height: float,
-        font: Optional[fonts.FontFace] = None,
-    ) -> float:
-        if not text.strip():
-            return 0
-        dxftype = self.current_entity.dxftype() if self.current_entity else "TEXT"
-        text = prepare_string_for_rendering(text, dxftype)
-        return self._text_renderer.get_text_line_width(text, cap_height, font)
+        self.ax.fill(
+            *zip(*((p.x, p.y) for p in points)),
+            color=properties.color,
+            linewidth=0,
+            zorder=self._get_z(),
+            gid=properties.output_id,
+        )
 
     def clear(self):
         self.ax.clear()
@@ -399,7 +314,7 @@ def qsave(
     old_backend = matplotlib.get_backend()
     matplotlib.use(backend)
     if config is None:
-        config = Configuration.defaults()
+        config = Configuration()
 
     try:
         fig: plt.Figure = plt.figure(dpi=dpi)

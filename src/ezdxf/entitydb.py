@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2022, Manfred Moitzi
+# Copyright (c) 2019-2023, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
 from typing import (
@@ -289,9 +289,7 @@ class EntityDB:
         """
         # Important: operate on underlying data structure:
         db = self._database
-        dead_handles = [
-            handle for handle, entity in db.items() if not entity.is_alive
-        ]
+        dead_handles = [handle for handle, entity in db.items() if not entity.is_alive]
         for handle in dead_handles:
             del db[handle]
 
@@ -321,9 +319,7 @@ class EntityDB:
             :ref:`entity query string` and :ref:`entity queries`
 
         """
-        return EntityQuery(
-            (e for e in self._database.values() if e.is_alive), query
-        )
+        return EntityQuery((e for e in self._database.values() if e.is_alive), query)
 
 
 class EntitySpace:
@@ -398,3 +394,38 @@ class EntitySpace:
         """Remove all entities."""
         # Do not destroy entities!
         self.entities = list()
+
+    def pop(self, index: int = -1) -> DXFEntity:
+        return self.entities.pop(index)
+
+    def insert(self, index: int, entity: DXFEntity) -> None:
+        self.entities.insert(index, entity)
+
+    def audit(self, auditor: Auditor) -> None:
+        db_get = auditor.entitydb.get
+        purge: list[DXFEntity] = []
+        # Check if every entity is the entity that is stored for this handle in the
+        # entity database.
+        for entity in self:
+            handle = entity.dxf.handle
+            if entity is not db_get(handle):
+                # A different entity is stored in the database for this handle,
+                # see issues #604 and #833:
+                # - document has entities without handles (invalid for DXF R13+)
+                # - $HANDSEED is not the next usable handle
+                # - entity gets an already used handle
+                # - entity overwrites existing entity or will be overwritten by an entity
+                #   loaded afterwards
+                auditor.fixed_error(
+                    AuditError.REMOVED_INVALID_DXF_OBJECT,
+                    f"Removed entity {entity} with a conflicting handle and without a "
+                    f"database entry.",
+                )
+                purge.append(entity)
+        if not purge:
+            return
+        for entity in purge:
+            self.entities.remove(entity)
+            # These are invalid entities do not call destroy() on them, because
+            # this method relies on well-defined entities!
+            entity._silent_kill()

@@ -1,10 +1,11 @@
-#  Copyright (c) 2022, Manfred Moitzi
+#  Copyright (c) 2022-2023, Manfred Moitzi
 #  License: MIT License
 from typing import Set, List
 import pathlib
 import string
 import ezdxf
-from ezdxf import shapefile, path, zoom
+from ezdxf import path, zoom
+from ezdxf.fonts import shapefile
 from ezdxf.math import Matrix44
 from ezdxf.filemanagement import find_support_file
 
@@ -28,11 +29,11 @@ if not CWD.exists():
 # [core]
 # default_dimension_text_style = OpenSansCondensed-Light
 # test_files = ~/src/dxftest
-# font_cache_directory =
 # support_dirs = ~/src/shx-fonts
 # 	~/src/ctb
 # ...
 
+SHAPE_FILE_DIRS = [r"C:\Source\shx-fonts"]
 
 LETTERS = (
     string.ascii_uppercase,
@@ -45,7 +46,7 @@ SPECIAL_CODES = "special_codes.shp"
 
 
 def render_font(fontname: str):
-    fontname = find_support_file(fontname, ezdxf.options.support_dirs)
+    fontname = find_support_file(fontname, SHAPE_FILE_DIRS)
     font = shapefile.readfile(fontname)
     doc = ezdxf.new()
     msp = doc.modelspace()
@@ -65,7 +66,7 @@ def render_font(fontname: str):
 
 
 def render_txt(fontname: str, text: str):
-    fontname = find_support_file(fontname, ezdxf.options.support_dirs)
+    fontname = find_support_file(fontname, SHAPE_FILE_DIRS)
     font = shapefile.readfile(fontname)
     doc = ezdxf.new()
     msp = doc.modelspace()
@@ -126,9 +127,7 @@ def find_fonts_with_codes(folder: str, codes: Set[int]):
             continue
         export_data.append(b";;" + str(filepath).encode())
         for shape_number in shapefile.DEBUG_SHAPE_NUMBERS:
-            export_data.append(
-                f";; source shape number *{shape_number:05X}".encode()
-            )
+            export_data.append(f";; source shape number *{shape_number:05X}".encode())
             export_data.extend(font.shape_string(shape_number, as_num=num))
             export_data.append(b"")
             num += 1
@@ -174,14 +173,12 @@ if __name__ == "__main__":
     render_font("bold.shx")
     render_font("ISO.shx")
     render_font("isocp.shx")
-    render_txt("bold.shx", "___A_A___")
+    render_txt("bold.shx", " ___A_A___ ___")
     if DEBUG:
         find_fonts_with_codes("C:\\Source\\shx-fonts", codes={11})
         render_all_chars(CWD / SPECIAL_CODES)
         render_txt("bold.shx", "R?")
         debug_letter(DEBUG_UCR, 0x43, "bold_c.dxf")
         render_all_chars(
-            pathlib.Path(
-                find_support_file("bold.shx", ezdxf.options.support_dirs)
-            )
+            pathlib.Path(find_support_file("bold.shx", ezdxf.options.support_dirs))
         )

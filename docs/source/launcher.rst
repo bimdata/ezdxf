@@ -8,12 +8,12 @@ The command line script `ezdxf` launches various sub-commands:
 ``audit``       Audit and repair DXF files
 ``draw``        Draw and convert DXF files by the Matplotlib backend
 ``view``        PyQt DXF file viewer
-``pillow``      Draw and convert DXF files by the Pillow backend
 ``browse``      PyQt DXF structure browser for DXF debugging and curious people
 ``browse-acis`` PyQt ACIS entity content browser for SAT/SAB debugging
 ``strip``       Strip comments and THUMBNAILIMAGE section from DXF files
 ``config``      Manage config files
 ``info``        Show information and optional stats of DXF files as loaded by ezdxf
+``hpgl``        View and/or convert HPGL/2 plot files to DXF, SVG or PDF
 =============== ====================================================================
 
 The help option ``-h`` is supported by the main script and all sub-commands:
@@ -33,7 +33,6 @@ The help option ``-h`` is supported by the main script and all sub-commands:
         audit               audit and repair DXF files
         draw                draw and convert DXF files by Matplotlib
         view                view DXF files by the PyQt viewer
-        pillow              draw and convert DXF files by Pillow
         browse              browse DXF file structure
         browse-acis         browse ACIS structures in DXF files
         strip               strip comments from DXF files
@@ -45,6 +44,7 @@ The help option ``-h`` is supported by the main script and all sub-commands:
     optional arguments:
       -h, --help            show this help message and exit
       -V, --version         show version and exit
+      -f, --fonts           rebuild system font cache and print all fonts found
       -v, --verbose         give more output
       --config CONFIG       path to a config file
       --log LOG             path to a verbose appending log
@@ -53,6 +53,20 @@ The help option ``-h`` is supported by the main script and all sub-commands:
 
     The ``ezdxf`` script  is the only executable script installed on the
     user system.
+
+System
+------
+
+:code:`ezdxf -V` shows the `ezdxf` and `Python` version your are running and if the
+C-extensions are used.
+
+.. code-block:: Text
+
+    ezdxf 1.1.0b1 from c:\source\ezdxf.git\src\ezdxf
+    Python version: 3.11.2 (tags/v3.11.2:878ead1, Feb  7 2023, 16:38:35) [MSC v.1934 64 bit (AMD64)]
+    using C-extensions: yes
+
+:code:`ezdxf -f` rebuilds the system font cache and shows all fonts found.
 
 Pretty Printer
 --------------
@@ -210,64 +224,6 @@ Print help:
                             select the layout to draw, default is "Model"
       --lwscale LWSCALE     set custom line weight scaling, default is 0 to
                             disable line weights at all
-
-.. _pillow_command:
-
-Pillow
-------
-
-Convert the DXF file "gear.dxf" into a PNG file by the *Pillow* backend:
-
-.. code-block:: Text
-
-    C:\> ezdxf pillow -o gear.png gear.dxf
-
-Advantage over the `Draw`_ command is the speed and much less memory usage,
-disadvantage is the lower text rendering quality. The speed advantages is lost
-for the text modes OUTLINE and FILLED, because the text-path rendering is done
-by `Matplotlib`, but the advantage of the lower memory consumption remains.
-
-Print help:
-
-.. code-block:: Text
-
-    C:\> ezdxf pillow -h
-    usage: ezdxf pillow [-h] [-o OUT] [-l LAYOUT] [-i IMAGE_SIZE] [-b BACKGROUND]
-                        [-r OVERSAMPLING] [-m MARGIN] [-t {0,1,2,3}] [--dpi DPI] [-v]
-                        [FILE]
-
-    positional arguments:
-      FILE                  DXF file to draw
-
-    options:
-      -h, --help            show this help message and exit
-      -o OUT, --out OUT     output filename, the filename extension defines the image format
-                            (.png, .jpg, .tif, .bmp, ...)
-      -l LAYOUT, --layout LAYOUT
-                            name of the layout to draw, default is "Model"
-      -i IMAGE_SIZE, --image_size IMAGE_SIZE
-                            image size in pixels as "width,height", default is "1920,1080",
-                            supports also "x" as delimiter like "1920x1080". A single
-                            integer is used for both directions e.g. "2000" defines an image
-                            size of 2000x2000. The image is centered for the smaller DXF
-                            drawing extent.
-      -b BACKGROUND, --background BACKGROUND
-                            override background color in hex format "RRGGBB" or "RRGGBBAA",
-                            e.g. use "FFFFFF00" to get a white transparent background and a
-                            black foreground color (ACI=7), because a light background gets
-                            a black foreground color or vice versa "00000000" for a black
-                            transparent background and a white foreground color.
-      -r OVERSAMPLING, --oversampling OVERSAMPLING
-                            oversampling factor, default is 2, use 0 or 1 to disable
-                            oversampling
-      -m MARGIN, --margin MARGIN
-                            minimal margin around the image in pixels, default is 10
-      -t {0,1,2,3}, --text-mode {0,1,2,3}
-                            text mode: 0=ignore, 1=placeholder, 2=outline, 3=filled, default
-                            is 2
-      --dpi DPI             output resolution in pixels/inch which is significant for the
-                            linewidth, default is 300
-      -v, --verbose         give more output
 
 .. _browse_command:
 
@@ -667,3 +623,96 @@ Show the *ezdxf* version and configuration:
 
     Documentation of the :mod:`ezdxf.options` module and the
     :ref:`environment_variables`.
+
+.. _hpgl_command:
+
+HPGL/2 Viewer/Converter
+-----------------------
+
+.. versionadded:: 1.1
+
+The ``hpgl`` command shows and/or converts `HPGL/2`_ plot files to DXF, SVG or PDF.
+
+DXF
+~~~
+
+The page content is created at the origin of the modelspace and 1 drawing unit is 1
+plot unit (1 plu = 0.025mm) unless scaling values are provided.
+
+The content of HPGL files is intended to be plotted on white paper, so the appearance on
+a dark background in modelspace is not very clear. To fix this, the ``--map_black_to_white``
+option maps black fillings and lines to white.
+
+All entities are mapped to a layer named  ``COLOR_<#>`` according to the pen number.
+In order to process the content better, it is also possible to assign the DXF elements an
+ACI color value according to the pen number through the ``--aci`` option, but then the
+RGB color is lost because the RGB color always has the higher priority over the
+:term:`ACI` value.
+
+The first paperspace layout "Layout0" is set up to print the entire modelspace on one
+sheet, the size of the page is the size of the original plot file in millimeters.
+
+SVG
+~~~
+
+The plot units are mapped 1:1 to ``viewBox`` units and the size of image is the size of
+the original plot file in millimeters.
+
+PDF
+~~~
+
+The plot units are converted to PDF units (1/72 inch) so the size of image is the
+size of the original plot file in millimeters.
+
+All Formats
+~~~~~~~~~~~
+
+HPGL/2's merge control works at the pixel level and cannot be replicated by DXF,
+but to prevent fillings from obscuring text, the filled polygons are
+sorted by luminance - this can be forced or disabled by the ``--merge_control`` option.
+
+Some plot files that contain pure HPGL/2 code do not contain the escape sequence
+"Enter HPGL/2 mode", without this sequence the HPGL/2 parser cannot recognize the
+beginning of the HPGL/2 code. The ``--force`` option inserts the "Enter HPGL/2 mode"
+escape sequence into the data stream, regardless of whether the file is an HPGL/2 plot
+file or not, so be careful.
+
+.. code-block:: Text
+
+    C:\> ezdxf hpgl -h
+    usage: ezdxf hpgl [-h] [-e FORMAT] [-r {0,90,180,270}] [-x SX] [-y SY] [-m {0,1,2}]
+                      [-f] [--aci] [--map_black_to_white]
+                      [FILE]
+
+    positional arguments:
+      FILE                  view and/or convert HPGL/2 plot files, wildcards (*, ?)
+                            supported in command line mode
+
+    options:
+      -h, --help            show this help message and exit
+      -e FORMAT, --export FORMAT
+                            convert HPGL/2 plot file to SVG, PDF or DXF from the
+                            command line (no gui)
+      -r {0,90,180,270}, --rotate {0,90,180,270}
+                            rotate page about 90, 180 or 270 degrees (no gui)
+      -x SX, --scale_x SX   scale page in x-axis direction, use negative values to
+                            mirror page, (no gui)
+      -y SY, --scale_y SY   scale page in y-axis direction, use negative values to
+                            mirror page (no gui)
+      -m {0,1,2}, --merge_control {0,1,2}
+                            provides control over the order of filled polygons, 0=off
+                            (print order), 1=luminance (order by luminance), 2=auto
+                            (default)
+      -f, --force           inserts the mandatory 'enter HPGL/2 mode' escape sequence
+                            into the data stream; use this flag when no HPGL/2 data was
+                            found and you are sure the file is a HPGL/2 plot file
+      --aci                 use pen numbers as ACI colors (DXF only)
+      --map_black_to_white  map black RGB plot colors to white RGB, does not affect ACI
+                            colors (DXF only)
+
+    Note that plot files are intended to be plotted on white paper.
+
+.. _PyMuPDF: https://pypi.org/project/PyMuPDF/
+.. _HPGL/2: https://en.wikipedia.org/wiki/HP-GL
+.. _SVG: https://en.wikipedia.org/wiki/SVG
+.. _PDF: https://en.wikipedia.org/wiki/PDF

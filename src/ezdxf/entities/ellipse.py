@@ -43,20 +43,26 @@ if TYPE_CHECKING:
 
 __all__ = ["Ellipse"]
 
-MIN_RATIO = 1e-6
-MAX_RATIO = 1.0
+MIN_RATIO = 1e-10  # tested with DWG TrueView 2022
+MAX_RATIO = 1.0  # tested with DWG TrueView 2022
+TOL = 1e-9  # arbitrary choice
 
 
 def is_valid_ratio(ratio: float) -> bool:
-    return MIN_RATIO <= abs(ratio) <= MAX_RATIO
+    """Check if axis-ratio is in valid range, takes an upper bound tolerance into
+    account for floating point imprecision.
+    """
+    return MIN_RATIO <= abs(ratio) < (MAX_RATIO + TOL)
 
 
-def fix_ratio(ratio: float) -> float:
+def clamp_axis_ratio(ratio: float) -> float:
+    """Clamp axis-ratio into valid range and remove possible floating point imprecision.
+    """
     sign = -1 if ratio < 0 else +1
     ratio = abs(ratio)
     if ratio < MIN_RATIO:
         return MIN_RATIO * sign
-    elif ratio > MAX_RATIO:
+    if ratio > MAX_RATIO:
         return MAX_RATIO * sign
     return ratio * sign
 
@@ -82,9 +88,9 @@ acdb_ellipse = DefSubclass(
             validator=validator.is_not_null_vector,
             fixer=RETURN_DEFAULT,
         ),
-        # Ratio has to be in the range from 1e-6 to 1, but could be negative:
+        # Ratio has to be in the range: -1.0 ... -1e-10 and +1e-10 ... +1.0:
         "ratio": DXFAttr(
-            40, default=MAX_RATIO, validator=is_valid_ratio, fixer=fix_ratio
+            40, default=MAX_RATIO, validator=is_valid_ratio, fixer=clamp_axis_ratio
         ),
         # Start of ellipse, this value is 0.0 for a full ellipse:
         "start_param": DXFAttr(41, default=0),
@@ -122,8 +128,12 @@ class Ellipse(DXFGraphic):
         """Export entity specific data as DXF tags."""
         super().export_entity(tagwriter)
         tagwriter.write_tag2(SUBCLASS_MARKER, acdb_ellipse.name)
-
-        assert is_valid_ratio(self.dxf.ratio)
+        # is_valid_ratio() takes floating point imprecision on the upper bound of
+        # +/- 1.0 into account:
+        assert is_valid_ratio(
+            self.dxf.ratio
+        ), f"axis-ratio out of range [{MIN_RATIO}, {MAX_RATIO}]"
+        self.dxf.ratio = clamp_axis_ratio(self.dxf.ratio)
         self.dxf.export_dxf_attribs(
             tagwriter,
             [
@@ -139,9 +149,7 @@ class Ellipse(DXFGraphic):
     @property
     def minor_axis(self) -> Vec3:
         dxf = self.dxf
-        return ellipse.minor_axis(
-            Vec3(dxf.major_axis), Vec3(dxf.extrusion), dxf.ratio
-        )
+        return ellipse.minor_axis(Vec3(dxf.major_axis), Vec3(dxf.extrusion), dxf.ratio)
 
     @property
     def start_point(self) -> Vec3:
@@ -218,8 +226,8 @@ class Ellipse(DXFGraphic):
     def from_arc(cls, entity: DXFGraphic) -> Ellipse:
         """Create a new virtual ELLIPSE entity from an ARC or a CIRCLE entity.
 
-        The new SPLINE entity has no owner, no handle, is not stored in
-        the entity database nor assigned to any layout!
+        The new entity has no owner, no handle, is not stored in the entity database nor
+        assigned to any layout!
 
         """
         assert entity.dxftype() in {"ARC", "CIRCLE"}, "ARC or CIRCLE entity required"
@@ -233,7 +241,7 @@ class Ellipse(DXFGraphic):
             end_angle=attribs.pop("end_angle", 360),
         )
         attribs.update(e.dxfattribs())
-        return Ellipse.new(dxfattribs=attribs, doc=entity.doc)
+        return cls.new(dxfattribs=attribs, doc=entity.doc)
 
     def transform(self, m: Matrix44) -> Ellipse:
         """Transform the ELLIPSE entity by transformation matrix `m` inplace."""
@@ -293,15 +301,20 @@ class Ellipse(DXFGraphic):
                 message=f"Removed {entity} with invalid major axis: (0, 0, 0).",
             )
             return
-        if abs(self.dxf.ratio) > MAX_RATIO:
+        axis_ratio = self.dxf.ratio
+        if is_valid_ratio(axis_ratio):
+            # remove possible floating point imprecision:
+            self.dxf.ratio = clamp_axis_ratio(axis_ratio)
+            return
+        if abs(axis_ratio) > MAX_RATIO:
             self.swap_axis()
             auditor.fixed_error(
                 code=AuditError.INVALID_ELLIPSE_RATIO,
-                message=f"Fixed invalid ratio in {entity} by swapping axis.",
+                message=f"Fixed invalid axis-ratio in {entity} by swapping axis.",
             )
-        elif abs(self.dxf.ratio) < MIN_RATIO:
-            self.dxf.ratio = fix_ratio(self.dxf.ratio)
+        elif abs(axis_ratio) < MIN_RATIO:
+            self.dxf.ratio = clamp_axis_ratio(axis_ratio)
             auditor.fixed_error(
                 code=AuditError.INVALID_ELLIPSE_RATIO,
-                message=f"Fixed invalid ratio in {entity}, set to {MIN_RATIO}.",
+                message=f"Fixed invalid axis-ratio in {entity}, set to {MIN_RATIO}.",
             )

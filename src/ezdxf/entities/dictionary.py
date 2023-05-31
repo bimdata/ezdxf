@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2022, Manfred Moitzi
+# Copyright (c) 2019-2023, Manfred Moitzi
 # License: MIT-License
 from __future__ import annotations
 from typing import TYPE_CHECKING, Union, Optional
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from ezdxf.lldxf.tagwriter import AbstractTagWriter
     from ezdxf.document import Drawing
     from ezdxf.audit import Auditor
+    from ezdxf import xref
 
 __all__ = ["Dictionary", "DictionaryWithDefault", "DictionaryVar"]
 logger = logging.getLogger("ezdxf")
@@ -35,11 +36,15 @@ logger = logging.getLogger("ezdxf")
 acdb_dictionary = DefSubclass(
     "AcDbDictionary",
     {
-        # If set to 1, indicates that elements of the dictionary are to be treated
-        # as hard-owned:
+        # If hard_owned is set to 1 the entries are owned by the DICTIONARY.
+        # The 1 state seems to be the default value, but is not documented by
+        # the DXF reference.
+        # BricsCAD creates the root DICTIONARY and the top level DICTIONARY entries
+        # without group code 280 tags, and they are all definitely hard owner of their
+        # entries, because their entries have the DICTIONARY handle as owner handle.
         "hard_owned": DXFAttr(
             280,
-            default=0,
+            default=1,
             optional=True,
             validator=validator.is_integer_bool,
             fixer=RETURN_DEFAULT,
@@ -61,6 +66,8 @@ acdb_dictionary = DefSubclass(
         # 350: entry handle, some DICTIONARY objects have 360 as handle group code,
         # this is accepted by AutoCAD but not documented by the DXF reference!
         # ezdxf replaces group code 360 by 350.
+        # - group code 350 is a soft-owner handle
+        # - group code 360 is a hard-owner handle
     },
 )
 acdb_dictionary_group_codes = group_code_mapping(acdb_dictionary)
@@ -91,7 +98,7 @@ class Dictionary(DXFObject):
         self._data: dict[str, Union[str, DXFObject]] = dict()
         self._value_code = VALUE_CODE
 
-    def _copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity) -> None:
         """Copy hard owned entities but do not store the copies in the entity
         database, this is a second step (factory.bind), this is just real copying.
         """
@@ -101,7 +108,38 @@ class Dictionary(DXFObject):
             # Reactors are removed from the cloned DXF objects.
             entity._data = {key: entity.copy() for key, entity in self.items()}
         else:
-            entity._data = {key: entity for key, entity in self.items()}
+            entity._data = dict(self._data)
+
+    def get_handle_mapping(self, clone: Dictionary) -> dict[str, str]:
+        """Returns handle mapping for in-object copies."""
+        handle_mapping: dict[str, str] = dict()
+        if not self.is_hard_owner:
+            return handle_mapping
+
+        for key, entity in self.items():
+            copied_entry = clone.get(key)
+            if copied_entry:
+                handle_mapping[entity.dxf.handle] = copied_entry.dxf.handle
+        return handle_mapping
+
+    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+        """Translate resources from self to the copied entity."""
+        assert isinstance(clone, Dictionary)
+        super().map_resources(clone, mapping)
+        if self.is_hard_owner:
+            return
+        data = dict()
+        for key, entity in self.items():
+            entity_copy = mapping.get_reference_of_copy(entity.dxf.handle)
+            if entity_copy:
+                data[key] = entity
+        clone._data = data  # type: ignore
+
+    def del_source_of_copy(self) -> None:
+        super().del_source_of_copy()
+        for _, entity in self.items():
+            if isinstance(entity, DXFEntity) and entity.is_alive:
+                entity.del_source_of_copy()
 
     def post_bind_hook(self) -> None:
         """Called by binding a new or copied dictionary to the document,
@@ -261,9 +299,7 @@ class Dictionary(DXFObject):
 
     count = __len__
 
-    def get(
-        self, key: str, default: Optional[DXFObject] = None
-    ) -> Optional[DXFObject]:
+    def get(self, key: str, default: Optional[DXFObject] = None) -> Optional[DXFObject]:
         """Returns the :class:`DXFEntity` for `key`, if `key` exist else
         `default`. An entity can be a handle string if the entity
         does not exist.
@@ -271,8 +307,20 @@ class Dictionary(DXFObject):
         """
         return self._data.get(key, default)  # type: ignore
 
+    def find_key(self, entity: DXFEntity) -> str:
+        """Returns the DICTIONARY key string for `entity` or an empty string if not
+        found.
+        """
+        for key, entry in self._data.items():
+            if entry is entity:
+                return key
+        return ""
+
     def add(self, key: str, entity: DXFObject) -> None:
-        """Add entry ``(key, value)``.
+        """Add entry (key, value).
+
+        If the DICTIONARY is hard owner of its entries, the :meth:`add` does NOT take
+        ownership of the entity automatically.
 
         Raises:
             DXFValueError: invalid entity handle
@@ -281,9 +329,7 @@ class Dictionary(DXFObject):
         """
         if isinstance(entity, str):
             if not is_valid_handle(entity):
-                raise DXFValueError(
-                    f"Invalid entity handle #{entity} for key {key}"
-                )
+                raise DXFValueError(f"Invalid entity handle #{entity} for key {key}")
         elif isinstance(entity, DXFGraphic):
             if self.doc is not None and self.doc.is_loading:  # type: ignore
                 # AutoCAD add-ons can store graphical entities in DICTIONARIES
@@ -294,10 +340,13 @@ class Dictionary(DXFObject):
             else:
                 # Do not allow ezdxf users to add graphical entities to a
                 # DICTIONARY object!
-                raise DXFTypeError(
-                    f"Graphic entities not allowed: {entity.dxftype()}"
-                )
+                raise DXFTypeError(f"Graphic entities not allowed: {entity.dxftype()}")
         self._data[key] = entity
+
+    def take_ownership(self, key: str, entity: DXFObject):
+        """Add entry (key, value) and take ownership."""
+        self.add(key, entity)
+        entity.dxf.owner = self.dxf.handle
 
     def remove(self, key: str) -> None:
         """Delete entry `key`. Raises :class:`DXFKeyError`, if `key` does not
@@ -313,7 +362,6 @@ class Dictionary(DXFObject):
             entity = self.__getitem__(key)
             # Presumption: hard owned DXF objects always reside in the OBJECTS
             # section.
-            # TODO: use entity.destroy()?
             self.doc.objects.delete_entity(entity)  # type: ignore
         del data[key]
 
@@ -339,9 +387,8 @@ class Dictionary(DXFObject):
         # Presumption: hard owned DXF objects always reside in the OBJECTS section
         objects = self.doc.objects  # type: ignore
         for key, entity in self.items():
-            # TODO: is entity a string?
-            # TODO: use entity.destroy()?
-            objects.delete_entity(entity)  # type: ignore
+            if isinstance(entity, DXFEntity):
+                objects.delete_entity(entity)  # type: ignore
 
     def add_new_dict(self, key: str, hard_owned: bool = False) -> Dictionary:
         """Create a new sub-dictionary of type :class:`Dictionary`.
@@ -429,19 +476,11 @@ class Dictionary(DXFObject):
     def audit(self, auditor: Auditor) -> None:
         if not self.is_alive:
             return
-        if not self.dxf.hasattr("owner"):
-            rootdict = auditor.doc.rootdict
-            if self is rootdict:
-                self.dxf.owner = "0"
-            else:  # most likely scenario, avoids deleting required tables
-                self.dxf.owner = rootdict.dxf.handle
-
         super().audit(auditor)
-        self._check_invalid_entries(auditor)
+        self._remove_keys_to_missing_entities(auditor)
 
-    def _check_invalid_entries(self, auditor: Auditor):
-        trash: list[str] = []  # do not delete content while iterating
-        owner_handle = self.dxf.handle
+    def _remove_keys_to_missing_entities(self, auditor: Auditor):
+        trash: list[str] = []
         append = trash.append
         db = auditor.entitydb
         for key, entry in self._data.items():
@@ -452,14 +491,7 @@ class Dictionary(DXFObject):
                 if entry.dxf.handle not in db:
                     append(key)
                     continue
-                # valid entry object
-                if entry.dxf.owner != owner_handle:
-                    entry.dxf.owner = owner_handle
-                    auditor.fixed_error(
-                        code=AuditError.INVALID_OWNER_HANDLE,
-                        message=f"Fixed invalid owner handle in {str(entry)}",
-                    )
-            else:  # entry is destroyed
+            else:  # entity is destroyed, remove key
                 append(key)
         for key in trash:
             del self._data[key]
@@ -491,15 +523,13 @@ acdb_dict_with_default_group_codes = group_code_mapping(acdb_dict_with_default)
 @factory.register_entity
 class DictionaryWithDefault(Dictionary):
     DXFTYPE = "ACDBDICTIONARYWDFLT"
-    DXFATTRIBS = DXFAttributes(
-        base_class, acdb_dictionary, acdb_dict_with_default
-    )
+    DXFATTRIBS = DXFAttributes(base_class, acdb_dictionary, acdb_dict_with_default)
 
     def __init__(self) -> None:
         super().__init__()
         self._default: Optional[DXFObject] = None
 
-    def _copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity) -> None:
         assert isinstance(entity, DictionaryWithDefault)
         entity._default = self._default
 
@@ -515,9 +545,7 @@ class DictionaryWithDefault(Dictionary):
     ) -> DXFNamespace:
         dxf = super().load_dxf_attribs(processor)
         if processor:
-            processor.fast_load_dxfattribs(
-                dxf, acdb_dict_with_default_group_codes, 2
-            )
+            processor.fast_load_dxfattribs(dxf, acdb_dict_with_default_group_codes, 2)
         return dxf
 
     def export_entity(self, tagwriter: AbstractTagWriter) -> None:
@@ -528,9 +556,7 @@ class DictionaryWithDefault(Dictionary):
     def __getitem__(self, key: str):
         return self.get(key)
 
-    def get(
-        self, key: str, default: Optional[DXFObject] = None
-    ) -> Optional[DXFObject]:
+    def get(self, key: str, default: Optional[DXFObject] = None) -> Optional[DXFObject]:
         # `default` argument is ignored, exist only for API compatibility,
         """Returns :class:`DXFEntity` for `key` or the predefined dictionary
         wide :attr:`dxf.default` entity if `key` does not exist or ``None``
@@ -551,9 +577,7 @@ class DictionaryWithDefault(Dictionary):
 
     def audit(self, auditor: Auditor) -> None:
         def create_missing_default_object():
-            placeholder = self.doc.objects.add_placeholder(
-                owner=self.dxf.handle
-            )
+            placeholder = self.doc.objects.add_placeholder(owner=self.dxf.handle)
             self.set_default(placeholder)
             auditor.fixed_error(
                 code=AuditError.CREATED_MISSING_OBJECT,

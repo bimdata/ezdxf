@@ -1,7 +1,7 @@
-# Copyright (c) 2011-2022, Manfred Moitzi
+# Copyright (c) 2011-2023, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
-from typing import TextIO, Union, Sequence
+from typing import TextIO, Sequence
 import os
 import sys
 from pathlib import Path
@@ -11,16 +11,8 @@ from configparser import ConfigParser
 # import ezdxf
 # value = ezdxf.options.<attribute>
 #
-# If the import of "ezdxf" is not wanted:
+# alternative:
 # from ezdxf._options import options
-
-# The MATPLOTLIB global shows that Matplotlib is installed:
-try:
-    import matplotlib
-
-    MATPLOTLIB = True
-except ImportError:
-    MATPLOTLIB = False
 
 TRUE_STATE = {"True", "true", "On", "on", "1"}
 CORE = "core"
@@ -65,7 +57,6 @@ def default_config() -> ConfigParser:
     config[CORE] = {
         "DEFAULT_DIMENSION_TEXT_STYLE": "OpenSansCondensed-Light",
         "TEST_FILES": "",
-        "FONT_CACHE_DIRECTORY": "",
         "SUPPORT_DIRS": "",
         "LOAD_PROXY_GRAPHICS": "true",
         "STORE_PROXY_GRAPHICS": "true",
@@ -90,6 +81,8 @@ def default_config() -> ConfigParser:
         # These options are just for testing scenarios!
         "TRY_PYSIDE6": "true",
         "TRY_PYQT5": "true",
+        # Order for resolving SHX fonts: 1. "t"=TrueType; 2. "s"=SHX; 3. "l"=LFF
+        "SHX_RESOLVE_ORDER": "tsl",
     }
     return config
 
@@ -152,8 +145,8 @@ class Options:
         # needs fast access:
         self.log_unprocessed_tags = True
         # Activate/deactivate Matplotlib support (e.g. for testing)
-        self._use_matplotlib = MATPLOTLIB
         self._use_c_ext = False  # set ezdxf.acc.__init__!
+        self.debug = False
         self.update_cached_options()
 
     def set(self, section: str, key: str, value: str) -> None:
@@ -217,9 +210,7 @@ class Options:
 
     @property
     def filter_invalid_xdata_group_codes(self) -> bool:
-        return self.get_bool(
-            CORE, "FILTER_INVALID_XDATA_GROUP_CODES", default=True
-        )
+        return self.get_bool(CORE, "FILTER_INVALID_XDATA_GROUP_CODES", default=True)
 
     @property
     def default_dimension_text_style(self) -> str:
@@ -238,24 +229,8 @@ class Options:
         )
 
     @property
-    def font_cache_directory(self) -> str:
-        return os.path.expanduser(self.get(CORE, "FONT_CACHE_DIRECTORY"))
-
-    @font_cache_directory.setter
-    def font_cache_directory(self, dirname: Union[str, Path]) -> None:
-        p = Path(dirname).expanduser()
-        if p.exists():
-            absolute = p.absolute()
-            if p.is_dir():
-                self.set(CORE, "FONT_CACHE_DIRECTORY", str(absolute))
-            else:
-                raise ValueError(f'"{absolute}" is not a directory')
-        else:
-            raise ValueError(f'directory "{dirname}" does not exist')
-
-    @property
-    def support_dirs(self) -> Sequence[str]:
-        return self.get(CORE, "SUPPORT_DIRS", "").split(DIR_SEPARATOR)
+    def support_dirs(self) -> list[str]:
+        return [d for d in self.get(CORE, "SUPPORT_DIRS", "").split(DIR_SEPARATOR) if d]
 
     @support_dirs.setter
     def support_dirs(self, support_dirs: Sequence[str]) -> None:
@@ -289,9 +264,7 @@ class Options:
     def write_fixed_meta_data_for_testing(self) -> bool:
         # Enable this option to always create same meta data for testing
         # scenarios, e.g. to use a diff like tool to compare DXF documents.
-        return self.get_bool(
-            CORE, "WRITE_FIXED_META_DATA_FOR_TESTING", default=False
-        )
+        return self.get_bool(CORE, "WRITE_FIXED_META_DATA_FOR_TESTING", default=False)
 
     @write_fixed_meta_data_for_testing.setter
     def write_fixed_meta_data_for_testing(self, state: bool) -> None:
@@ -301,18 +274,6 @@ class Options:
     def disable_c_ext(self) -> bool:
         """Disable C-extensions if ``True``."""
         return self.get_bool(CORE, "DISABLE_C_EXT", default=False)
-
-    @property
-    def use_matplotlib(self) -> bool:
-        """Activate/deactivate Matplotlib support e.g. for testing"""
-        return self._use_matplotlib
-
-    @use_matplotlib.setter
-    def use_matplotlib(self, state: bool) -> None:
-        if MATPLOTLIB:
-            self._use_matplotlib = state
-        else:  # Matplotlib is not installed
-            self._use_matplotlib = False
 
     @property
     def use_c_ext(self) -> bool:

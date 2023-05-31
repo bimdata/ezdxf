@@ -13,6 +13,7 @@ from typing import (
 import sys
 import struct
 import math
+import os
 from enum import IntEnum
 from itertools import repeat
 from ezdxf.lldxf import const
@@ -244,15 +245,18 @@ class ProxyGraphicTypes(IntEnum):
     UNICODE_TEXT = 36
     UNKNOWN_37 = 37
     UNICODE_TEXT2 = 38
+    ELLIPTIC_ARC = 44  # found in test data of issue #832
 
 
 class ProxyGraphic:
-    def __init__(self, data: bytes, doc: Optional[Drawing] = None):
+    def __init__(
+        self, data: bytes, doc: Optional[Drawing] = None, *, dxfversion=const.DXF2000
+    ):
         self._doc = doc
         self._factory = factory.new
         self._buffer: bytes = data
         self._index: int = 8
-        self.dxfversion = doc.dxfversion if doc else "AC1015"
+        self.dxfversion = doc.dxfversion if doc else dxfversion
         self.color: int = const.BYLAYER
         self.layer: str = "0"
         self.linetype: str = "BYLAYER"
@@ -395,9 +399,18 @@ class ProxyGraphic:
     def circle(self, data: bytes):
         bs = ByteStream(data)
         attribs = self._build_dxf_attribs()
-        attribs["center"] = Vec3(bs.read_vertex())
+        center = Vec3(bs.read_vertex())
         attribs["radius"] = bs.read_float()
-        attribs["extrusion"] = bs.read_vertex()
+        normal = Vec3(bs.read_vertex())
+        attribs["extrusion"] = normal
+        if not normal.isclose(Z_AXIS):
+            # TODO: (issue 873) circle has a normal vector but center is in WCS
+            #  It's not clear if all coordinates in proxy graphics are WCS coordinates
+            #  even for OCS entities - the ODA DWG documentation contains no information
+            #  about that.
+            ocs = OCS(normal)
+            center = ocs.from_wcs(center)
+        attribs["center"] = center
         return self._factory("CIRCLE", dxfattribs=attribs)
 
     def circle_3p(self, data: bytes):
@@ -459,6 +472,26 @@ class ProxyGraphic:
         attribs["end_angle"] = arc.end_angle
         return self._factory("ARC", dxfattribs=attribs)
 
+    def elliptic_arc(self, data: bytes):
+        bs = ByteStream(data)
+        attribs = self._build_dxf_attribs()
+        attribs["center"] = Vec3(bs.read_vertex())
+        extrusion = Vec3(bs.read_vertex())
+        attribs["extrusion"] = extrusion
+        major_axis_length = bs.read_float()
+        minor_axis_length = bs.read_float()
+        attribs["ratio"] = minor_axis_length / major_axis_length
+        start_param = bs.read_float()
+        end_param = bs.read_float()
+        major_axis_angle = bs.read_float()
+
+        ocs = OCS(extrusion)
+        major_axis = ocs.to_wcs(Vec3.from_angle(major_axis_angle, major_axis_length))
+        attribs["major_axis"] = major_axis
+        attribs["start_param"] = start_param
+        attribs["end_param"] = end_param
+        return self._factory("ELLIPSE", dxfattribs=attribs)
+
     def _filled_polygon(self, vertices, attribs):
         hatch = cast("Hatch", self._factory("HATCH", dxfattribs=attribs))
         elevation = _get_elevation(vertices)
@@ -484,6 +517,7 @@ class ProxyGraphic:
             polyline.append_vertices(vertices)
             if close:
                 polyline.close()
+            polyline.new_seqend()
         return polyline
 
     def polyline_with_normals(self, data: bytes):
@@ -503,11 +537,15 @@ class ProxyGraphic:
 
     def lwpolyline(self, data: bytes):
         # OpenDesign Specs LWPLINE: 20.4.85 Page 211
-        # TODO: MLEADER exploration example "explore_mleader_block.dxf" has
-        #  LWPOLYLINE proxy graphic and raises an exception!
-        bs = BitStream(data)
-        flag: int = bs.read_bit_short()
         attribs = self._build_dxf_attribs()
+        num_bulges = 0
+        num_vertex_ids = 0
+        num_width = 0
+        is_closed = False
+        bs = BitStream(data)
+
+        num_data_bytes: int = bs.read_unsigned_long()
+        flag: int = bs.read_bit_short()
         if flag & 4:
             attribs["const_width"] = bs.read_bit_double()
         if flag & 8:
@@ -516,25 +554,20 @@ class ProxyGraphic:
             attribs["thickness"] = bs.read_bit_double()
         if flag & 1:
             attribs["extrusion"] = Vec3(bs.read_bit_double(3))
-
+        if flag & 512:  # todo: is this correct? not documented by the ODA DWG ref.
+            is_closed = True
         num_points = bs.read_bit_long()
         if flag & 16:
             num_bulges = bs.read_bit_long()
-        else:
-            num_bulges = 0
 
         if self.dxfversion >= "AC1024":  # R2010+
-            vertex_id_count = bs.read_bit_long()
-        else:
-            vertex_id_count = 0
-
-        if flag & 32:
-            num_width = bs.read_bit_long()
-        else:
-            num_width = 0
+            if flag & 1024:
+                num_vertex_ids = bs.read_bit_long()
+            if flag & 32:
+                num_width = bs.read_bit_long()
         # ignore DXF R13/14 special vertex order
 
-        vertices: list[luple[float, float]] = [bs.read_raw_double(2)]  # type: ignore
+        vertices: list[tuple[float, float]] = [bs.read_raw_double(2)]  # type: ignore
         prev_point = vertices[-1]
         for _ in range(num_points - 1):
             x = bs.read_bit_double_default(default=prev_point[0])  # type: ignore
@@ -542,7 +575,7 @@ class ProxyGraphic:
             prev_point = (x, y)
             vertices.append(prev_point)
         bulges: list[float] = [bs.read_bit_double() for _ in range(num_bulges)]
-        vertex_ids: list[int] = [bs.read_bit_long() for _ in range(vertex_id_count)]
+        vertex_ids: list[int] = [bs.read_bit_long() for _ in range(num_vertex_ids)]
         widths: list[tuple[float, float]] = [
             (bs.read_bit_double(), bs.read_bit_double()) for _ in range(num_width)
         ]
@@ -555,6 +588,7 @@ class ProxyGraphic:
             points.append((v[0], v[1], w[0], w[1], b))
         lwpolyline = cast("LWPolyline", self._factory("LWPOLYLINE", dxfattribs=attribs))
         lwpolyline.set_points(points)
+        lwpolyline.closed = is_closed
         return lwpolyline
 
     def mesh(self, data: bytes):

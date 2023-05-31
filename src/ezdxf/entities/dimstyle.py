@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from ezdxf.document import Drawing
     from ezdxf.entities import DXFNamespace
     from ezdxf.lldxf.tagwriter import AbstractTagWriter
+    from ezdxf import xref
 
 __all__ = ["DimStyle"]
 logger = logging.getLogger("ezdxf")
@@ -31,9 +32,7 @@ logger = logging.getLogger("ezdxf")
 acdb_dimstyle = DefSubclass(
     "AcDbDimStyleTableRecord",
     {
-        "name": DXFAttr(
-            2, default="Standard", validator=validator.is_valid_table_name
-        ),
+        "name": DXFAttr(2, default="Standard", validator=validator.is_valid_table_name),
         "flags": DXFAttr(70, default=0),
         "dimpost": DXFAttr(3, default=""),
         "dimapost": DXFAttr(4, default=""),
@@ -187,13 +186,9 @@ acdb_dimstyle = DefSubclass(
         # handle of linetype for extension line 2
         "dimltex2_handle": DXFAttr(347, dxfversion=DXF2007),
         # dimension line lineweight enum value, default BYBLOCK
-        "dimlwd": DXFAttr(
-            371, default=const.LINEWEIGHT_BYBLOCK, dxfversion=DXF2000
-        ),
+        "dimlwd": DXFAttr(371, default=const.LINEWEIGHT_BYBLOCK, dxfversion=DXF2000),
         # extension line lineweight enum value, default BYBLOCK
-        "dimlwe": DXFAttr(
-            372, default=const.LINEWEIGHT_BYBLOCK, dxfversion=DXF2000
-        ),
+        "dimlwe": DXFAttr(372, default=const.LINEWEIGHT_BYBLOCK, dxfversion=DXF2000),
     },
 )
 acdb_dimstyle_group_codes = group_code_mapping(acdb_dimstyle)
@@ -388,6 +383,10 @@ EXPORT_MAP_R12 = [
     "dimclrt",
 ]
 
+DIM_TEXT_STYLE_ATTR = "dimtxsty"
+DIM_ARROW_HEAD_ATTRIBS = ("dimblk", "dimblk1", "dimblk2", "dimldrblk")
+DIM_LINETYPE_ATTRIBS = ("dimltype", "dimltex1", "dimltex2")
+
 
 def dim_filter(name: str) -> bool:
     return name.startswith("dim")
@@ -398,9 +397,7 @@ class DimStyle(DXFEntity):
     """DXF BLOCK_RECORD table entity"""
 
     DXFTYPE = "DIMSTYLE"
-    DXFATTRIBS = DXFAttributes(
-        base_class, acdb_symbol_table_record, acdb_dimstyle
-    )
+    DXFATTRIBS = DXFAttributes(base_class, acdb_symbol_table_record, acdb_dimstyle)
     CODE_TO_DXF_ATTRIB = dict(DXFATTRIBS.build_group_code_items(dim_filter))
 
     @property
@@ -422,7 +419,7 @@ class DimStyle(DXFEntity):
         # data, handles are set at export.
         super().post_load_hook(doc)
         db = doc.entitydb
-        for attrib_name in ("dimblk", "dimblk1", "dimblk2", "dimldrblk"):
+        for attrib_name in DIM_ARROW_HEAD_ATTRIBS:
             if self.dxf.hasattr(attrib_name):
                 continue
             block_record_handle = self.dxf.get(attrib_name + "_handle")
@@ -446,7 +443,7 @@ class DimStyle(DXFEntity):
             except (KeyError, AttributeError):
                 logger.info(f"Ignore undefined text style #{style_handle}.")
 
-        for attrib_name in ("dimltype", "dimltex1", "dimltex2"):
+        for attrib_name in DIM_LINETYPE_ATTRIBS:
             lt_handle = self.dxf.get(attrib_name + "_handle", None)
             if lt_handle and lt_handle != "0":
                 try:
@@ -462,9 +459,7 @@ class DimStyle(DXFEntity):
     def export_entity(self, tagwriter: AbstractTagWriter) -> None:
         super().export_entity(tagwriter)
         if tagwriter.dxfversion > DXF12:
-            tagwriter.write_tag2(
-                const.SUBCLASS_MARKER, acdb_symbol_table_record.name
-            )
+            tagwriter.write_tag2(const.SUBCLASS_MARKER, acdb_symbol_table_record.name)
             tagwriter.write_tag2(const.SUBCLASS_MARKER, acdb_dimstyle.name)
 
         if tagwriter.dxfversion > DXF12:
@@ -479,22 +474,81 @@ class DimStyle(DXFEntity):
             attribs = EXPORT_MAP_R2007
         self.dxf.export_dxf_attribs(tagwriter, attribs)
 
+    def register_resources(self, registry: xref.Registry) -> None:
+        """Register required resources to the resource registry."""
+        assert self.doc is not None, "DIMSTYLE entity must be assigned to a document"
+        super().register_resources(registry)
+        # ezdxf uses names for blocks, linetypes and text style as internal data
+        # register text style
+        text_style_name = self.dxf.get(DIM_TEXT_STYLE_ATTR)
+        if text_style_name:
+            try:
+                style = self.doc.styles.get(text_style_name)
+                registry.add_entity(style)
+            except const.DXFTableEntryError:
+                pass
+
+        # register linetypes
+        for attr_name in DIM_LINETYPE_ATTRIBS:
+            ltype_name = self.dxf.get(attr_name)
+            if ltype_name is None:
+                continue
+            try:
+                ltype = self.doc.linetypes.get(ltype_name)
+                registry.add_entity(ltype)
+            except const.DXFTableEntryError:
+                pass
+
+        # Note: ACAD arrow head blocks are created automatically at export in set_blk_handle()
+        for attr_name in DIM_ARROW_HEAD_ATTRIBS:
+            arrow_name = self.dxf.get(attr_name)
+            if arrow_name is None:
+                continue
+            if not ARROWS.is_acad_arrow(arrow_name):
+                # user defined arrow head block
+                registry.add_block_name(arrow_name)
+
+    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+        """Translate resources from self to the copied entity."""
+        assert isinstance(clone, DimStyle)
+        super().map_resources(clone, mapping)
+        # ezdxf uses names for blocks, linetypes and text style as internal data
+        # map text style
+        text_style = self.dxf.get(DIM_TEXT_STYLE_ATTR)
+        if text_style:
+            clone.dxf.dimtxsty = mapping.get_text_style(text_style)
+        # map linetypes
+        for attr_name in DIM_LINETYPE_ATTRIBS:
+            ltype_name = self.dxf.get(attr_name)
+            if ltype_name:
+                clone.dxf.set(attr_name, mapping.get_linetype(ltype_name))
+
+        # Note: ACAD arrow head blocks are created automatically at export in set_blk_handle()
+        for attr_name in DIM_ARROW_HEAD_ATTRIBS:
+            arrow_name = self.dxf.get(attr_name)
+            if arrow_name is None:
+                continue
+            if not ARROWS.is_acad_arrow(arrow_name):
+                # user defined arrow head block
+                arrow_name = mapping.get_block_name(arrow_name)
+            clone.dxf.set(attr_name, arrow_name)
+
     def set_handles(self):
-        style = self.dxf.get("dimtxsty", None)
-        if style is not None:
+        style = self.dxf.get(DIM_TEXT_STYLE_ATTR)
+        if style:
             self.dxf.dimtxsty_handle = self.doc.styles.get(style).dxf.handle
 
-        for blk_name in ("dimblk", "dimblk1", "dimblk2", "dimldrblk"):
-            name = self.dxf.get(blk_name)
-            if name is not None:
-                self.set_blk_handle(blk_name + "_handle", name)
+        for attr_name in DIM_ARROW_HEAD_ATTRIBS:
+            block_name = self.dxf.get(attr_name)
+            if block_name:
+                self.set_blk_handle(attr_name + "_handle", block_name)
 
-        for ltype_name in ("dimltype", "dimltex1", "dimltex2"):
+        for attr_name in DIM_LINETYPE_ATTRIBS:
             get_linetype = self.doc.linetypes.get
-            name = self.dxf.get(ltype_name, None)
-            if name is not None:
-                handle = get_linetype(name).dxf.handle
-                self.dxf.set(ltype_name + "_handle", handle)
+            ltype_name = self.dxf.get(attr_name)
+            if ltype_name:
+                handle = get_linetype(ltype_name).dxf.handle
+                self.dxf.set(attr_name + "_handle", handle)
 
     def discard_handles(self):
         for attr in (
@@ -519,7 +573,7 @@ class DimStyle(DXFEntity):
         assert self.doc is not None, "valid DXF document required"
         blocks = self.doc.blocks
         if ARROWS.is_acad_arrow(arrow_name):
-            # create block, because need block record handle is needed here
+            # create block, because the block record handle is needed here
             block_name = ARROWS.create_block(blocks, arrow_name)
         else:
             block_name = arrow_name
@@ -598,9 +652,7 @@ class DimStyle(DXFEntity):
                     ARROWS.create_block(blocks, b)
                     continue
                 if b and b not in blocks:
-                    raise const.DXFValueError(
-                        'BLOCK "{}" does not exist.'.format(blk)
-                    )
+                    raise const.DXFValueError(f'BLOCK "{blk}" does not exist.')
 
     def set_tick(self, size: float = 1) -> None:
         """Set tick `size`, which also disables arrows, a tick is just an

@@ -29,11 +29,12 @@ from .factory import register_entity
 
 if TYPE_CHECKING:
     from ezdxf.audit import Auditor
-    from ezdxf.entities import DXFNamespace, DXFEntity
+    from ezdxf.entities import DXFNamespace, DXFEntity, Dictionary
     from ezdxf.lldxf.tagwriter import AbstractTagWriter
     from ezdxf.lldxf.types import DXFTag
     from ezdxf.document import Drawing
     from ezdxf.math import Matrix44
+    from ezdxf import xref
 
 __all__ = ["Image", "ImageDef", "ImageDefReactor", "RasterVariables", "Wipeout"]
 logger = logging.getLogger("ezdxf")
@@ -61,7 +62,7 @@ class ImageBase(DXFGraphic):
         # see also WCS coordinate calculation
         self._boundary_path: list[Vec2] = []
 
-    def _copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity) -> None:
         assert isinstance(entity, ImageBase)
         entity._boundary_path = list(self._boundary_path)
 
@@ -321,15 +322,15 @@ class Image(ImageBase):
         image.image_def = image_def
         return image
 
-    def copy(self) -> Image:
-        image_copy = cast("Image", super().copy())
-        # Each Image has its own ImageDefReactor object,
-        # which will be created by binding the copy to the
-        # document.
-        image_copy.dxf.discard("image_def_reactor_handle")
-        image_copy._image_def_reactor = None
-        image_copy._image_def = self._image_def
-        return image_copy
+    def copy_data(self, entity: DXFEntity) -> None:
+        assert isinstance(entity, Image)
+        super().copy_data(entity)
+        # Each IMAGE has its own ImageDefReactor object, which will be created by
+        # binding the copy to the document.
+        entity.dxf.discard("image_def_reactor_handle")
+        entity._image_def_reactor = None
+        # shared IMAGE_DEF
+        entity._image_def = self._image_def
 
     def post_bind_hook(self) -> None:
         # Document in LOAD process -> post_load_hook()
@@ -380,8 +381,47 @@ class Image(ImageBase):
         # Link Image to ImageDefReactor:
         self.dxf.image_def_reactor_handle = reactor_handle
         self._image_def_reactor = image_def_reactor
-        # Link ImageDef to ImageDefReactor:
-        self._image_def.append_reactor_handle(reactor_handle)
+        # Link ImageDef to ImageDefReactor if in same document (XREF mapping!):
+        if self.doc is self._image_def.doc:
+            self._image_def.append_reactor_handle(reactor_handle)
+
+    def register_resources(self, registry: xref.Registry) -> None:
+        """Register required resources to the resource registry."""
+        super().register_resources(registry)
+        if isinstance(self.image_def, ImageDef):
+            registry.add_handle(self.image_def.dxf.handle)
+
+    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+        """Translate resources from self to the copied entity."""
+        assert isinstance(clone, Image)
+        super().map_resources(clone, mapping)
+        source_image_def = self.image_def
+        if isinstance(source_image_def, ImageDef):
+            name = self.get_image_def_name()
+            name, clone_image_def = mapping.map_acad_dict_entry(
+                "ACAD_IMAGE_DICT", name, source_image_def
+            )
+            if isinstance(clone_image_def, ImageDef):
+                clone.image_def = clone_image_def
+                if isinstance(clone._image_def_reactor, ImageDefReactor):
+                    clone_image_def.append_reactor_handle(
+                        clone._image_def_reactor.dxf.handle
+                    )
+        # Note:
+        # The IMAGEDEF_REACTOR was created automatically at binding the copy to
+        # a new document, but the handle of the IMAGEDEF_REACTOR was not add to the
+        # IMAGEDEF reactor handles, because at this point the IMAGE had still a reference
+        # to the IMAGEDEF of the source document.
+
+    def get_image_def_name(self) -> str:
+        """Returns the name of the `image_def` entry in the ACAD_IMAGE_DICT."""
+        if self.doc is None:
+            return ""
+        image_dict = self.doc.rootdict.get_required_dict("ACAD_IMAGE_DICT")
+        for name, entry in image_dict.items():
+            if entry is self._image_def:
+                return name
+        return ""
 
     @property
     def image_def(self) -> Optional[ImageDef]:
@@ -396,6 +436,11 @@ class Image(ImageBase):
         else:
             self.dxf.discard("image_def_handle")
             self._image_def = None
+
+    @property
+    def image_def_reactor(self) -> Optional[ImageDefReactor]:
+        """Returns the associated IMAGEDEF_REACTOR entity."""
+        return self._image_def_reactor
 
     def destroy(self) -> None:
         if not self.is_alive:

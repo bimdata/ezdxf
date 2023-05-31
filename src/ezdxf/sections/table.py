@@ -10,6 +10,7 @@ from typing import (
     TypeVar,
     Union,
     cast,
+    Sequence,
 )
 from collections import OrderedDict
 import logging
@@ -29,6 +30,7 @@ from ezdxf.entities import (
     UCSTableEntry,
     BlockRecord,
     DimStyle,
+    is_graphic_entity,
 )
 
 if TYPE_CHECKING:
@@ -57,9 +59,7 @@ class Table(Generic[T]):
         if isinstance(table_head, TableHead):
             self._head = table_head
         else:
-            raise const.DXFStructureError(
-                "Critical structure error in TABLES section."
-            )
+            raise const.DXFStructureError("Critical structure error in TABLES section.")
         expected_entry_dxftype = self.TABLE_TYPE
         for table_entry in entities:
             if table_entry.dxftype() == expected_entry_dxftype:
@@ -115,7 +115,7 @@ class Table(Generic[T]):
         """Create a new table entry `name`.
 
         Args:
-            name: name of table entry, case-insensitive
+            name: name of table entry
             dxfattribs: additional DXF attributes for table entry
 
         """
@@ -129,19 +129,54 @@ class Table(Generic[T]):
         return self.new_entry(dxfattribs)
 
     def get(self, name: str) -> T:
-        """Get table entry `name` (case insensitive).
-        Raises :class:`DXFValueError` if table entry does not exist.
+        """Returns table entry `name`.
+
+        Args:
+            name: name of table entry, case-insensitive
+
+        Raises:
+            DXFTableEntryError: table entry does not exist
+
         """
-        key = self.key(name)
-        entry = self.entries.get(key, None)
+        entry = self.entries.get(self.key(name))
         if entry:
             return entry
         else:
             raise const.DXFTableEntryError(name)
 
+    def get_entry_by_handle(self, handle: str) -> Optional[T]:
+        """Returns table entry by handle or ``None`` if entry does not exist.
+
+        (internal API)
+        """
+        entry = self.doc.entitydb.get(handle)  # type: ignore
+        if entry and entry.dxftype() == self.TABLE_TYPE:
+            return entry  # type: ignore
+        return None
+
+    def get_handle_of_entry(self, name: str) -> str:
+        """Returns the handle of table entry by `name`, returns an empty string if no
+        entry for the given name exist.
+
+        Args:
+            name: name of table entry, case-insensitive
+
+        (internal API)
+        """
+        entry = self.entries.get(self.key(name))
+        if entry is not None:
+            return entry.dxf.handle
+        return ""
+
     def remove(self, name: str) -> None:
-        """Removes table entry `name`. Raises :class:`DXFValueError`
-        if table-entry does not exist.
+        """Removes table entry `name`.
+
+        Args:
+            name: name of table entry, case-insensitive
+
+        Raises:
+            DXFTableEntryError: table entry does not exist
+
         """
         key = self.key(name)
         entry = self.get(name)
@@ -152,8 +187,12 @@ class Table(Generic[T]):
         """Returns a new table entry `new_name` as copy of `name`,
         replaces entry `new_name` if already exist.
 
+        Args:
+            name: name of table entry, case-insensitive
+            new_name: name of duplicated table entry
+
         Raises:
-             DXFValueError: `name` does not exist
+            DXFTableEntryError: table entry does not exist
 
         """
         entry = self.get(name)
@@ -168,7 +207,13 @@ class Table(Generic[T]):
         return entry
 
     def discard(self, name: str) -> None:
-        """Remove table entry without destroying object. (internal API)"""
+        """Remove table entry without destroying object.
+
+        Args:
+            name: name of table entry, case-insensitive
+
+        (internal API)
+        """
         del self.entries[self.key(name)]
 
     def replace(self, name: str, entry: T) -> None:
@@ -186,10 +231,8 @@ class Table(Generic[T]):
         Does not check if an entry dxfattribs['name'] already exists!
         Duplicate entries are possible for Viewports.
         """
-        assert self.doc is not None, "valid DXF document expected"
-        entry = cast(
-            T, factory.create_db_entry(self.TABLE_TYPE, dxfattribs, self.doc)
-        )
+        assert self.doc is not None, "valid DXF document required"
+        entry = cast(T, factory.create_db_entry(self.TABLE_TYPE, dxfattribs, self.doc))
 
         self._append(entry)
         return entry
@@ -215,35 +258,25 @@ class Table(Generic[T]):
             raise const.DXFTableEntryError(
                 f"{self._head.dxf.name} {name} already exists!"
             )
-        entry.doc = self.doc
+        if self.doc:
+            factory.bind(entry, self.doc)
         entry.dxf.owner = self._head.dxf.handle
         self._append(entry)
 
     def export_dxf(self, tagwriter: AbstractTagWriter) -> None:
         """Export DXF representation. (internal API)"""
 
-        def prologue():
-            self.update_owner_handles()
-            # The table head itself has no owner and is therefore always '0':
-            self._head.dxf.owner = "0"
-            self._head.dxf.count = len(self)
-            self._head.export_dxf(tagwriter)
+        self.update_owner_handles()
+        # The table head itself has no owner and is therefore always '0':
+        self._head.dxf.owner = "0"
+        self._head.dxf.count = len(self)
+        self._head.export_dxf(tagwriter)
+        self.export_table_entries(tagwriter)
+        tagwriter.write_tag2(0, "ENDTAB")
 
-        def content():
-            for entry in self.entries.values():
-                # VPORT
-                if isinstance(entry, list):
-                    for e in entry:
-                        e.export_dxf(tagwriter)
-                else:
-                    entry.export_dxf(tagwriter)
-
-        def epilogue():
-            tagwriter.write_tag2(0, "ENDTAB")
-
-        prologue()
-        content()
-        epilogue()
+    def export_table_entries(self, tagwriter: AbstractTagWriter) -> None:
+        for entry in self.entries.values():
+            entry.export_dxf(tagwriter)
 
     def update_owner_handles(self) -> None:
         owner_handle = self._head.dxf.handle
@@ -364,6 +397,18 @@ class LayerTable(Table[Layer]):
             layer.transparency = transparency
         return layer
 
+    def create_referenced_layers(self) -> None:
+        """Create for all referenced layers table entries if not exist."""
+        if self.doc is None:
+            return
+        for e in self.doc.entitydb.values():
+            if not is_graphic_entity(e):
+                continue
+            layer_name = e.dxf.get("layer", "")
+            if layer_name and not self.has_entry(layer_name):
+                # create layer table entry with default settings
+                self.add(layer_name)
+
 
 class LinetypeTable(Table[Linetype]):
     TABLE_TYPE = "LTYPE"
@@ -378,7 +423,7 @@ class LinetypeTable(Table[Linetype]):
     def add(
         self,
         name: str,
-        pattern: Union[list[float], str],
+        pattern: Union[Sequence[float], str],
         *,
         description: str = "",
         length: float = 0.0,
@@ -422,9 +467,31 @@ class LinetypeTable(Table[Linetype]):
 class TextstyleTable(Table[Textstyle]):
     TABLE_TYPE = "STYLE"
 
-    def add(
-        self, name: str, *, font: str, dxfattribs=None
-    ) -> Textstyle:
+    def __init__(self) -> None:
+        super().__init__()
+        self.shx_files: dict[str, Textstyle] = dict()
+
+    def export_table_entries(self, tagwriter: AbstractTagWriter) -> None:
+        super().export_table_entries(tagwriter)
+        for shx_file in self.shx_files.values():
+            shx_file.export_dxf(tagwriter)
+
+    def _append(self, entry: Textstyle) -> None:
+        """Add a table entry, replaces existing entries with same name.
+        (internal API).
+        """
+        if entry.dxf.name == "" and (entry.dxf.flags & 1):  # shx shape file
+            self.shx_files[self.key(entry.dxf.font)] = entry
+        else:
+            self.entries[self.key(entry.dxf.name)] = entry
+
+    def update_owner_handles(self) -> None:
+        super().update_owner_handles()
+        owner_handle = self._head.dxf.handle
+        for entry in self.shx_files.values():
+            entry.dxf.owner = owner_handle
+
+    def add(self, name: str, *, font: str, dxfattribs=None) -> Textstyle:
         """Add a new text style entry for TTF fonts. The entry must not yet
         exist, otherwise an :class:`DXFTableEntryError` exception will be
         raised.
@@ -435,7 +502,7 @@ class TextstyleTable(Table[Textstyle]):
         Args:
             name (str): text style name
             font (str): TTF font file name like "Arial.ttf", the real font file
-                name from the file system is required and remember only Windows
+                name from the file system is required and only the Windows filesystem
                 is case-insensitive.
             dxfattribs (dict): additional DXF attributes
 
@@ -450,23 +517,23 @@ class TextstyleTable(Table[Textstyle]):
         )
         return self.new_entry(dxfattribs)
 
-    def add_shx(self, shx_file: str, *, dxfattribs=None) -> Textstyle:
+    def add_shx(self, shx_file_name: str, *, dxfattribs=None) -> Textstyle:
         """Add a new shape font (SHX file) entry. These are special text style
         entries and have no name. The entry must not yet exist, otherwise an
         :class:`DXFTableEntryError` exception will be raised.
 
-        Finding the SHX files is the task of the DXF viewer and each
+        Locating the SHX files in the filesystem is the task of the DXF viewer and each
         viewer is different (hint: support files).
 
         Args:
-            shx_file (str): shape file name like "gdt.shx"
+            shx_file_name (str): shape file name like "gdt.shx"
             dxfattribs (dict): additional DXF attributes
 
         """
-        if self.find_shx(shx_file) is not None:
+        if self.find_shx(shx_file_name) is not None:
             raise const.DXFTableEntryError(
                 f"{self._head.dxf.name} shape file entry for "
-                f"'{shx_file}' already exists!"
+                f"'{shx_file_name}' already exists!"
             )
 
         dxfattribs = dict(dxfattribs or {})
@@ -474,29 +541,29 @@ class TextstyleTable(Table[Textstyle]):
             {
                 "name": "",  # shape file entry has no name
                 "flags": 1,  # shape file flag
-                "font": shx_file,
+                "font": shx_file_name,
                 "last_height": 2.5,  # maybe required by AutoCAD
             }
         )
         return self.new_entry(dxfattribs)
 
-    def get_shx(self, shx_file: str) -> Textstyle:
+    def get_shx(self, shx_file_name: str) -> Textstyle:
         """Get existing entry for a shape file (SHX file), or create a new
         entry.
 
-        Finding the SHX files is the task of the DXF viewer and each
+        Locating the SHX files in the filesystem is the task of the DXF viewer and each
         viewer is different (hint: support files).
 
         Args:
-            shx_file (str): shape file name like "gdt.shx"
+            shx_file_name (str): shape file name like "gdt.shx"
 
         """
-        shape_file = self.find_shx(shx_file)
+        shape_file = self.find_shx(shx_file_name)
         if shape_file is None:
-            return self.add_shx(shx_file)
+            return self.add_shx(shx_file_name)
         return shape_file
 
-    def find_shx(self, shx_file: str) -> Optional[Textstyle]:
+    def find_shx(self, shx_file_name: str) -> Optional[Textstyle]:
         """Find the shape file (SHX file) text style table entry, by a
         case-insensitive search.
 
@@ -504,20 +571,35 @@ class TextstyleTable(Table[Textstyle]):
         font attribute.
 
         Args:
-            shx_file (str): shape file name like "gdt.shx"
+            shx_file_name (str): shape file name like "gdt.shx"
 
         """
-        lower_name = shx_file.lower()
-        for entry in iter(self):
-            if entry.dxf.font.lower() == lower_name:
-                return entry
-        return None
+        return self.shx_files.get(self.key(shx_file_name))
+
+    def discard_shx(self, shx_file_name: str) -> None:
+        """Discard the shape file (SHX file) text style table entry. Does not raise an
+        exception if the entry does not exist.
+
+        Args:
+            shx_file_name (str): shape file name like "gdt.shx"
+
+        """
+        try:
+            del self.shx_files[self.key(shx_file_name)]
+        except KeyError:
+            pass
 
 
 class ViewportTable(Table[VPort]):
     TABLE_TYPE = "VPORT"
     # Viewport-Table can have multiple entries with same name
     # each table entry is a list of VPORT entries
+
+    def export_table_entries(self, tagwriter: AbstractTagWriter) -> None:
+        for entry in self.entries.values():
+            assert isinstance(entry, list)
+            for e in entry:
+                e.export_dxf(tagwriter)
 
     def new(self, name: str, dxfattribs=None) -> VPort:
         """Create a new table entry."""
@@ -582,6 +664,18 @@ class ViewportTable(Table[VPort]):
             self.entries[key].append(entry)  # type: ignore
         else:
             self.entries[key] = [entry]  # type: ignore # store list of VPORT
+
+    def replace(self, name: str, entry: T) -> None:
+        self.discard(name)
+        config: list[T]
+        if isinstance(entry, list):
+            config = entry
+        else:
+            config = [entry]
+        if not config:
+            return
+        key = self.key(config[0].dxf.name)
+        self.entries[key] = config  # type: ignore
 
     def update_owner_handles(self) -> None:
         owner_handle = self._head.dxf.handle

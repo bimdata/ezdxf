@@ -25,6 +25,7 @@ DXF Document
     drawing/management
     drawing/drawing
     drawing/recover
+    r12strict
     appsettings
 
 DXF Structures
@@ -104,6 +105,7 @@ Construction
     bbox
     upright
     reorder
+    transform
     math_construction_tools
 
 Custom Data
@@ -115,6 +117,14 @@ Custom Data
     user_xdata
     user_record
 
+Fonts
+-----
+
+.. toctree::
+    :maxdepth: 2
+
+    tools/fonts
+
 Tools
 -----
 
@@ -125,7 +135,6 @@ Tools
     tools/gfxattribs
     tools/text
     tools/text_size
-    tools/fonts
     tools/acis
 
 

@@ -31,6 +31,7 @@ import uuid
 from ezdxf import options
 from ezdxf.lldxf import const
 from ezdxf.lldxf.tags import Tags
+from ezdxf.lldxf.types import DXFTag
 from ezdxf.lldxf.extendedtags import ExtendedTags
 from ezdxf.lldxf.attributes import DXFAttr, DXFAttributes, DefSubclass
 from ezdxf.tools import set_flag_state
@@ -46,7 +47,8 @@ if TYPE_CHECKING:
     from ezdxf.entities import DXFGraphic, Insert
     from ezdxf.lldxf.attributes import DXFAttr
     from ezdxf.lldxf.tagwriter import AbstractTagWriter
-
+    from ezdxf.math import Matrix44
+    from ezdxf import xref
 
 __all__ = ["DXFEntity", "DXFTagStorage", "base_class", "SubclassProcessor"]
 logger = logging.getLogger("ezdxf")
@@ -193,9 +195,7 @@ class DXFEntity:
         pass
 
     @classmethod
-    def load(
-        cls: Type[T], tags: ExtendedTags, doc: Optional[Drawing] = None
-    ) -> T:
+    def load(cls: Type[T], tags: ExtendedTags, doc: Optional[Drawing] = None) -> T:
         """Constructor to generate entities loaded from an external source.
 
         LOAD process:
@@ -224,9 +224,7 @@ class DXFEntity:
         entity.load_tags(tags, dxfversion=dxfversion)
         return entity
 
-    def load_tags(
-        self, tags: ExtendedTags, dxfversion: Optional[str] = None
-    ) -> None:
+    def load_tags(self, tags: ExtendedTags, dxfversion: Optional[str] = None) -> None:
         """Generic tag loading interface, called if DXF document is loaded
         from external sources.
 
@@ -245,9 +243,7 @@ class DXFEntity:
                     self.xdata = XData(tags.xdata)
                 except const.DXFValueError:  # contains invalid group codes
                     self.xdata = XData.safe_init(tags.xdata)
-                    logger.debug(
-                        f"removed invalid XDATA from {tags.entity_name()}"
-                    )
+                    logger.debug(f"removed invalid XDATA from {tags.entity_name()}")
 
             processor = SubclassProcessor(tags, dxfversion=dxfversion)
             self.dxf = self.load_dxf_attribs(processor)
@@ -304,19 +300,10 @@ class DXFEntity:
         # Do not set copy state, this is not a real copy!
         return entity
 
-    def copy(self: T) -> T:
-        """Returns a copy of `self` but without handle, owner and reactors.
-        This copy is NOT stored in the entity database and does NOT reside
-        in any layout, block, table or objects section!
-        The extension dictionary will be copied for entities bound to a valid
-        DXF document. The reactors are not copied.
+    def raw_copy(self: T) -> T:
+        """Returns a raw copy of `self` but without handle, owner and reactors.
 
-        Don't use this function to duplicate DXF entities in drawing,
-        use :meth:`EntityDB.duplicate_entity` instead for this task.
-
-        Copying is not trivial, because of linked resources and the lack of
-        documentation how to handle this linked resources: extension dictionary,
-        handles in appdata, xdata or embedded objects.
+        This is the first stage of the copy process, see copy() method.
 
         (internal API)
         """
@@ -343,17 +330,70 @@ class DXFEntity:
 
         # if xdata contains handles, they are treated as shared resources
         entity.xdata = copy.deepcopy(self.xdata)
-        entity.set_source_of_copy(self)
+        return entity
+
+    def copy_data(self, entity: DXFEntity) -> None:
+        """Copy entity data like vertices or attribs to the copy of the entity.
+
+        This is the second stage of the copy process, see copy() method.
+
+        (internal API)
+        """
+        pass
+
+    def copy(self: T) -> T:
+        """Internal entity copy for usage in the same document or as virtual entity.
+
+        Returns a copy of `self` but without handle, owner and reactors.
+        This copy is NOT stored in the entity database and does NOT reside
+        in any layout, block, table or objects section!
+        The extension dictionary will be copied for entities bound to a valid
+        DXF document. The reactors are not copied.
+
+        (internal API)
+        """
+        clone = self.raw_copy()
+        clone.set_source_of_copy(self)
         # DO NOT COPY DYN_SOURCE_BLOCK_REFERENCE_ATTRIBUTE.
         # Copying an entity from a block reference, takes it out of context of
         # this block reference!
-        self._copy_data(entity)
-        return entity
+        self.copy_data(clone)
+        return clone
+
+    def copy_external(self: T) -> T:
+        """External entity copy for usage in another document, this copy mode requires
+        registering and mapping of resources, see also:
+
+            - DXFEntity.register_resources()
+            - DXFEntity.map_resources()
+
+        Introduced for usage by the xref module.
+
+        (internal API)
+        """
+        clone = self.raw_copy()
+        # source of copy is not required
+        self.copy_data(clone)
+        return clone
+
+    def __deepcopy__(self, memodict: Optional[dict] = None):
+        """Some entities maybe linked by more than one entity, to be safe use
+        `memodict` for bookkeeping.
+
+        (internal API)
+        """
+        memodict = memodict or {}
+        try:
+            return memodict[id(self)]
+        except KeyError:
+            copy = self.copy()
+            memodict[id(self)] = copy
+            return copy
 
     def set_source_of_copy(self, source: Optional[DXFEntity]):
         """Set immediate source entity of a copy.
 
-        Also used from outside of DFXEntity to set the source of sub-entities
+        Also used from outside to set the source of sub-entities
         of disassembled entities (POLYLINE, LWPOLYLINE, ...).
 
         (Internal API)
@@ -395,33 +435,9 @@ class DXFEntity:
         """
         source = self.source_of_copy
         # follow source entities references until the first non-virtual entity:
-        while (
-            isinstance(source, DXFEntity)
-            and source.is_alive
-            and source.is_virtual
-        ):
+        while isinstance(source, DXFEntity) and source.is_alive and source.is_virtual:
             source = source.source_of_copy
         return source
-
-    def _copy_data(self, entity: DXFEntity) -> None:
-        """Copy entity data like vertices or attribs and store the copies into
-        the entity database.
-        (internal API)
-        """
-        pass
-
-    def __deepcopy__(self, memodict: Optional[dict] = None):
-        """Some entities maybe linked by more than one entity, to be safe use
-        `memodict` for bookkeeping.
-        (internal API)
-        """
-        memodict = memodict or {}
-        try:
-            return memodict[id(self)]
-        except KeyError:
-            copy = self.copy()
-            memodict[id(self)] = copy
-            return copy
 
     def update_dxf_attribs(self, dxfattribs: dict) -> None:
         """Set DXF attributes by a ``dict`` like :code:`{'layer': 'test',
@@ -652,6 +668,22 @@ class DXFEntity:
         # Remove dynamic attributes, which reference other entities:
         self.del_source_of_copy()
         self.del_source_block_reference()
+
+    def _silent_kill(self):  # final - do not override this method!
+        """Delete entity but not the referenced content!
+
+        DANGER! DON'T USE THIS METHOD!
+
+        (internal API)
+        """
+        if not self.is_alive:
+            return
+        del self.extension_dict
+        del self.appdata
+        del self.reactors
+        del self.xdata
+        del self.doc
+        del self.dxf  # check mark for is_alive
 
     def preprocess_export(self, tagwriter: AbstractTagWriter) -> bool:
         """Pre requirement check and pre-processing for export.
@@ -947,6 +979,47 @@ class DXFEntity:
         if self.reactors:
             self.reactors.discard(handle)
 
+    def register_resources(self, registry: xref.Registry) -> None:
+        """Register required resources to the resource registry."""
+        if self.xdata:
+            for name in self.xdata.data.keys():
+                registry.add_appid(name)
+        if self.appdata:  # add hard owned entities
+            for tags in self.appdata.tags():
+                for tag in tags.get_hard_owner_handles():
+                    registry.add_handle(tag.value)
+
+    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+        """Translate resources from self to the copied entity."""
+
+        def map_xdata_resources():
+            for index, (code, value) in enumerate(tags):
+                if code == 1005:  # map soft-pointer handles
+                    tags[index] = DXFTag(code, mapping.get_handle(value))
+                elif code == 1003:  # map layer name
+                    tags[index] = DXFTag(code, mapping.get_layer(value))
+
+        if clone.xdata:
+            for tags in clone.xdata.data.values():
+                map_xdata_resources()
+
+        if clone.appdata:
+            for tags in clone.appdata.tags():
+                mapping.map_pointers(tags, new_owner_handle=clone.dxf.handle)
+
+        if clone.extension_dict:
+            assert self.extension_dict is not None
+            self.extension_dict.dictionary.map_resources(
+                clone.extension_dict.dictionary, mapping
+            )
+        # reactors are not copied automatically, clone.reactors is always None:
+        if self.reactors:
+            # reactors are soft-pointers (group code 330)
+            mapped_handles = [mapping.get_handle(h) for h in self.reactors.reactors]
+            mapped_handles = [h for h in mapped_handles if h != "0"]
+            if mapped_handles:
+                clone.set_reactors(mapped_handles)
+
 
 @factory.set_default_class
 class DXFTagStorage(DXFEntity):
@@ -958,10 +1031,13 @@ class DXFTagStorage(DXFEntity):
         self.xtags = ExtendedTags()
         self.embedded_objects: Optional[list[Tags]] = None
 
-    def copy(self: T) -> T:
+    def raw_copy(self: T) -> T:
         raise const.DXFTypeError(
             f"Cloning of tag storage {self.dxftype()} not supported."
         )
+
+    def transform(self, m: Matrix44) -> DXFGraphic:
+        raise NotImplementedError("cannot transform DXF tag storage")
 
     @property
     def base_class(self):
@@ -976,10 +1052,31 @@ class DXFTagStorage(DXFEntity):
         """
         return self.xtags.has_subclass("AcDbEntity")
 
+    def graphic_properties(self) -> dict[str, Any]:
+        """Returns the graphical properties like layer, color, linetype, ... as
+        `dxfattribs` dict if the :class:`TagStorage` object represents a graphical
+        entity otherwise returns an empty dictionary.
+
+        These are all the DXF attributes which are stored in the ``AcDbEntity``
+        subclass.
+
+        """
+        from ezdxf.entities.dxfgfx import acdb_entity_group_codes
+
+        attribs: dict[str, Any] = dict()
+        try:
+            tags = self.xtags.get_subclass("AcDbEntity")
+        except const.DXFKeyError:
+            return attribs
+
+        for code, value in tags:
+            attrib_name = acdb_entity_group_codes.get(code)
+            if isinstance(attrib_name, str):
+                attribs[attrib_name] = value
+        return attribs
+
     @classmethod
-    def load(
-        cls, tags: ExtendedTags, doc: Optional[Drawing] = None
-    ) -> DXFTagStorage:
+    def load(cls, tags: ExtendedTags, doc: Optional[Drawing] = None) -> DXFTagStorage:
         assert isinstance(tags, ExtendedTags)
         entity = cls.new(doc=doc)
         dxfversion = doc.dxfversion if doc else None
@@ -1035,9 +1132,7 @@ class DXFTagStorage(DXFEntity):
         from ezdxf.proxygraphic import ProxyGraphic
 
         if self.proxy_graphic:
-            for e in ProxyGraphic(
-                self.proxy_graphic, self.doc
-            ).virtual_entities():
+            for e in ProxyGraphic(self.proxy_graphic, self.doc).virtual_entities():
                 e.set_source_of_copy(self)
                 yield e
         return []

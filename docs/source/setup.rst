@@ -9,13 +9,11 @@ easy way to install them on `Windows`, `Linux` and `macOS`, preferably as::
 
     pip3 install ezdxf
 
-The `pyparsing`_ package and the `typing_extensions`_ are the only hard dependency
-and will be installed automatically by `pip3`!
+The packages `pyparsing`_, `numpy`_, `fontTools`_ and `typing_extensions`_ are the hard
+dependency and will be installed automatically by `pip3`!
 
-The minimal required Python version is determined by the latest stable version
-of `pypy3`_ and the Python version deployed by the `Raspberry Pi`_ OS, which
-would be Python 3.9 in 2022, but Python 3.7 will be kept as the minimal version
-for the 1.0 release.
+The minimal required Python version is determined by the latest release version
+of `numpy`_.
 
 Basic Installation
 ------------------
@@ -35,13 +33,30 @@ To use all features of the drawing add-on, add the [draw] tag::
 ======== ===================================================
 Tag      Additional Installed Packages
 ======== ===================================================
-[draw]   `Matplotlib`_, `PySide6`_, `Pillow`_
-[draw5]  `Matplotlib`_, `PyQt5`_, `Pillow`_ (use only if PySide6 is not available)
-[test]   geomdl, pytest
+[draw]   `Matplotlib`_, `PySide6`_, `PyMuPDF`_
+[draw5]  `Matplotlib`_, `PyQt5`_, `PyMuPDF`_ (use only if PySide6 is not available)
+[test]   pytest
 [dev]    setuptools, wheel, Cython + [test]
 [all]    [draw] + [test] + [dev]
 [all5]   [draw5] + [test] + [dev]  (use only if PySide6 is not available)
 ======== ===================================================
+
+PySide6 Issue
+-------------
+
+Maybe `PySide6`_ won't launch on debian based distributions and shows this error message:
+
+.. code-block:: Text
+
+    qt.qpa.plugin: Could not load the Qt platform plugin "xcb" in "" even though it was found.
+    ...
+
+This may fix the issue:
+
+.. code-block:: Text
+
+    sudo apt-get install libxcb-cursor0
+
 
 Binary Wheels
 -------------
@@ -322,7 +337,7 @@ the build directory `build/ezdxf` and `ezdxf` is now installed in the venv.
 
 Install the test dependencies and run the tests::
 
-    pip3 install pytest geomdl
+    pip3 install pytest
     python3 -m pytest tests integration_tests
 
 Build Documentation
@@ -413,7 +428,9 @@ Proceed with the `ezdxf` installation from source as shown for the  `Raspberry P
 .. _pyqt5: https://pypi.org/project/PyQt5/
 .. _pyside6: https://pypi.org/project/PySide6/
 .. _pillow: https://pypi.org/project/Pillow/
+.. _PyMuPDF: https://pypi.org/project/PyMuPDF/
 .. _numpy: https://pypi.org/project/numpy/
+.. _fontTools: https://pypi.org/project/fonttools/
 .. _pyparsing: https://pypi.org/project/pyparsing/
 .. _typing_extensions: https://pypi.org/project/typing_extensions/
 .. _pypi: https://pypi.org/project/ezdxf

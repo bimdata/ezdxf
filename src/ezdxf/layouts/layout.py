@@ -19,9 +19,7 @@ if TYPE_CHECKING:
     from ezdxf.entities import GeoData, Viewport, DXFLayout, DXFGraphic
 
 
-def get_block_entity_space(
-    doc: Drawing, block_record_handle: str
-) -> EntitySpace:
+def get_block_entity_space(doc: Drawing, block_record_handle: str) -> EntitySpace:
     block_record = doc.entitydb[block_record_handle]
     return block_record.entity_space  # type: ignore
 
@@ -78,9 +76,7 @@ class Layout(BaseLayout):
         super().__init__(block_record)  # type: ignore
 
     @classmethod
-    def new(
-        cls, name: str, block_name: str, doc: Drawing, dxfattribs=None
-    ) -> Layout:
+    def new(cls, name: str, block_name: str, doc: Drawing, dxfattribs=None) -> Layout:
         """Returns the required structures for a new layout:
 
             - a :class:`BlockLayout` with BLOCK_RECORD, BLOCK and ENDBLK entities
@@ -237,9 +233,7 @@ class Layout(BaseLayout):
         else:
             raise const.DXFValueError("Plot type value out of range (0-5).")
 
-    def set_plot_style(
-        self, name: str = "ezdxf.ctb", show: bool = False
-    ) -> None:
+    def set_plot_style(self, name: str = "ezdxf.ctb", show: bool = False) -> None:
         """Set plot style file of type `.ctb`.
 
         Args:
@@ -274,6 +268,17 @@ class Layout(BaseLayout):
         dxf.plot_window_x2 = x2
         dxf.plot_window_y2 = y2
         self.set_plot_type(4)
+
+    def get_plot_unit_scale_factor(self) -> float:
+        denom = self.dxf.scale_denominator
+        numerator = self.dxf.scale_numerator
+        scale = 1.0
+        if denom:
+            scale = numerator / denom
+        if self.dxf.plot_paper_units == 1:
+            return scale  # mm
+        else:
+            return scale * 25.4  # inch
 
     # plot layout flags setter
     def plot_viewport_borders(self, state: bool = True) -> None:
@@ -319,9 +324,7 @@ class Layout(BaseLayout):
         self.set_plot_flags(self.PREV_PLOT_INIT, state)
 
     def set_plot_flags(self, flag, state: bool = True) -> None:
-        self.dxf_layout.set_flag_state(
-            flag, state=state, name="plot_layout_flags"
-        )
+        self.dxf_layout.set_flag_state(flag, state=state, name="plot_layout_flags")
 
 
 class Modelspace(Layout):
@@ -354,9 +357,7 @@ class Modelspace(Layout):
 
         """
         if self.doc.dxfversion < const.DXF2010:
-            raise const.DXFValueError(
-                "GEODATA entity requires DXF R2010 or later."
-            )
+            raise const.DXFValueError("GEODATA entity requires DXF R2010 or later.")
 
         if dxfattribs is None:
             dxfattribs = {}
@@ -368,7 +369,7 @@ class Modelspace(Layout):
         xdict["ACAD_GEOGRAPHICDATA"] = geodata
         return geodata
 
-    def get_geodata(self) -> Optional["GeoData"]:
+    def get_geodata(self) -> Optional[GeoData]:
         """Returns the :class:`~ezdxf.entities.GeoData` entity associated to
         the modelspace or ``None``.
         """
@@ -413,30 +414,18 @@ class Paperspace(Layout):
         self.dxf_layout.dxf.name = name
 
     def viewports(self) -> list[Viewport]:
-        """Get all VIEWPORT entities defined in this paperspace layout.
-        Returns a list of :class:`~ezdxf.entities.Viewport` objects, sorted by
-        id, the first entity is always the main viewport with an id of 1.
-
-        """
-        vports = [entity for entity in self if entity.dxftype() == "VIEWPORT"]
-        vports.sort(key=lambda e: e.dxf.id)
-        return vports  # type: ignore
+        """Get all VIEWPORT entities defined in this paperspace layout."""
+        return [e for e in self if e.is_alive and e.dxftype() == "VIEWPORT"]  # type: ignore
 
     def main_viewport(self) -> Optional[Viewport]:
         """Returns the main viewport of this paper space layout, or ``None``
         if no main viewport exist.
 
         """
-        viewports = self.viewports()
-        if len(viewports):
-            return viewports[0]
-        else:
-            return None
-
-    def renumber_viewports(self) -> None:
-        """Reassign viewport ids. (internal API)"""
-        for num, viewport in enumerate(self.viewports(), start=1):
-            viewport.dxf.id = num
+        for viewport in self.viewports():
+            if viewport.dxf.id == 1:
+                return viewport
+        return None
 
     def add_viewport(
         self,
@@ -444,16 +433,28 @@ class Paperspace(Layout):
         size: tuple[float, float],
         view_center_point: UVec,
         view_height: float,
+        status: int = 2,
         dxfattribs=None,
     ) -> Viewport:
-        """Add a new :class:`~ezdxf.entities.Viewport` entity."""
+        """Add a new :class:`~ezdxf.entities.Viewport` entity.
+
+        Viewport :attr:`status`:
+
+            - -1 is on, but is fully off-screen, or is one of the viewports that is not
+              active because the $MAXACTVP count is currently being exceeded.
+            - 0 is off
+            - any value>0 is on and active. The value indicates the order of
+              stacking for the viewports, where 1 is the "active viewport", 2 is the
+              next, ...
+
+        """
         dxfattribs = dxfattribs or {}
         width, height = size
         attribs = {
             "center": center,  # center in paperspace
             "width": width,  # width in paperspace
             "height": height,  # height in paperspace
-            "status": 1,  # has by default the highest priority (stack order)
+            "status": status,
             "layer": "VIEWPORTS",
             # use separated layer to turn off for plotting
             "view_center_point": view_center_point,  # in modelspace
@@ -461,8 +462,14 @@ class Paperspace(Layout):
         }
         attribs.update(dxfattribs)
         viewport = cast("Viewport", self.new_entity("VIEWPORT", attribs))
-        viewport.dxf.id = viewport.get_next_viewport_id()
+        viewport.dxf.id = self.get_next_viewport_id()
         return viewport
+
+    def get_next_viewport_id(self):
+        viewports = self.viewports()
+        if viewports:
+            return max(vp.dxf.id for vp in viewports) + 1
+        return 2
 
     def reset_viewports(self) -> None:
         """Delete all existing viewports, and create a new main viewport."""
@@ -471,9 +478,7 @@ class Paperspace(Layout):
             self.delete_entity(viewport)
         self.add_new_main_viewport()
 
-    def reset_main_viewport(
-        self, center: UVec = None, size: UVec = None
-    ) -> Viewport:
+    def reset_main_viewport(self, center: UVec = None, size: UVec = None) -> Viewport:
         """Reset the main viewport of this paper space layout to the given
         values, or reset them to the default values, deduced from the paper
         settings. Creates a new main viewport if none exist.
@@ -486,11 +491,9 @@ class Paperspace(Layout):
             size: viewport size as (width, height) tuple in paper space units
 
         """
-        viewports = self.viewports()
-        if len(viewports) == 0 or viewports[0].dxf.id != 1:
+        viewport = self.main_viewport()
+        if viewport is None:
             viewport = self.add_new_main_viewport()
-        else:
-            viewport = viewports[0]
         default_center, default_size = self.default_viewport_config()
         if center is None:
             center = default_center
@@ -527,14 +530,10 @@ class Paperspace(Layout):
 
         # printing area
         printable_width = (
-            paper_width
-            - paper_units(dxf.left_margin)
-            - paper_units(dxf.right_margin)
+            paper_width - paper_units(dxf.left_margin) - paper_units(dxf.right_margin)
         )
         printable_height = (
-            paper_height
-            - paper_units(dxf.bottom_margin)
-            - paper_units(dxf.top_margin)
+            paper_height - paper_units(dxf.bottom_margin) - paper_units(dxf.top_margin)
         )
 
         # AutoCAD viewport (window) size
@@ -558,11 +557,21 @@ class Paperspace(Layout):
             size=size,  # I don't get it, just use paper size!
             view_center_point=center,  # same as center
             view_height=vp_height,  # view height in paper space units
+            status=1,  # main viewport
         )
+        if len(self.entity_space) > 1:
+            # move main viewport to index 0 of entity space
+            _vp = self.entity_space.pop()
+            assert _vp is main_viewport
+            self.entity_space.insert(0, main_viewport)
+
         main_viewport.dxf.id = 1  # set as main viewport
         main_viewport.dxf.flags = 557088  # AutoCAD default value
-        self.dxf_layout.dxf.viewport_handle = main_viewport.dxf.handle
+        self.set_current_viewport_handle(main_viewport.dxf.handle)
         return main_viewport
+
+    def set_current_viewport_handle(self, handle: str) -> None:
+        self.dxf_layout.dxf.viewport_handle = handle
 
     def page_setup(
         self,
@@ -609,9 +618,7 @@ class Paperspace(Layout):
             scale_num, scale_denom = scale
         elif isinstance(scale, int):
             standard_scale = scale
-            scale_num, scale_denom = const.STD_SCALES.get(
-                standard_scale, (1.0, 1.0)
-            )
+            scale_num, scale_denom = const.STD_SCALES.get(standard_scale, (1.0, 1.0))
         else:
             raise const.DXFTypeError(
                 "Scale has to be an int or a tuple(numerator, denominator)"
@@ -642,9 +649,7 @@ class Paperspace(Layout):
         self.use_standard_scale(False)  # works best, don't know why
         dxf.page_setup_name = ""
         dxf.plot_configuration_file = device
-        dxf.paper_size = (
-            f"{name}_({paper_width:.2f}_x_{paper_height:.2f}_{units})"
-        )
+        dxf.paper_size = f"{name}_({paper_width:.2f}_x_{paper_height:.2f}_{units})"
         dxf.left_margin = margin_left * unit_factor
         dxf.bottom_margin = margin_bottom * unit_factor
         dxf.right_margin = margin_right * unit_factor
@@ -713,7 +718,6 @@ class Paperspace(Layout):
         rotation: float = 0,
         scale: Union[int, tuple[float, float]] = 16,
     ) -> None:
-
         # remove existing viewports
         for viewport in self.viewports():
             self.delete_entity(viewport)
@@ -778,9 +782,9 @@ class Paperspace(Layout):
             size=(vp_width, vp_height),  # I don't get it, just use paper size!
             view_center_point=center,  # same as center
             view_height=vp_height,  # view height in paper space units
+            status=1,  # main viewport
         )
         main_viewport.dxf.id = 1  # set as main viewport
-        main_viewport.dxf.status = 2  # AutoCAD default value
         main_viewport.dxf.render_mode = 1000  # AutoDesk default (view mode?)
 
     def get_paper_limits_r12(self) -> tuple[Vec2, Vec2]:

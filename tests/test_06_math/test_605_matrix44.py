@@ -1,8 +1,9 @@
-# Copyright (c) 2010-2020, Manfred Moitzi
+# Copyright (c) 2010-2023, Manfred Moitzi
 # License: MIT License
 import pytest
 import pickle
 from math import radians, sin, cos, pi, isclose
+import numpy as np
 
 # Import from 'ezdxf.math._matrix44' to test Python implementation
 from ezdxf.math import (
@@ -55,9 +56,7 @@ class TestMatrix44:
         assert matrix.get_row(3) == (12.0, 13.0, 14.0, 15.0)
 
     def test_row_constructor(self, m44):
-        matrix = m44(
-            (0, 1, 2, 3), (4, 5, 6, 7), (8, 9, 10, 11), (12, 13, 14, 15)
-        )
+        matrix = m44((0, 1, 2, 3), (4, 5, 6, 7), (8, 9, 10, 11), (12, 13, 14, 15))
         assert matrix.get_row(0) == (0.0, 1.0, 2.0, 3.0)
         assert matrix.get_row(1) == (4.0, 5.0, 6.0, 7.0)
         assert matrix.get_row(2) == (8.0, 9.0, 10.0, 11.0)
@@ -65,9 +64,7 @@ class TestMatrix44:
 
     def test_invalid_row_constructor(self, m44):
         with pytest.raises(ValueError):
-            m44(
-                (0, 1, 2, 3), (4, 5, 6, 7), (8, 9, 10, 11), (12, 13, 14, 15, 16)
-            )
+            m44((0, 1, 2, 3), (4, 5, 6, 7), (8, 9, 10, 11), (12, 13, 14, 15, 16))
         with pytest.raises(ValueError):
             m44(
                 (0, 1, 2, 3),
@@ -269,9 +266,7 @@ class TestMatrix44:
         assert equal_matrix(res, expected)
 
     def test_transpose(self, m44):
-        matrix = m44(
-            (0, 1, 2, 3), (4, 5, 6, 7), (8, 9, 10, 11), (12, 13, 14, 15)
-        )
+        matrix = m44((0, 1, 2, 3), (4, 5, 6, 7), (8, 9, 10, 11), (12, 13, 14, 15))
         matrix.transpose()
         assert matrix.get_row(0) == (0.0, 4.0, 8.0, 12.0)
         assert matrix.get_row(1) == (1.0, 5.0, 9.0, 13.0)
@@ -301,9 +296,7 @@ class TestMatrix44:
         assert matrix[0, 0] == 12
 
     def test_picklable(self, m44):
-        matrix = m44(
-            (0.1, 1, 2, 3), (4, 5, 6, 7), (8, 9, 10, 11), (12, 13, 14, 15)
-        )
+        matrix = m44((0.1, 1, 2, 3), (4, 5, 6, 7), (8, 9, 10, 11), (12, 13, 14, 15))
         pickled_matrix = pickle.loads(pickle.dumps(matrix))
         assert equal_matrix(matrix, pickled_matrix)
         assert type(matrix) is type(pickled_matrix)
@@ -316,14 +309,29 @@ class TestMatrix44:
         assert matrix[0, 1] == pytest.approx(-1.0)
         assert matrix[1, 0] == pytest.approx(1.0)
 
+    def test_from_2d_transformation(self, m44):
+        components = (2, 0, 0, 2, 10, 20)
+        matrix = m44.from_2d_transformation(components)
+        assert matrix.transform((1, 1)).isclose((12, 22))
+
+    @pytest.mark.parametrize(
+        "components",
+        [
+            [],
+            [0, 1, 2, 3, 4],
+            [0, 1, 2, 3, 4, 5, 6],
+        ],
+    )
+    def test_from_2d_transformation_checks_component_count(self, m44, components):
+        with pytest.raises(ValueError):
+            m44.from_2d_transformation(components)
+
 
 def test_has_matrix_2d_stretching():
     """Note: Uniform scaling is not stretching in this context."""
     assert has_matrix_2d_stretching(Matrix44.scale(1, 1, 1)) is False
     assert has_matrix_2d_stretching(Matrix44.scale(2, 2, 2)) is False
-    assert (
-        has_matrix_2d_stretching(Matrix44.scale(1, 1, 2)) is False
-    ), "ignore z-axis"
+    assert has_matrix_2d_stretching(Matrix44.scale(1, 1, 2)) is False, "ignore z-axis"
     assert has_matrix_2d_stretching(Matrix44.scale(2, 1, 1)) is True
     assert has_matrix_2d_stretching(Matrix44.scale(1, 2, 1)) is True
 
@@ -335,3 +343,58 @@ def test_has_matrix_3d_stretching():
     assert has_matrix_3d_stretching(Matrix44.scale(2, 1, 1)) is True
     assert has_matrix_3d_stretching(Matrix44.scale(1, 2, 1)) is True
     assert has_matrix_3d_stretching(Matrix44.scale(1, 1, 2)) is True
+
+
+class TestFast2dTransform:
+    def test_fast_translate(self, m44):
+        m = m44.translate(10, 20, 0)
+        points = list(m.fast_2d_transform([(0, 0), (1, 1, 1)]))
+        assert points[0].isclose((10, 20))
+        assert points[1].isclose((11, 21))
+
+    def test_fast_z_rotate(self, m44):
+        m = m44.z_rotate(radians(90))
+        points = list(m.fast_2d_transform([(10, 0), (0, 10, 1)]))
+        assert points[0].isclose((0, 10))
+        assert points[1].isclose((-10, 0))
+
+    def test_fast_scale(self, m44):
+        m = m44.scale(2, 3, 4)
+        points = list(m.fast_2d_transform([(10, 10), (-20, -20, 1)]))
+        assert points[0].isclose((20, 30))
+        assert points[1].isclose((-40, -60))
+
+    def test_fast_scale_rotate_translate(self, m44):
+        m = m44.scale(2, 3, 4) @ m44.z_rotate(radians(90)) @ m44.translate(10, 20, 0)
+        points = [(10, 10), (-20, -20, 1)]
+        res_3d = list(m.transform_vertices(points))
+        res_2d = list(m.fast_2d_transform(points))
+
+        assert res_2d[0].isclose(res_3d[0])
+        assert res_2d[1].isclose(res_3d[1])
+
+
+class TestTransformArrayInplace:
+    def test_ndim_2(self, m44):
+        points = (23.0, 97.0), (2.0, 7.0)
+        s = m44.scale(10, 20, 1)
+        t = m44.translate(10, 20, 0)
+        r = m44.z_rotate(angle=pi / 2)
+        m = m44.chain(s, r, t)
+        array = np.array(points, dtype=np.float64)
+
+        control = list(m.fast_2d_transform(points))
+        m.transform_array_inplace(array, ndim=2)
+        assert close_vectors(control, array) is True
+
+    def test_ndim_3(self, m44):
+        points = (23.0, 97.0, 0.5), (2.0, 7.0, 13.0)
+        s = m44.scale(10, 20, 30)
+        t = m44.translate(10, 20, 30)
+        r = m44.z_rotate(angle=pi / 2)
+        m = m44.chain(s, r, t)
+        array = np.array(points, dtype=np.float64)
+
+        control = list(m.transform_vertices(points))
+        m.transform_array_inplace(array, ndim=3)
+        assert close_vectors(control, array) is True

@@ -2,8 +2,107 @@
 News
 ====
 
-Version 1.0.0rc2 - dev
-----------------------
+Version 1.1.0b2 - dev
+---------------------
+
+- Release notes: https://ezdxf.mozman.at/release-v1-1.html
+- WARNING: The font support changed drastically in this version, if you use the 
+  `ezdxf.tools.fonts` module your code will break, sorry! Pin the `ezdxf` version to 
+  v1.0.3 in your `requirements.txt` file to use the previous version!
+- NEW: `numpy` is a hard dependency, requires Python version >= 3.8
+- NEW: `fontTools` is a hard dependency
+- NEW: `ezdxf.path.Path2d()` class, `Path` class with `Vec2` vertices
+- NEW: `ezdxf.xref` new core module to manage XREFs and load resources from DXF files
+- NEW: `ezdxf.addons.hpgl2` add-on to convert HPGL/2 plot files to DXF, SVG, PDF, PNG
+- NEW: `ezdxf hpgl` command to view and/or convert HPGL/2 plot files to various formats: DXF, SVG, PDF, PNG
+- NEW: native `SVG`, `HPGL/2`  and `DXF` backends for the `drawing` add-on, these backends 
+  do not need additional libraries to work
+- NEW: `PyMuPdf` backend for the `drawing` add-on, support for PDF, PNG, PPM and PBM export
+- NEW: `ColorPolicy` and `BackgroundPolicy` configuration settings for the `drawing` 
+  add-on to change/override foreground- and background color by the frontend 
+- NEW: `TextPolicy` configuration settings for the `drawing` add-on, render text as 
+  solid filling, outline path, replace text by (filled) rectangles or ignore text at all 
+- NEW: support for measuring and rendering of .shx, .shp and .lff fonts, the basic 
+  stroke fonts included in CAD applications
+- NEW: added setter to `BlockLayout.base_point` property
+- CHANGED: moved font related modules into a new subpackage `ezdxf.fonts` 
+  including a big refactoring
+- CHANGED: `FontFace` class - `weight` attribute is an int value (0-1000), `stretch` is 
+  renamed to `width` and is also an int value (1-9) now
+- REMOVED: replaced `matplotlib` font support module by `fontTools`
+- REMOVED: configuration option `use_matplotlib` - is not needed anymore
+- REMOVED: configuration option `font_cache_directory` - is not needed anymore
+- CHANGED: text rendering for the `drawing` add-on and text measurement is done by the
+  `fontTools` package
+- CHANGED: moved text rendering from backend classes to the `Frontend` class
+- CHANGED: moved clipping support from backend classes to the `Frontend` class
+- REMOVED: `Pillow` backend and the `pillow` command
+- REMOVED: `geomdl` test dependency
+- BUGFIX: invalid bulge to Bezier curve conversion for bulge values >= 1
+- BUGFIX: [#855](https://github.com/mozman/ezdxf/issues/855)
+  scale `MTEXT/MLEADER` inline commands "absolute text height" at transformation
+
+Version 1.0.3 - 2023-03-26
+--------------------------
+
+- Release notes: https://ezdxf.mozman.at/release-v1-0.html
+- NEW: [#833](https://github.com/mozman/ezdxf/issues/833)
+  logging non-unique entity handles when loading a DXF document as warnings, auditing 
+  the document may fix this issue
+- NEW: improved auditing & fixing capabilities
+- NEW: `DXFTagStorage.graphic_properties()` returns the graphical properties for unknown
+  or unsupported DXF entities
+- NEW: `GfxAttribs.from_dict()`
+- BUGFIX: audit process preserves dimensional constraints
+- BUGFIX: MTextExplode add-on created invalid text style table entries
+- PREVIEW: `ezdxf.addons.r12export` module to export any DXF document as a simple R12 
+  file, final release in v1.1
+- PREVIEW: `ezdxf.r12strict` module to make DXF R12 drawing 100% compatible to Autodesk 
+  products, final release in v1.1
+- PREVIEW: `ezdxf.transform` module to apply transformations to multiple DXF entities 
+  in a convenient and safe way, final release in v1.1
+
+Version 1.0.2 - 2023-02-15
+--------------------------
+
+- Release notes: https://ezdxf.mozman.at/release-v1-0.html
+- NEW: `Drawing.validate()` also prints report of resolved issues
+- NEW: copy and transform support for `PDFUNDERLAY`, `DWFUNDERLAY` and `DGNUNDERLAY`
+- NEW: [#832](https://github.com/mozman/ezdxf/issues/832) 
+  support for elliptic arcs in proxy graphics
+- NEW: `Drawing.get_abs_filepath()`
+- CHANGE: default flags for `UNDERLAY` entities is now 10 (underlay is on, adjust for background)
+- BUGFIX: fix ownership of sub-entities of `INSERT` and `POLYLINE` entities
+- BUGFIX: [#830](https://github.com/mozman/ezdxf/issues/830)
+  estimation of MTEXT column width when only white-spaces are present
+- BUGFIX: [#831](https://github.com/mozman/ezdxf/issues/831)
+  fix Bezier interpolation for B-splines of length 0
+
+Version 1.0.1 - 2023-01-14
+--------------------------
+
+- Release notes: https://ezdxf.mozman.at/release-v1-0.html
+- NEW: function `set_lineweight_display_style()` in module `ezdxf.appsettings`
+- NEW: function `set_current_dimstyle_attribs()` in module `ezdxf.appsettings`
+- NEW: `ezdxf info` command shows unknown/unsupported entities in stats
+- CHANGE: the function `fit_points_to_cad_cv()` can calculate the control points of 
+  B-splines from fit points like BricsCAD, the argument `estimate` is not necessary 
+  anymore and was removed
+- CHANGE: removed argument `estimate` from factory method `add_cad_spline_control_frame()`, see above
+- BUGFIX: [#793](https://github.com/mozman/ezdxf/issues/793)
+  fix LWPOLYLINE parsing in `ProxyGraphic` class
+- BUGFIX: [#800](https://github.com/mozman/ezdxf/issues/800)
+  fix minimum axis-ratio for the ELLIPSE entity, added upperbound tolerance to axis-ratio 
+  validator to take floating point imprecision into account
+- BUGFIX: [#810](https://github.com/mozman/ezdxf/issues/810)
+  fix function `ezdxf.render.forms.cylinder_2p()` for cylinder axis parallel to z-axis 
+- BUGFIX: [#811](https://github.com/mozman/ezdxf/issues/811)
+  fix function `ezdxf.render.forms.cone_2p()` for cone axis parallel to z-axis 
+- BUGFIX: add support for multiple shape file entries in the `TextstyleTable` class 
+
+
+Version 1.0.0 - 2022-12-09
+--------------------------
 
 - Release notes: https://ezdxf.mozman.at/release-v1-0.html
 - NEW: Python 3.11 binary wheels on PyPI

@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from ezdxf.audit import Auditor
     from ezdxf.query import EntityQuery
     from ezdxf.math import OCS
+    from ezdxf import xref
 
 logger = logging.getLogger("ezdxf")
 ADSK_CONSTRAINTS = "*ADSK_CONSTRAINTS"
@@ -54,6 +55,7 @@ __all__ = [
     "RadialDimensionLarge",
     "OverrideMixin",
     "DXF_DIMENSION_TYPES",
+    "register_override_handles",
 ]
 
 DXF_DIMENSION_TYPES = {"DIMENSION", "ARC_DIMENSION", "LARGE_RADIAL_DIMENSION"}
@@ -160,8 +162,8 @@ acdb_dimension = DefSubclass(
         ),
         # Dimension text explicitly entered by the user
         # default is the measurement.
-        # If null or “<>”, the dimension measurement is drawn as the text,
-        # if “ “ (one blank space), the text is suppressed.
+        # If null or "<>", the dimension measurement is drawn as the text,
+        # if " " (one blank space), the text is suppressed.
         # Anything else is drawn as the text.
         "text": DXFAttr(1, default="", optional=True),
         # Linear dimension types with an oblique angle have an optional group
@@ -342,7 +344,8 @@ class OverrideMixin:
                 code = dxf_attr.code
                 tags.append((1070, code))
                 if code == 5:
-                    # DimStyle 'dimblk' has group code 5 but is not a handle
+                    # DimStyle 'dimblk' has group code 5 but is not a handle, only used
+                    # for DXF R12
                     tags.append((1000, value))
                 else:
                     tags.append((get_xcode_for(code), value))
@@ -486,7 +489,7 @@ class Dimension(DXFGraphic, OverrideMixin):
         virtual_copy.dxf.discard("geometry")
         return virtual_copy  # type: ignore
 
-    def _copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity) -> None:
         assert isinstance(entity, Dimension)
         if self.virtual_block_content:
             # another copy of a virtual entity:
@@ -499,6 +502,10 @@ class Dimension(DXFGraphic, OverrideMixin):
             # to the insert location:
             entity.dxf.discard("insert")
         entity.virtual_block_content = virtual_content
+
+    def copy_external(self) -> Dimension:
+        # virtual content is not required
+        return self.raw_copy()  # type: ignore
 
     def post_bind_hook(self):
         """Called after binding a virtual dimension entity to a document.
@@ -622,6 +629,40 @@ class Dimension(DXFGraphic, OverrideMixin):
             tagwriter.write_tag2(SUBCLASS_MARKER, "AcDbOrdinateDimension")
             self.dxf.export_dxf_attribs(tagwriter, ["defpoint2", "defpoint3"])
 
+    def register_resources(self, registry: xref.Registry) -> None:
+        assert self.doc is not None
+        super().register_resources(registry)
+        registry.add_dim_style(self.dxf.dimstyle)
+        geometry = self.dxf.geometry
+        if self.doc.block_records.has_entry(geometry):
+            registry.add_block_name(geometry)
+
+        if not self.has_xdata_list("ACAD", "DSTYLE"):
+            return
+
+        if self.doc.dxfversion > const.DXF12:
+            # overridden resources are referenced by handle
+            register_override_handles(self, registry)
+        else:
+            # overridden resources are referenced by name
+            self.override().register_resources_r12(registry)
+
+    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+        super().map_resources(clone, mapping)
+        clone.dxf.dimstyle = mapping.get_dim_style(self.dxf.dimstyle)
+        clone.dxf.geometry = mapping.get_block_name(self.dxf.geometry)
+
+        # DXF R2000+ references overridden resources by group code 1005 handles in the
+        # XDATA section, which are automatically mapped by the parent class DXFEntity!
+        assert self.doc is not None
+        if self.doc.dxfversion > const.DXF12:
+            return
+        self_override = self.override()
+        if not self_override.dimstyle_attribs:
+            return  # has no overrides
+        assert isinstance(clone, Dimension)
+        self_override.map_resources_r12(clone, mapping)
+
     @property
     def dimtype(self) -> int:
         """:attr:`dxf.dimtype` without binary flags (32, 62, 128)."""
@@ -632,7 +673,6 @@ class Dimension(DXFGraphic, OverrideMixin):
     # No information in the DXF reference:
     # layer name is "*ADSK_CONSTRAINTS"
     # missing group code 2 - geometry block name
-    # missing group code 70 - dimension type
     # has reactor to ACDBASSOCDEPENDENCY object
     # Autodesk example: architectural_example-imperial.dxf
     @property
@@ -641,7 +681,7 @@ class Dimension(DXFGraphic, OverrideMixin):
         constraint object.
         """
         dxf = self.dxf
-        return not dxf.hasattr("dimtype") and dxf.layer == ADSK_CONSTRAINTS
+        return dxf.layer == ADSK_CONSTRAINTS and not dxf.hasattr("geometry")
 
     def get_geometry_block(self) -> Optional[BlockLayout]:
         """Returns :class:`~ezdxf.layouts.BlockLayout` of associated anonymous
@@ -832,7 +872,10 @@ class Dimension(DXFGraphic, OverrideMixin):
         doc = auditor.doc
         dxf = self.dxf
 
-        if dxf.get("geometry", "*") not in doc.blocks:
+        if (
+            not self.is_dimensional_constraint
+            and dxf.get("geometry", "*") not in doc.blocks
+        ):
             auditor.fixed_error(
                 code=AuditError.UNDEFINED_BLOCK,
                 message=f"Removed {str(self)} without valid geometry block.",
@@ -849,6 +892,13 @@ class Dimension(DXFGraphic, OverrideMixin):
             dxf.discard("dimstyle")
         # AutoCAD ignores invalid data in the XDATA section, no need to
         # check or repair. Ezdxf also ignores invalid XDATA overrides.
+
+
+def register_override_handles(entity: DXFEntity, registry: xref.Registry) -> None:
+    override_tags = entity.get_xdata_list("ACAD", "DSTYLE")
+    for code, value in override_tags:
+        if code == 1005:
+            registry.add_handle(value)
 
 
 acdb_arc_dimension = DefSubclass(

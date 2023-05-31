@@ -1,7 +1,7 @@
-# Copyright (c) 2019-2022 Manfred Moitzi
+# Copyright (c) 2019-2023 Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
-from typing import Sequence, Optional, Union
+from typing import Sequence, Optional, Union, TYPE_CHECKING, Iterator
 import abc
 import copy
 
@@ -17,6 +17,9 @@ from .dxfgfx import DXFGraphic
 from .gradient import Gradient
 from .pattern import Pattern, PatternLine
 from .dxfentity import DXFEntity
+
+if TYPE_CHECKING:
+    from ezdxf import xref
 
 RGB = colors.RGB
 
@@ -58,7 +61,7 @@ class DXFPolygon(DXFGraphic):
         self.gradient: Optional[Gradient] = None
         self.seeds: list[tuple[float, float]] = []  # not supported/exported by MPOLYGON
 
-    def _copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity) -> None:
         """Copy paths, pattern, gradient, seeds."""
         assert isinstance(entity, DXFPolygon)
         entity.paths = copy.deepcopy(self.paths)
@@ -136,6 +139,17 @@ class DXFPolygon(DXFGraphic):
         del tags[index:]
         return tags
 
+    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+        """Translate resources from self to the copied entity."""
+        assert isinstance(clone, DXFPolygon)
+        assert clone.doc is not None
+
+        super().map_resources(clone, mapping)
+        db = clone.doc.entitydb
+        for path in clone.paths:
+            handles = [mapping.get_handle(h) for h in path.source_boundary_objects]
+            path.source_boundary_objects = [h for h in handles if h in db]
+
     def load_seeds(self, tags: Tags) -> Tags:
         return tags
 
@@ -177,7 +191,7 @@ class DXFPolygon(DXFGraphic):
         try:
             return colors.int2rgb(int(color))  # type: ignore
         except ValueError:  # invalid data type
-            return 0, 0, 0
+            return RGB(0, 0, 0)
 
     @bgcolor.setter
     def bgcolor(self, rgb: RGB) -> None:
@@ -194,8 +208,8 @@ class DXFPolygon(DXFGraphic):
 
     def set_gradient(
         self,
-        color1: RGB = (0, 0, 0),
-        color2: RGB = (255, 255, 255),
+        color1: RGB = RGB(0, 0, 0),
+        color2: RGB = RGB(255, 255, 255),
         rotation: float = 0.0,
         centered: float = 0.0,
         one_color: int = 0,
@@ -391,6 +405,42 @@ class DXFPolygon(DXFGraphic):
             self.dxf.pattern_angle = angle
         self.post_transform(m)
         return self
+
+    def triangulate(self, max_sagitta, min_segments=16) -> Iterator[Sequence[Vec3]]:
+        """Triangulate the HATCH/MPOLYGON in OCS coordinates, Elevation and offset is
+        applied to all vertices.
+
+        Args:
+            max_sagitta: maximum distance from the center of the curve to the
+                center of the line segment between two approximation points to determine
+                if a segment should be subdivided.
+            min_segments: minimum segment count per Bézier curve
+
+        .. versionadded:: 1.1
+
+        """
+        from ezdxf import path
+
+        elevation = Vec3(self.dxf.elevation)
+        if self.dxf.hasattr("offset"):  # MPOLYGON
+            elevation += Vec3(self.dxf.offset)  # offset in OCS?
+        boundary_paths = [path.from_hatch_boundary_path(p) for p in self.paths]
+        for vertices in path.triangulate(boundary_paths, max_sagitta, min_segments):
+            yield tuple(elevation + v for v in vertices)
+
+    def render_pattern_lines(self) -> Iterator[tuple[Vec3, Vec3]]:
+        """Yields the pattern lines in WCS coordinates.
+
+        .. versionadded:: 1.1
+
+        """
+        from ezdxf.render import hatching
+
+        if self.has_pattern_fill:
+            try:
+                yield from hatching.hatch_entity(self)
+            except hatching.HatchingError:
+                return
 
     @abc.abstractmethod
     def set_solid_fill(self, color: int = 7, style: int = 1, rgb: Optional[RGB] = None):

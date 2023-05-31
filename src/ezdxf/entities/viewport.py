@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2022 Manfred Moitzi
+# Copyright (c) 2019-2023 Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
 from typing import TYPE_CHECKING, Iterable, Optional
@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from ezdxf.document import Drawing
     from ezdxf.entities import DXFNamespace, DXFEntity
     from ezdxf.lldxf.tagwriter import AbstractTagWriter
+    from ezdxf import xref
 
 __all__ = ["Viewport"]
 
@@ -57,12 +58,13 @@ acdb_viewport = DefSubclass(
         # Height in paper space units:
         "height": DXFAttr(41, default=1),
         # Viewport status field: (according to the DXF Reference)
-        # -1 = On, but is fully off screen, or is one of the viewports that is not
+        # -1 = On, but is fully off-screen, or is one of the viewports that is not
         #      active because the $MAXACTVP count is currently being exceeded.
         #  0 = Off
         # <positive value> = On and active. The value indicates the order of
-        # stacking for the viewports, where 1 is the "active viewport", 2 is the
-        # next, and so on:
+        # stacking for the viewports, where 1 is the "active" viewport, 2 is the
+        # next, and so on. The "active" viewport determines how the paperspace layout
+        # is presented as a whole (location & zoom state)
         "status": DXFAttr(68, default=0),
         # Viewport id: (according to the DXF Reference)
         # Special VIEWPORT id == 1, this viewport defines the area of the layout
@@ -70,7 +72,7 @@ acdb_viewport = DefSubclass(
         # I guess this is meant by "active viewport" and therefore it is most likely
         # that this id is always 1.
         # This "active viewport" is mandatory for a valid DXF file.
-        # BricsCAD set id to -1 if the viewport is off and 'status' (group code 68)
+        # BricsCAD set this id to -1 if the viewport is off and 'status' (group code 68)
         # is not present.
         "id": DXFAttr(69, default=2),
         # DXF reference: View center point (in WCS):
@@ -82,9 +84,7 @@ acdb_viewport = DefSubclass(
         "snap_spacing": DXFAttr(14, xtype=XType.point2d, default=Vec2(10, 10)),
         "grid_spacing": DXFAttr(15, xtype=XType.point2d, default=Vec2(10, 10)),
         # View direction vector (WCS):
-        "view_direction_vector": DXFAttr(
-            16, xtype=XType.point3d, default=Z_AXIS
-        ),
+        "view_direction_vector": DXFAttr(16, xtype=XType.point3d, default=Z_AXIS),
         # View target point (in WCS):
         "view_target_point": DXFAttr(17, xtype=XType.point3d, default=NULLVEC),
         "perspective_lens_length": DXFAttr(42, default=50),
@@ -174,7 +174,7 @@ acdb_viewport = DefSubclass(
         # Handle of AcDbUCSTableRecord of base UCS if UCS is orthographic (79 code
         # is non-zero). If not present and 79 code is non-zero, then base UCS is
         # taken to be WORLD:
-        "ucs_base_handle": DXFAttr(346, optional=True),
+        "base_ucs_handle": DXFAttr(346, optional=True),
         # UCS ortho type:
         # 0 = not orthographic
         # 1 = Top
@@ -203,9 +203,9 @@ acdb_viewport = DefSubclass(
         ),
         # Frequency of major grid lines compared to minor grid lines
         "grid_frequency": DXFAttr(61, dxfversion="AC1021"),
-        "background_handle": DXFAttr(332, dxfversion="AC1021"),
-        "shade_plot_handle": DXFAttr(333, dxfversion="AC1021"),
-        "visual_style_handle": DXFAttr(348, dxfversion="AC1021"),
+        "background_handle": DXFAttr(332, dxfversion="AC1021", optional=True),
+        "shade_plot_handle": DXFAttr(333, dxfversion="AC1021", optional=True),
+        "visual_style_handle": DXFAttr(348, dxfversion="AC1021", optional=True),
         "default_lighting_flag": DXFAttr(
             292, dxfversion="AC1021", default=1, optional=True
         ),
@@ -231,15 +231,13 @@ acdb_viewport = DefSubclass(
         "ambient_light_color_2": DXFAttr(421, dxfversion="AC1021"),
         # as True Color:
         "ambient_light_color_3": DXFAttr(431, dxfversion="AC1021"),
-        "sun_handle": DXFAttr(361, dxfversion="AC1021"),
-        "ref_vp_object_1": DXFAttr(335, dxfversion="AC1021"),
-        # unknown meaning, don't ask mozman
-        "ref_vp_object_2": DXFAttr(343, dxfversion="AC1021"),
-        # unknown meaning, don't ask mozman
-        "ref_vp_object_3": DXFAttr(344, dxfversion="AC1021"),
-        # unknown meaning, don't ask mozman
-        "ref_vp_object_4": DXFAttr(91, dxfversion="AC1021"),
-        # unknown meaning, don't ask mozman
+        "sun_handle": DXFAttr(361, dxfversion="AC1021", optional=True),
+        # The following attributes are mentioned in the DXF reference but may not really exist:
+        # "Soft pointer reference to viewport object (for layer VP property override)"
+        "ref_vp_object_1": DXFAttr(335, dxfversion="AC1021"),  # soft-pointer
+        "ref_vp_object_2": DXFAttr(343, dxfversion="AC1021"),  # hard-pointer
+        "ref_vp_object_3": DXFAttr(344, dxfversion="AC1021"),  # hard-pointer
+        "ref_vp_object_4": DXFAttr(91, dxfversion="AC1021"),  # this is not a pointer!
     },
 )
 acdb_viewport_group_codes = group_code_mapping(acdb_viewport)
@@ -256,25 +254,19 @@ class Viewport(DXFGraphic):
 
     DXFTYPE = "VIEWPORT"
     DXFATTRIBS = DXFAttributes(base_class, acdb_entity, acdb_viewport)
-    viewport_id = 2
 
     # Notes to viewport_id:
     # The id of the first viewport has to be 1, which is the definition of
     # paper space. For the following viewports it seems only important, that
     # the id is greater than 1.
 
-    def get_next_viewport_id(self) -> int:
-        current_id = Viewport.viewport_id
-        Viewport.viewport_id += 1
-        return current_id
-
     def __init__(self) -> None:
         super().__init__()
         self._frozen_layers: list[str] = []
 
-    def _copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity) -> None:
         assert isinstance(entity, Viewport)
-        entity._frozen_layers = self._frozen_layers
+        entity._frozen_layers = list(self._frozen_layers)
 
     @property
     def frozen_layers(self) -> list[str]:
@@ -310,15 +302,15 @@ class Viewport(DXFGraphic):
 
     @property
     def is_visible(self) -> bool:
-        # Special VIEWPORT id == 1, this viewport defines the "active viewport"
+        # VIEWPORT id == 1 or status == 1, this viewport defines the "active viewport"
         # which is the area currently shown in the layout tab by the CAD
         # application.
         # BricsCAD set id to -1 if the viewport is off and 'status' (group
         # code 68) is not present.
-        # status: -1 is off-screen, 0 is off
-        if self.dxf.id < 2 or self.dxf.status < 1:
-            return False
-        return True
+        # status: -1= off-screen, 0= off, 1= "active viewport"
+        if self.dxf.hasattr("status"):
+            return self.dxf.status > 0
+        return self.dxf.id > 1
 
     def load_dxf_attribs(
         self, processor: Optional[SubclassProcessor] = None
@@ -334,9 +326,7 @@ class Viewport(DXFGraphic):
                 if len(tags):
                     tags = self.load_frozen_layer_handles(tags)
                 if len(tags):
-                    processor.log_unprocessed_tags(
-                        tags, subclass=acdb_viewport.name
-                    )
+                    processor.log_unprocessed_tags(tags, subclass=acdb_viewport.name)
         return dxf
 
     def post_load_hook(self, doc: Drawing):
@@ -370,9 +360,7 @@ class Viewport(DXFGraphic):
         flags = set_flag_state(flags, const.VSF_FAST_ZOOM, bool(tags[11]))
         flags = set_flag_state(flags, const.VSF_SNAP_MODE, bool(tags[13]))
         flags = set_flag_state(flags, const.VSF_GRID_MODE, bool(tags[14]))
-        flags = set_flag_state(
-            flags, const.VSF_ISOMETRIC_SNAP_STYLE, bool(tags[15])
-        )
+        flags = set_flag_state(flags, const.VSF_ISOMETRIC_SNAP_STYLE, bool(tags[15]))
         flags = set_flag_state(flags, const.VSF_HIDE_PLOT_MODE, bool(tags[24]))
         try:
             dxf.view_target_point = tags[0]
@@ -441,9 +429,7 @@ class Viewport(DXFGraphic):
                     except DXFTableEntryError:
                         pass
                     else:
-                        tagwriter.write_tag2(
-                            FROZEN_LAYER_GROUP_CODE, layer.dxf.handle
-                        )
+                        tagwriter.write_tag2(FROZEN_LAYER_GROUP_CODE, layer.dxf.handle)
 
             self.dxf.export_dxf_attribs(
                 tagwriter,
@@ -458,7 +444,7 @@ class Viewport(DXFGraphic):
                     "ucs_x_axis",
                     "ucs_y_axis",
                     "ucs_handle",
-                    "ucs_base_handle",
+                    "base_ucs_handle",
                     "ucs_ortho_type",
                     "elevation",
                     "shade_plot_mode",
@@ -534,9 +520,7 @@ class Viewport(DXFGraphic):
             DXFTag(1070, flag(const.VSF_HIDE_PLOT_MODE)),
             DXFTag(1002, "{"),  # start frozen layer list
         ]
-        tags.extend(
-            DXFTag(1003, layer_name) for layer_name in self.frozen_layers
-        )
+        tags.extend(DXFTag(1003, layer_name) for layer_name in self.frozen_layers)
         tags.extend(
             [
                 DXFTag(1002, "}"),  # end of frozen layer list
@@ -545,13 +529,55 @@ class Viewport(DXFGraphic):
         )
         return Tags(tags)
 
+    def register_resources(self, registry: xref.Registry) -> None:
+        assert self.doc is not None
+        super().register_resources(registry)
+        # The clipping path entity should not be added here!
+        registry.add_handle(self.dxf.get("ucs_handle"))
+        registry.add_handle(self.dxf.get("base_ucs_handle"))
+        registry.add_handle(self.dxf.get("visual_style_handle"))
+        registry.add_handle(self.dxf.get("background_handle"))
+        registry.add_handle(self.dxf.get("shade_plot_handle"))
+        registry.add_handle(self.dxf.get("sun_handle"))
+
+    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+        assert isinstance(clone, Viewport)
+        super().map_resources(clone, mapping)
+
+        mapping.map_existing_handle(
+            self, clone, "clipping_boundary_handle", optional=True
+        )
+        mapping.map_existing_handle(self, clone, "ucs_handle", optional=True)
+        mapping.map_existing_handle(self, clone, "base_ucs_handle", optional=True)
+        mapping.map_existing_handle(self, clone, "visual_style_handle", optional=True)
+        mapping.map_existing_handle(self, clone, "sun_handle", optional=True)
+        # VIEWPORT entity is hard owner of the SUN object
+        clone.take_sun_ownership()
+        clone.frozen_layers = [mapping.get_layer(name) for name in self.frozen_layers]
+
+        # I have no information to what entities the background- and the shade_plot
+        # handles are pointing to and I don't have any examples for that!
+        mapping.map_existing_handle(self, clone, "background_handle", optional=True)
+        mapping.map_existing_handle(self, clone, "shade_plot_handle", optional=True)
+
+        # No information if these attributes really exist or any examples where these
+        # attributes are used. BricsCAD does not create these attributes when using
+        # viewport layer overrides:
+        for num in range(1, 5):
+            clone.dxf.discard(f"ref_vp_object_{num}")
+
+    def take_sun_ownership(self) -> None:
+        assert self.doc is not None
+        sun = self.doc.entitydb.get(self.dxf.get("sun_handle"))
+        if sun:
+            sun.dxf.owner = self.dxf.handle
+
     def rename_frozen_layer(self, old_name: str, new_name: str) -> None:
         assert self.doc is not None, "valid DXF document required"
         key = self.doc.layers.key
         old_key = key(old_name)
         self.frozen_layers = [
-            (name if key(name) != old_key else new_name)
-            for name in self.frozen_layers
+            (name if key(name) != old_key else new_name) for name in self.frozen_layers
         ]
 
     def clipping_rect_corners(self) -> list[Vec2]:
@@ -573,14 +599,10 @@ class Viewport(DXFGraphic):
 
     def clipping_rect(self) -> tuple[Vec2, Vec2]:
         """Returns the lower left and the upper right corner of the clipping
-        rectangle.
+        rectangle in paperspace coordinates.
         """
-        center = self.dxf.center
-        cx = center.x
-        cy = center.y
-        width2 = self.dxf.width / 2
-        height2 = self.dxf.height / 2
-        return Vec2(cx - width2, cy - height2), Vec2(cx + width2, cy + height2)
+        corners = self.clipping_rect_corners()
+        return corners[0], corners[2]
 
     @property
     def has_extended_clipping_path(self) -> bool:
@@ -605,12 +627,21 @@ class Viewport(DXFGraphic):
         view_direction: Vec3 = self.dxf.view_direction_vector
         return view_direction.is_null or view_direction.isclose(Z_AXIS)
 
+    def get_view_center_point(self) -> Vec3:
+        # TODO: Is there a flag or attribute that determines which of these points is
+        #  the center point?
+        center_point = Vec3(self.dxf.view_center_point)
+        if center_point.is_null:
+            center_point = Vec3(self.dxf.view_target_point)
+        return center_point
+
     def get_transformation_matrix(self) -> Matrix44:
-        """Returns the transformation matrix from modelspace to viewport."""
-        # supports only top-view viewports yet!
+        """Returns the transformation matrix from modelspace to paperspace coordinates.
+        """
+        # supports only top-view viewports!
         scale = self.get_scale()
         rotation_angle: float = self.dxf.view_twist_angle
-        msp_center_point: Vec3 = self.dxf.view_center_point
+        msp_center_point: Vec3 = self.get_view_center_point()
         offset: Vec3 = self.dxf.center - (msp_center_point * scale)
         m = Matrix44.scale(scale)
         if rotation_angle:
@@ -630,7 +661,7 @@ class Viewport(DXFGraphic):
         """Returns the limits of the modelspace to view in drawing units
         as tuple (min_x, min_y, max_x, max_y).
         """
-        msp_center_point: Vec3 = self.dxf.view_center_point
+        msp_center_point: Vec3 = self.get_view_center_point()
         msp_height: float = self.dxf.view_height
         rotation_angle: float = self.dxf.view_twist_angle
         ratio = self.get_aspect_ratio()
@@ -642,9 +673,7 @@ class Viewport(DXFGraphic):
         if rotation_angle:
             frame = Vec2.list(((-w2, -h2), (w2, -h2), (w2, h2), (-w2, h2)))
             angle = math.radians(rotation_angle)
-            bbox = BoundingBox2d(
-                v.rotate(angle) + msp_center_point for v in frame
-            )
+            bbox = BoundingBox2d(v.rotate(angle) + msp_center_point for v in frame)
             return bbox.extmin.x, bbox.extmin.y, bbox.extmax.x, bbox.extmax.y  # type: ignore
         else:
             mx, my, _ = msp_center_point

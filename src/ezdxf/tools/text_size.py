@@ -1,13 +1,13 @@
-# Copyright (c) 2021-2022, Manfred Moitzi
+# Copyright (c) 2021-2023, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
 from typing import Sequence, Optional
 from dataclasses import dataclass
 
-import ezdxf
 from ezdxf.math import Matrix44, Vec2
 from ezdxf.entities import Text, MText, get_font_name
-from ezdxf.tools import text_layout as tl, fonts
+from ezdxf.fonts import fonts
+from ezdxf.tools import text_layout as tl
 from ezdxf.tools.text import MTextContext
 from ezdxf.render.abstract_mtext_renderer import AbstractMTextRenderer
 from ezdxf.tools.text import estimate_mtext_extents
@@ -66,7 +66,7 @@ def text_size(text: Text) -> TextSize:
     text_width: float = 0.0
     cap_height: float = text.dxf.get_default("height")
     font: fonts.AbstractFont = fonts.MonospaceFont(cap_height, width_factor)
-    if ezdxf.options.use_matplotlib and text.doc is not None:
+    if text.doc is not None:
         style = text.doc.styles.get(text.dxf.get_default("style"))
         font_name = get_font_name(style)
         font = fonts.make_font(font_name, cap_height, width_factor)

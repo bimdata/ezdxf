@@ -291,8 +291,8 @@ def test_text_to_primitive():
     assert len(list(p.vertices())) == 5, "expected closed box"
 
     box = p.bbox()
-    # exact bounding box size depends on platform and matplotlib usage!
-    assert box.size.x > 20
+    # exact bounding box size depends on available fonts
+    assert 18 < box.size.x < 24
     assert box.size.y > 2.5
 
 
@@ -308,8 +308,8 @@ def test_mtext_to_primitive():
     assert len(list(p.vertices())) == 5, "expected closed box"
 
     box = p.bbox()
-    # exact bounding box size depends on platform and matplotlib usage!
-    assert box.size.x > 20
+    # exact bounding box size depends on available fonts
+    assert 18 < box.size.x < 24  # txt.shx
     assert box.size.y > 2.5
 
 

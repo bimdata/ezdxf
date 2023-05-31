@@ -18,6 +18,7 @@ from typing import Iterable, Iterator, Any, Optional
 from .const import DXFStructureError, DXFValueError, STRUCTURE_MARKER
 from .types import DXFTag, EMBEDDED_OBJ_MARKER, EMBEDDED_OBJ_STR, dxftag
 from .tagger import internal_tag_compiler
+from . import types
 
 COMMENT_CODE = 999
 
@@ -32,6 +33,10 @@ class Tags(list):
     def from_text(cls, text: str) -> Tags:
         """Constructor from DXF string."""
         return cls(internal_tag_compiler(text))
+
+    @classmethod
+    def from_tuples(cls, tags: Iterable[tuple[int, Any]]) -> Tags:
+        return cls(DXFTag(code, value) for code, value in tags)
 
     def __copy__(self) -> Tags:
         return self.__class__(tag.clone() for tag in self)
@@ -57,7 +62,7 @@ class Tags(list):
             return handle
 
         for code, handle in self:
-            if code in (5, 105):
+            if code == 5 or code == 105:
                 return handle
         raise DXFValueError("No handle found.")
 
@@ -133,9 +138,7 @@ class Tags(list):
         """
         return self.__class__(tag for tag in self if tag.code == code)
 
-    def tag_index(
-        self, code: int, start: int = 0, end: Optional[int] = None
-    ) -> int:
+    def tag_index(self, code: int, start: int = 0, end: Optional[int] = None) -> int:
         """Return index of first :class:`~ezdxf.lldxf.types.DXFTag` with given
         group code.
 
@@ -246,10 +249,7 @@ class Tags(list):
 
     def has_embedded_objects(self) -> bool:
         for tag in self:
-            if (
-                tag.code == EMBEDDED_OBJ_MARKER
-                and tag.value == EMBEDDED_OBJ_STR
-            ):
+            if tag.code == EMBEDDED_OBJ_MARKER and tag.value == EMBEDDED_OBJ_STR:
                 return True
         return False
 
@@ -264,6 +264,36 @@ class Tags(list):
 
         """
         return cls((tag for tag in tags if tag.code not in frozenset(codes)))
+
+    def get_soft_pointers(self) -> Tags:
+        """Returns all soft-pointer handles in group code range 330-339."""
+        return Tags(tag for tag in self if types.is_soft_pointer(tag))
+
+    def get_hard_pointers(self) -> Tags:
+        """Returns all hard-pointer handles in group code range 340-349, 390-399 and
+        480-481. Hard pointers protect an object from being purged.
+        """
+        return Tags(tag for tag in self if types.is_hard_pointer(tag))
+
+    def get_soft_owner_handles(self) -> Tags:
+        """Returns all soft-owner handles in group code range 350-359."""
+        return Tags(tag for tag in self if types.is_soft_owner(tag))
+
+    def get_hard_owner_handles(self) -> Tags:
+        """Returns all hard-owner handles in group code range 360-369."""
+        return Tags(tag for tag in self if types.is_hard_owner(tag))
+
+    def has_translatable_pointers(self) -> bool:
+        """Returns ``True`` if any pointer handle has to be translated during INSERT
+        and XREF operations.
+        """
+        return any(types.is_translatable_pointer(tag) for tag in self)
+
+    def get_translatable_pointers(self) -> Tags:
+        """Returns all pointer handles which should be translated during INSERT and XREF
+        operations.
+        """
+        return Tags(tag for tag in self if types.is_translatable_pointer(tag))
 
 
 def text2tags(text: str) -> Tags:
@@ -349,9 +379,7 @@ class NotFoundException(Exception):
     pass
 
 
-def get_start_and_end_of_named_list_in_xdata(
-    name: str, tags: Tags
-) -> tuple[int, int]:
+def get_start_and_end_of_named_list_in_xdata(name: str, tags: Tags) -> tuple[int, int]:
     start = None
     end = None
     level = 0
@@ -375,15 +403,11 @@ def get_start_and_end_of_named_list_in_xdata(
     if start is None:
         raise NotFoundException
     if end is None:
-        raise DXFStructureError(
-            'Invalid XDATA structure: missing  (1002, "}").'
-        )
+        raise DXFStructureError('Invalid XDATA structure: missing  (1002, "}").')
     return start, end + 1
 
 
-def find_begin_and_end_of_encoded_xdata_tags(
-    name: str, tags: Tags
-) -> tuple[int, int]:
+def find_begin_and_end_of_encoded_xdata_tags(name: str, tags: Tags) -> tuple[int, int]:
     """Find encoded XDATA tags, surrounded by group code 1000 tags
     name_BEGIN and name_END (e.g. MTEXT column specification).
 

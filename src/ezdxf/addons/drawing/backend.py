@@ -1,23 +1,15 @@
-# Copyright (c) 2020-2022, Matthew Broadway
+# Copyright (c) 2020-2023, Matthew Broadway
 # License: MIT License
 from __future__ import annotations
 from abc import ABC, abstractmethod, ABCMeta
-from typing import (
-    Optional,
-    TYPE_CHECKING,
-    Iterable,
-)
+from typing import Optional, Iterable
 
 from ezdxf.addons.drawing.config import Configuration
-from ezdxf.addons.drawing.properties import Properties
+from ezdxf.addons.drawing.properties import Properties, BackendProperties
 from ezdxf.addons.drawing.type_hints import Color
 from ezdxf.entities import DXFGraphic
-from ezdxf.tools.text import replace_non_printable_characters
-from ezdxf.math import Vec3, Matrix44
-from ezdxf.path import Path
-
-if TYPE_CHECKING:
-    from ezdxf.tools.fonts import FontFace, FontMeasurements
+from ezdxf.math import AnyVec
+from ezdxf.path import Path, Path2d
 
 
 class BackendInterface(ABC):
@@ -29,6 +21,7 @@ class BackendInterface(ABC):
 
     @abstractmethod
     def enter_entity(self, entity: DXFGraphic, properties: Properties) -> None:
+        # gets the full DXF properties information
         raise NotImplementedError
 
     @abstractmethod
@@ -40,58 +33,36 @@ class BackendInterface(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def draw_point(self, pos: Vec3, properties: Properties) -> None:
+    def draw_point(self, pos: AnyVec, properties: BackendProperties) -> None:
         raise NotImplementedError
 
     @abstractmethod
-    def draw_line(self, start: Vec3, end: Vec3, properties: Properties) -> None:
+    def draw_line(self, start: AnyVec, end: AnyVec, properties: BackendProperties) -> None:
         raise NotImplementedError
 
     @abstractmethod
     def draw_solid_lines(
-        self, lines: Iterable[tuple[Vec3, Vec3]], properties: Properties
+        self, lines: Iterable[tuple[AnyVec, AnyVec]], properties: BackendProperties
     ) -> None:
         raise NotImplementedError
 
     @abstractmethod
-    def draw_path(self, path: Path, properties: Properties) -> None:
+    def draw_path(self, path: Path | Path2d, properties: BackendProperties) -> None:
         raise NotImplementedError
 
     @abstractmethod
     def draw_filled_paths(
         self,
-        paths: Iterable[Path],
-        holes: Iterable[Path],
-        properties: Properties,
+        paths: Iterable[Path | Path2d],
+        holes: Iterable[Path | Path2d],
+        properties: BackendProperties,
     ) -> None:
         raise NotImplementedError
 
     @abstractmethod
     def draw_filled_polygon(
-        self, points: Iterable[Vec3], properties: Properties
+        self, points: Iterable[AnyVec], properties: BackendProperties
     ) -> None:
-        raise NotImplementedError
-
-    @abstractmethod
-    def draw_text(
-        self,
-        text: str,
-        transform: Matrix44,
-        properties: Properties,
-        cap_height: float,
-    ) -> None:
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_font_measurements(
-        self, cap_height: float, font: Optional[FontFace] = None
-    ) -> FontMeasurements:
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_text_line_width(
-        self, text: str, cap_height: float, font: Optional[FontFace] = None
-    ) -> float:
         raise NotImplementedError
 
     @abstractmethod
@@ -102,27 +73,17 @@ class BackendInterface(ABC):
     def finalize(self) -> None:
         raise NotImplementedError
 
-    @abstractmethod
-    def set_clipping_path(
-        self, path: Optional[Path] = None, scale: float = 1.0
-    ) -> bool:
-        """Set the current clipping path.
-        Returns True if a clipping path is supported.
-        An empty path or None removes the clipping path.
-        The `scale` is the scaling factor from modelspace to viewport.
-        """
-        raise NotImplementedError
-
 
 class Backend(BackendInterface, metaclass=ABCMeta):
     def __init__(self) -> None:
         self.entity_stack: list[tuple[DXFGraphic, Properties]] = []
-        self.config: Configuration
+        self.config: Configuration = Configuration()
 
     def configure(self, config: Configuration) -> None:
         self.config = config
 
     def enter_entity(self, entity: DXFGraphic, properties: Properties) -> None:
+        # gets the full DXF properties information
         self.entity_stack.append((entity, properties))
 
     def exit_entity(self, entity: DXFGraphic) -> None:
@@ -138,25 +99,19 @@ class Backend(BackendInterface, metaclass=ABCMeta):
     def set_background(self, color: Color) -> None:
         raise NotImplementedError
 
-    def set_clipping_path(
-        self, path: Optional[Path] = None, scale: float = 1.0
-    ) -> bool:
-        """Clipping path is not supported by default."""
-        return False
-
     @abstractmethod
-    def draw_point(self, pos: Vec3, properties: Properties) -> None:
+    def draw_point(self, pos: AnyVec, properties: BackendProperties) -> None:
         """Draw a real dimensionless point, because not all backends support
         zero-length lines!
         """
         raise NotImplementedError
 
     @abstractmethod
-    def draw_line(self, start: Vec3, end: Vec3, properties: Properties) -> None:
+    def draw_line(self, start: AnyVec, end: AnyVec, properties: BackendProperties) -> None:
         raise NotImplementedError
 
     def draw_solid_lines(
-        self, lines: Iterable[tuple[Vec3, Vec3]], properties: Properties
+        self, lines: Iterable[tuple[AnyVec, AnyVec]], properties: BackendProperties
     ) -> None:
         """Fast method to draw a bunch of solid lines with the same properties."""
         # Must be overridden by the backend to gain a performance benefit.
@@ -168,7 +123,7 @@ class Backend(BackendInterface, metaclass=ABCMeta):
             else:
                 self.draw_line(s, e, properties)
 
-    def draw_path(self, path: Path, properties: Properties) -> None:
+    def draw_path(self, path: Path | Path2d, properties: BackendProperties) -> None:
         """Draw an outline path (connected string of line segments and Bezier
         curves).
 
@@ -189,9 +144,9 @@ class Backend(BackendInterface, metaclass=ABCMeta):
 
     def draw_filled_paths(
         self,
-        paths: Iterable[Path],
-        holes: Iterable[Path],
-        properties: Properties,
+        paths: Iterable[Path | Path2d],
+        holes: Iterable[Path | Path2d],
+        properties: BackendProperties,
     ) -> None:
         """Draw multiple filled paths (connected string of line segments and
         Bezier curves) with holes.
@@ -227,41 +182,12 @@ class Backend(BackendInterface, metaclass=ABCMeta):
 
     @abstractmethod
     def draw_filled_polygon(
-        self, points: Iterable[Vec3], properties: Properties
+        self, points: Iterable[AnyVec], properties: BackendProperties
     ) -> None:
         """Fill a polygon whose outline is defined by the given points.
         Used to draw entities with simple outlines where :meth:`draw_path` may
         be an inefficient way to draw such a polygon.
         """
-        raise NotImplementedError
-
-    @abstractmethod
-    def draw_text(
-        self,
-        text: str,
-        transform: Matrix44,
-        properties: Properties,
-        cap_height: float,
-    ) -> None:
-        """Draw a single line of text with the anchor point at the baseline
-        left point.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_font_measurements(
-        self, cap_height: float, font: Optional[FontFace] = None
-    ) -> "FontMeasurements":
-        """Note: backends might want to cache the results of these calls"""
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_text_line_width(
-        self, text: str, cap_height: float, font: Optional[FontFace] = None
-    ) -> float:
-        """Get the width of a single line of text."""
-        # https://stackoverflow.com/questions/32555015/how-to-get-the-visual-length-of-a-text-string-in-python
-        # https://stackoverflow.com/questions/4190667/how-to-get-width-of-a-truetype-font-character-in-1200ths-of-an-inch-with-python
         raise NotImplementedError
 
     @abstractmethod
@@ -274,16 +200,3 @@ class Backend(BackendInterface, metaclass=ABCMeta):
 
     def finalize(self) -> None:
         pass
-
-
-def prepare_string_for_rendering(text: str, dxftype: str) -> str:
-    assert "\n" not in text, "not a single line of text"
-    if dxftype in {"TEXT", "ATTRIB", "ATTDEF"}:
-        text = replace_non_printable_characters(text, replacement="?")
-        text = text.replace("\t", "?")
-    elif dxftype == "MTEXT":
-        text = replace_non_printable_characters(text, replacement="▯")
-        text = text.replace("\t", "        ")
-    else:
-        raise TypeError(dxftype)
-    return text

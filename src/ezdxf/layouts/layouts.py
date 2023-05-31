@@ -11,7 +11,7 @@ from ezdxf.lldxf.const import (
 )
 from ezdxf.lldxf.validator import is_valid_table_name
 from .layout import Layout, Modelspace, Paperspace
-from ezdxf.entities import DXFEntity
+from ezdxf.entities import DXFEntity, BlockRecord
 
 if TYPE_CHECKING:
     from ezdxf.audit import Auditor
@@ -31,18 +31,18 @@ MODEL = key("Model")
 
 
 class Layouts:
-    def __init__(self, doc: "Drawing"):
+    def __init__(self, doc: Drawing):
         """Default constructor. (internal API)"""
         self.doc = doc
         # Store layout names in normalized form: key(name)
         self._layouts: dict[str, Layout] = {}
-        # key: layout name as original case sensitive string; value: DXFLayout()
-        self._dxf_layouts: "Dictionary" = cast(
+        # key: layout name as original case-sensitive string; value: DXFLayout()
+        self._dxf_layouts: Dictionary = cast(
             "Dictionary", self.doc.rootdict["ACAD_LAYOUT"]
         )
 
     @classmethod
-    def setup(cls, doc: "Drawing"):
+    def setup(cls, doc: Drawing):
         """Constructor from scratch. (internal API)"""
         layouts = Layouts(doc)
         layouts.setup_modelspace()
@@ -59,21 +59,34 @@ class Layouts:
         assert isinstance(name, str), type(str)
         return key(name) in self._layouts
 
-    def __iter__(self) -> Iterator["Layout"]:
+    def __iter__(self) -> Iterator[Layout]:
         """Returns iterable of all layouts as :class:`~ezdxf.layouts.Layout`
         objects, including the modelspace layout.
         """
         return iter(self._layouts.values())
 
     def _add_layout(self, name: str, layout: Layout):
-        layout.dxf.name = name
+        dxf_layout = layout.dxf_layout
+        dxf_layout.dxf.name = name
+        dxf_layout.dxf.owner = self._dxf_layouts.dxf.handle
         self._layouts[key(name)] = layout
-        self._dxf_layouts[name] = layout.dxf_layout
+        self._dxf_layouts[name] = dxf_layout
 
-    def _discard(self, layout: "Layout"):
+    def _discard(self, layout: Layout):
         name = layout.name
         self._dxf_layouts.discard(name)
         del self._layouts[key(name)]
+
+    def append_layout(self, layout: Layout) -> None:
+        """Append an existing (copied) paperspace layout as last layout tab."""
+        index = 1
+        base_layout_name = layout.dxf.name
+        layout_name = base_layout_name
+        while layout_name in self:
+            index += 1
+            layout_name = base_layout_name + f" ({index})"
+        layout.dxf.taborder = len(self._layouts) + 1
+        self._add_layout(layout_name, layout)
 
     def setup_modelspace(self):
         """Modelspace setup. (internal API)"""
@@ -87,9 +100,7 @@ class Layouts:
             Paperspace, "Layout1", PAPER_SPACE_R2000, dxfattribs={"taborder": 1}
         )
 
-    def _new_special(
-        self, cls, name: str, block_name: str, dxfattribs: dict
-    ) -> "Layout":
+    def _new_special(self, cls, name: str, block_name: str, dxfattribs: dict) -> Layout:
         if name in self._layouts:
             raise DXFValueError(f'Layout "{name}" already exists')
         dxfattribs["owner"] = self._dxf_layouts.dxf.handle
@@ -129,9 +140,7 @@ class Layouts:
         dxfattribs["owner"] = self._dxf_layouts.dxf.handle
         dxfattribs.setdefault("taborder", len(self._layouts) + 1)
         block_name = self.unique_paperspace_name()
-        layout = Paperspace.new(
-            name, block_name, self.doc, dxfattribs=dxfattribs
-        )
+        layout = Paperspace.new(name, block_name, self.doc, dxfattribs=dxfattribs)
         # Default extents are ok!
         # Reset limits to (0, 0) and (paper width, paper height)
         layout.reset_limits()
@@ -159,9 +168,7 @@ class Layouts:
         block_layout = self.doc.blocks.get(block_record_name)
         self._new_from_block_layout(name, block_layout, taborder)
 
-    def _new_from_block_layout(
-        self, name, block_layout, taborder: int
-    ) -> "Layout":
+    def _new_from_block_layout(self, name, block_layout, taborder: int) -> "Layout":
         dxfattribs = {
             "owner": self._dxf_layouts.dxf.handle,
             "name": name,
@@ -184,9 +191,7 @@ class Layouts:
         layout: Layout
         for name, dxf_layout in self._dxf_layouts.items():
             if isinstance(dxf_layout, str):
-                logger.debug(
-                    f"ignore missing LAYOUT(#{dxf_layout}) entity '{name}'"
-                )
+                logger.debug(f"ignore missing LAYOUT(#{dxf_layout}) entity '{name}'")
                 continue
             if key(name) == MODEL:
                 layout = Modelspace(dxf_layout, self.doc)
@@ -247,8 +252,7 @@ class Layouts:
         """Returns all layout names in tab order as shown in :term:`CAD`
         applications."""
         names = [
-            (layout.dxf.taborder, layout.name)
-            for layout in self._layouts.values()
+            (layout.dxf.taborder, layout.name) for layout in self._layouts.values()
         ]
         return [name for order, name in sorted(names)]
 
@@ -262,19 +266,24 @@ class Layouts:
     def get_layout_by_key(self, layout_key: str) -> Layout:
         """Returns a layout by its `layout_key`. (internal API)"""
         assert isinstance(layout_key, str), type(layout_key)
+        error_msg = f'Layout with key "{layout_key}" does not exist.'
         try:
             block_record = self.doc.entitydb[layout_key]
+        except KeyError:
+            raise DXFKeyError(error_msg)
+        if not isinstance(block_record, BlockRecord):
+            # VERTEX, ATTRIB, SEQEND are owned by the parent entity
+            raise DXFKeyError(error_msg)
+        try:
             dxf_layout = self.doc.entitydb[block_record.dxf.layout]
         except KeyError:
-            raise DXFKeyError(f'Layout with key "{layout_key}" does not exist.')
+            raise DXFKeyError(error_msg)
         return self.get(dxf_layout.dxf.name)
 
     def get_active_layout_key(self):
         """Returns layout kay for the active paperspace layout.
         (internal API)"""
-        active_layout_block_record = self.doc.block_records.get(
-            PAPER_SPACE_R2000
-        )
+        active_layout_block_record = self.doc.block_records.get(PAPER_SPACE_R2000)
         return active_layout_block_record.dxf.handle
 
     def set_active_layout(self, name: str) -> None:

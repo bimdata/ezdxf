@@ -1,5 +1,5 @@
 # Copyright (c) 2020-2021, Matthew Broadway
-# Copyright (c) 2020-2022, Manfred Moitzi
+# Copyright (c) 2020-2023, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
 from typing import (
@@ -10,15 +10,17 @@ from typing import (
     Sequence,
     Callable,
     Iterable,
+    NamedTuple,
 )
 import re
 import copy
 
 from ezdxf import options
+from ezdxf.colors import RGB
 from ezdxf.addons import acadctb
 from ezdxf.addons.drawing.config import Configuration
-from ezdxf.addons.drawing.type_hints import Color, RGB
-from ezdxf.colors import luminance, DXF_DEFAULT_COLORS, int2rgb
+from ezdxf.addons.drawing.type_hints import Color
+from ezdxf.colors import DXF_DEFAULT_COLORS, int2rgb
 from ezdxf.entities import (
     Attrib,
     Insert,
@@ -36,7 +38,7 @@ from ezdxf.enums import InsertUnits, Measurement
 from ezdxf.filemanagement import find_support_file
 from ezdxf.lldxf import const
 from ezdxf.lldxf.validator import make_table_key as layer_key
-from ezdxf.tools import fonts
+from ezdxf.fonts import fonts
 from ezdxf.tools.pattern import scale_pattern, HatchPatternType
 from ezdxf.entities import DXFGraphic
 
@@ -47,6 +49,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Properties",
+    "BackendProperties",
     "LayerProperties",
     "LayoutProperties",
     "RenderContext",
@@ -117,8 +120,7 @@ def get_gid(entity: Optional[DXFGraphic]) -> str:
 
 
 def is_dark_color(color: Color, dark: float = 0.2) -> bool:
-    luma = luminance(hex_to_rgb(color[:7]))
-    return luma <= dark
+    return RGB.from_hex(color).luminance <= dark
 
 
 class Filling:
@@ -136,8 +138,6 @@ class Filling:
         self.gradient_color1: Optional[Color] = None
         self.gradient_color2: Optional[Color] = None
         self.gradient_centered: float = 0.0  # todo: what's the meaning?
-        # TODO: remove HATCH pattern definition, backends do not
-        #   render hatch patterns since v0.18.1:
         self.pattern_scale: float = 1.0
         self.pattern: HatchPatternType = []
 
@@ -149,22 +149,15 @@ class Properties:
     """
 
     def __init__(self) -> None:
-        self.color: str = "#ffffff"  # format #RRGGBB or #RRGGBBAA
-        # Color names should be resolved into a actual color value
+        # color string format "#RRGGBB" or "#RRGGBBAA"
+        # alpha channel AA: 0x00 = transparent; 0xff = opaque
+        self.color: str = "#ffffff"
+        self.pen = 7  # equals the ACI (1-255), for pen based backends like plotters
 
-        # Store linetype name for backends which don't have the ability to use
-        # user-defined linetypes, but have some predefined linetypes, maybe
-        # matching most common AutoCAD linetypes is possible.
-        # Store linetype names in UPPERCASE.
+        # Linetype rendering is done by the frontend, the backend receives only solid
+        # lines.
         self.linetype_name: str = "CONTINUOUS"
 
-        # Linetypes: Complex DXF linetypes are not supported:
-        # 1. Don't know if there are any backends which can use linetypes
-        #    including text or shapes
-        # 2. No decoder for SHX files available, which are the source for
-        #    shapes in linetypes
-        # 3. SHX files are copyrighted - including in ezdxf not possible
-        #
         # Simplified DXF linetype definition:
         # all line elements >= 0.0, 0.0 = point
         # all gap elements > 0.0
@@ -178,10 +171,6 @@ class Properties:
         # DXF: ("DASHDOTX2", "Dash dot (2x) ____  .  ____  .  ____  .  ____",
         #      [2.4, 2.0, -0.2, 0.0, -0.2])
         # linetype_pattern: [2.0, 0.2, 0.0, 0.2] = line-gap-point-gap
-        # Stored as tuple, so pattern could be used as key for caching.
-        # SVG dash-pattern does not support points, so a minimal line length
-        # (maybe inferred from linewidth?) has to be used, which may alter the
-        # overall line appearance - but linetype mapping will never be perfect.
         # The continuous pattern is an empty tuple ()
         self.linetype_pattern: Sequence[float] = CONTINUOUS_PATTERN
         self.linetype_scale: float = 1.0
@@ -196,10 +185,14 @@ class Properties:
         self.layer: str = "0"
 
         # Font definition object for text entities:
-        # `None` is for the default font
-        self.font: Optional[fonts.FontFace] = None
+        # Font rendering is done by the frontend, backends receive paths for
+        # stroke-fonts (.shx) and filled paths for outline fonts (.ttf).
+        self.font: Optional[fonts.FontFace] = None  # use default font
 
         # Filling properties: Solid, Pattern, Gradient
+        # Pattern rendering is done by the frontend, backends receive only solid lines,
+        # and the fill color for filled polygons and filled paths is passed as the
+        # color attribute in the BackendProperties, gradients are not supported.
         self.filling: Optional[Filling] = None
 
         self.units = InsertUnits.Unitless
@@ -213,12 +206,31 @@ class Properties:
     @property
     def rgb(self) -> RGB:
         """Returns color as RGB tuple."""
-        return hex_to_rgb(self.color[:7])  # ignore alpha if present
+        return RGB.from_hex(self.color)
 
     @property
     def luminance(self) -> float:
         """Returns perceived color luminance in range [0, 1] from dark to light."""
-        return luminance(self.rgb)
+        return self.rgb.luminance
+
+
+class BackendProperties(NamedTuple):
+    """The backend receives a condensed version of the entity properties."""
+    color: Color = "#000000"
+    lineweight: float = 0.25  # in mm
+    layer: str = "0"  # maybe useful to group entities (SVG, PDF)
+    pen: int = 1  # equals the ACI (1-255), for pen based backends like plotters
+    handle: str = ""  # top level entity handle
+
+    @property
+    def rgb(self) -> RGB:
+        """Returns color as RGB tuple."""
+        return RGB.from_hex(self.color)
+
+    @property
+    def luminance(self) -> float:
+        """Returns perceived color luminance in range [0, 1] from dark to light."""
+        return self.rgb.luminance
 
 
 class LayerProperties(Properties):
@@ -371,7 +383,10 @@ class RenderContext:
         self._hatch_pattern_cache: dict[str, HatchPatternType] = dict()
         self.current_layout_properties = LayoutProperties.modelspace()
         self.plot_styles = self._load_plot_style_table(self.override_ctb)
-
+        # Order for resolving SHX fonts: 1. "t"=TrueType; 2. "s"=SHX; 3. "l"=LFF
+        self.shx_resolve_order = options.get(
+            "drawing-addon", "shx_resolve_order", "tsl"
+        )
         # callable to override layer properties:
         self._layer_properties_override: Optional[LayerPropsOverride] = None
 
@@ -504,6 +519,7 @@ class RenderContext:
         properties = LayerProperties()
         # Store real layer name (mixed case):
         properties.layer = layer.dxf.name
+        properties.pen = layer.dxf.color
         properties.color = self._true_layer_color(layer)
 
         # set layer transparency
@@ -536,9 +552,11 @@ class RenderContext:
         if font_file == "":  # Font family stored in XDATA?
             family, italic, bold = text_style.get_extended_font_data()
             if family:
-                font_face = fonts.find_font_face_by_family(family, italic, bold)
+                font_face = fonts.find_best_match(
+                    family=family, weight=700 if bold else 400, italic=italic
+                )
         else:
-            font_face = fonts.get_font_face(font_file, map_shx=True)
+            font_face = fonts.resolve_font_face(font_file, order=self.shx_resolve_order)
 
         if font_face is None:  # fall back to default font
             font_face = fonts.FontFace()
@@ -603,6 +621,7 @@ class RenderContext:
         resolved_layer = layer_key(p.layer)
         p.units = self.resolve_units()
         p.color = self.resolve_color(entity, resolved_layer=resolved_layer)
+        p.pen = self.resolve_pen(entity, resolved_layer=resolved_layer)
         p.linetype_name, p.linetype_pattern = self.resolve_linetype(
             entity, resolved_layer=resolved_layer
         )
@@ -689,6 +708,26 @@ class RenderContext:
         )
         return color[:7] + alpha
 
+    def resolve_pen(
+        self, entity: DXFGraphic, *, resolved_layer: Optional[str] = None
+    ) -> int:
+        """Resolve the aci-color of `entity` as pen number in the range of [1..255].
+        """
+        pen = entity.dxf.color  # defaults to BYLAYER
+        entity_layer = resolved_layer or layer_key(self.resolve_layer(entity))
+        layer_properties = self.layers.get(entity_layer, DEFAULT_LAYER_PROPERTIES)
+
+        if pen == const.BYLAYER:
+            pen = layer_properties.pen
+        elif pen == const.BYBLOCK:
+            if not self.inside_block_reference:
+                pen = 7
+            else:
+                pen = self.current_block_reference_properties.pen  # type: ignore
+        elif pen == const.BYOBJECT:
+            pen = 7  # ???
+        return pen
+
     def _entity_alpha_str(
         self, raw_transparency: Optional[int], layer_color: Color
     ) -> str:
@@ -747,11 +786,8 @@ class RenderContext:
         """Returns the `aci` value (AutoCAD Color Index) as rgb value in
         hex format: "#RRGGBB".
         """
-        if aci == 7:  # black/white; todo: this bypasses the plot style table
-            if self.current_layout_properties.has_dark_background:
-                return "#ffffff"
-            else:
-                return "#000000"
+        if aci == 7:  # black/white
+            return self.current_layout_properties.default_color
         else:
             return rgb_to_hex(self.plot_styles[aci].color)
 
@@ -940,7 +976,7 @@ def hex_to_rgb(hex_string: Color) -> RGB:
     r = int(hex_string[0:2], 16)
     g = int(hex_string[2:4], 16)
     b = int(hex_string[4:6], 16)
-    return r, g, b
+    return RGB(r, g, b)
 
 
 def set_color_alpha(color: Color, alpha: int) -> Color:

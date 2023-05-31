@@ -1,11 +1,60 @@
-#  Copyright (c) 2020-2021, Manfred Moitzi
+#  Copyright (c) 2020-2023, Manfred Moitzi
 #  License: MIT License
 from __future__ import annotations
-from typing import Tuple, Union
-from typing_extensions import TypeAlias
+from typing import Union, NamedTuple
+from typing_extensions import Self
 import math
 
-RGB: TypeAlias = Tuple[int, int, int]
+
+class RGB(NamedTuple):
+    """Named tuple representing an RGB color value.
+
+    Attributes:
+        r: red channel in range [0, 255]
+        g: green channel in range [0, 255]
+        b: blue channel in range [0, 255]
+    """
+
+    r: int
+    g: int
+    b: int
+
+    def to_floats(self) -> tuple[float, float, float]:
+        """Returns the color value as a tuple of floats in range [0, 1]."""
+        return self.r / 255, self.g / 255, self.b / 255
+
+    @classmethod
+    def from_floats(cls, rgb: tuple[float, float, float]) -> Self:
+        """Returns an :class:`RGB` instance from floats in range [0, 1]."""
+        r = max(min(255, round(rgb[0] * 255)), 0)
+        g = max(min(255, round(rgb[1] * 255)), 0)
+        b = max(min(255, round(rgb[2] * 255)), 0)
+        return cls(r, g, b)
+
+    def to_hex(self) -> str:
+        """Returns the color value as hex string "#RRGGBB"."""
+        return f"#{self.r:02x}{self.g:02x}{self.b:02x}"
+
+    @classmethod
+    def from_hex(cls, color: str) -> Self:
+        """Returns an :class:`RGB` instance from a hex color string, the `color` string
+        is a hex string "RRGGBB" with an optional leading "#", an appended alpha
+        channel is ignore.
+        """
+        hex_string = color.lstrip("#")
+        r = int(hex_string[0:2], 16)
+        g = int(hex_string[2:4], 16)
+        b = int(hex_string[4:6], 16)
+        return cls(r, g, b)
+
+    @property
+    def luminance(self) -> float:
+        """Returns perceived luminance for an RGB color in range [0.0, 1.0]
+        from dark to light.
+        """
+        r, g, b = self.to_floats()
+        return round(math.sqrt(0.299 * r * r + 0.587 * g * g + 0.114 * b * b), 3)
+
 
 BYBLOCK = 0
 BYLAYER = 256
@@ -131,14 +180,14 @@ def transparency2float(value: int) -> float:
 
 def int2rgb(value: int) -> RGB:
     """Split RGB integer `value` into (r, g, b) tuple."""
-    return (
+    return RGB(
         (value >> 16) & 0xFF,  # red
         (value >> 8) & 0xFF,  # green
         value & 0xFF,  # blue
     )
 
 
-def rgb2int(rgb: RGB) -> int:
+def rgb2int(rgb: RGB | tuple[int, int, int]) -> int:
     """Combined integer value from (r, g, b) tuple."""
     r, g, b = rgb
     return ((int(r) & 0xFF) << 16) | ((int(g) & 0xFF) << 8) | (int(b) & 0xFF)
@@ -160,7 +209,7 @@ def luminance(color: RGB) -> float:
     r = float(color[0]) / 255
     g = float(color[1]) / 255
     b = float(color[2]) / 255
-    return round(math.sqrt(0.299 * r ** 2 + 0.587 * g ** 2 + 0.114 * b ** 2), 3)
+    return round(math.sqrt(0.299 * r * r + 0.587 * g * g + 0.114 * b * b), 3)
 
 
 # color codes are 1-indexed so an additional entry was put in the 0th position

@@ -19,7 +19,7 @@ from .factory import register_entity
 if TYPE_CHECKING:
     from ezdxf.entities import DXFNamespace
     from ezdxf.lldxf.tagwriter import AbstractTagWriter
-    from ezdxf.tools.fonts import AbstractFont
+    from ezdxf.fonts import fonts
 
 __all__ = ["Textstyle"]
 logger = logging.getLogger("ezdxf")
@@ -35,7 +35,7 @@ acdb_style = DefSubclass(
         # Flags: Standard flag values (bit-coded values):
         # 1 = If set, this entry describes a shape
         # 4 = Vertical text
-        # 16 = If set, table entry is externally dependent on an xref
+        # 16 = If set, table entry is externally dependent on a xref
         # 32 = If both this bit and bit 16 are set, the externally dependent xref ...
         # 64 = If set, the table entry was referenced by at least one entity in ...
         # Vertical text works only for SHX fonts in AutoCAD and BricsCAD
@@ -205,11 +205,16 @@ class Textstyle(DXFEntity):
     def is_vertical_stacked(self, state) -> None:
         self.set_flag_state(const.VERTICAL_STACKED, state, "flags")
 
+    @property
+    def is_shape_file(self) -> bool:
+        """``True`` if entry describes a shape."""
+        return self.dxf.name == "" and bool(self.dxf.flags & 1)
+
     def make_font(
         self,
         cap_height: Optional[float] = None,
         width_factor: Optional[float] = None,
-    ) -> AbstractFont:
+    ) -> fonts.AbstractFont:
         """Returns a font abstraction :class:`~ezdxf.tools.fonts.AbstractFont`
         for this text style. Returns a font for a cap height of 1, if the
         text style has auto height (:attr:`Textstyle.dxf.height` is 0) and
@@ -218,19 +223,18 @@ class Textstyle(DXFEntity):
         is ``None`` or 0, the default value is 1.
         The attribute :attr:`Textstyle.dxf.big_font` is ignored.
         """
-        from ezdxf import options
-        from ezdxf.tools import fonts
+        from ezdxf.fonts import fonts
 
         ttf = ""
-        if options.use_matplotlib and self.has_extended_font_data:
+        if self.has_extended_font_data:
             family, italic, bold = self.get_extended_font_data()
             if family:
-                text_style = "italic" if italic else "normal"
-                text_weight = "bold" if bold else "normal"
+                text_style = "Italic" if italic else "Regular"
+                text_weight = 700 if bold else 400
                 font_face = fonts.FontFace(
                     family=family, style=text_style, weight=text_weight
                 )
-                ttf = fonts.find_ttf_path(font_face)
+                ttf = fonts.find_font_file_name(font_face)
         else:
             ttf = self.dxf.get("font", const.DEFAULT_TTF)
         if ttf == "":

@@ -43,6 +43,10 @@ for creating new entities by `ezdxf`: :meth:`~ezdxf.gfxattribs.GfxAttribs.load_f
 
 .. autofunction:: set_current_dimstyle
 
+.. autofunction:: set_current_dimstyle_attribs
+
+.. autofunction:: set_lineweight_display_style
+
 
 Restore the WCS
 ---------------

@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from ezdxf.entities import DXFNamespace, Viewport, XRecord
     from ezdxf.lldxf.tagwriter import AbstractTagWriter
     from ezdxf.entitydb import EntityDB
+    from ezdxf import xref
 
 
 __all__ = ["Layer", "acdb_symbol_table_record", "LayerOverrides"]
@@ -162,7 +163,7 @@ class Layer(DXFEntity):
         )
 
     def set_required_attributes(self):
-        if not self.dxf.hasattr("material"):
+        if not self.dxf.hasattr("material_handle"):
             global_ = self.doc.materials["Global"]
             if isinstance(global_, DXFEntity):
                 handle = global_.dxf.handle
@@ -381,6 +382,31 @@ class Layer(DXFEntity):
     def get_vp_overrides(self) -> LayerOverrides:
         """Returns the :class:`LayerOverrides` object for this layer."""
         return LayerOverrides(self)
+
+    def register_resources(self, registry: xref.Registry) -> None:
+        """Register required resources to the resource registry."""
+        assert self.doc is not None, "LAYER entity must be assigned to a document"
+        super().register_resources(registry)
+        registry.add_linetype(self.dxf.linetype)
+        registry.add_handle(self.dxf.get("material_handle"))
+        # current plot style will be replaced by default plot style "Normal"
+
+    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+        """Translate resources from self to the copied entity."""
+        assert isinstance(clone, Layer)
+        super().map_resources(clone, mapping)
+        self.dxf.linetype = mapping.get_linetype(self.dxf.linetype)
+
+        mapping.map_existing_handle(self, clone, "material_handle", optional=True)
+        # remove handles pointing to the source document:
+        clone.dxf.discard("plotstyle_handle")  # replaced by plot style "Normal"
+        clone.dxf.discard("unknown1")
+
+        # create required handles to resources in the target document
+        clone.set_required_attributes()
+        # todo: map layer overrides
+        # remove layer overrides
+        clone.discard_extension_dict()
 
 
 @dataclass

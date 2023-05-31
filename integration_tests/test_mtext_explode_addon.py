@@ -1,5 +1,6 @@
 #  Copyright (c) 2021, Manfred Moitzi
 #  License: MIT License
+import pytest
 import ezdxf
 from ezdxf.addons import MTextExplode
 
@@ -41,6 +42,22 @@ def explode_mtext(doc, destroy=False):
             xpl.explode(mtext, destroy=destroy)
             if mtext.is_alive:
                 mtext.dxf.layer = "SOURCE"
+
+
+def test_created_text_styles_exists():
+    from ezdxf.tools.text import MTextEditor
+
+    doc = ezdxf.new()
+    msp = doc.modelspace()
+    editor = MTextEditor()
+    editor.append("LINE0\n")
+    editor.font("Open Sans")
+    editor.append("LINE1")
+    mtext = msp.add_mtext(editor.text)
+    with MTextExplode(msp) as xpl:
+        xpl.explode(mtext)
+    assert doc.styles.has_entry("MtXpl_DejaVu Sans Condensed")  # default font
+    assert doc.styles.has_entry("MtXpl_Open Sans")  # MTEXT inline set font
 
 
 def test_addon_is_still_working():

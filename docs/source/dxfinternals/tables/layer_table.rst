@@ -5,6 +5,12 @@ LAYER Table
 
 TODO
 
+.. seealso::
+
+    - DXF Reference: `TABLES Section`_
+    - DXF Reference: `LAYER`_ Table
+    - :class:`~ezdxf.entities.Layer` class
+
 Table Structure DXF R2000+
 --------------------------
 
@@ -12,11 +18,11 @@ Table Structure DXF R2000+
 
     0           <<< start of table
     TABLE
-    2           <<< set table type
+    2           <<< name of table "LAYER"
     LAYER
-    5           <<< LAYER table handle
+    5           <<< handle of the TABLE
     2
-    330         <<< owner tag, tables has no owner
+    330         <<< owner tag is always "0"
     0
     100         <<< subclass marker
     AcDbSymbolTable
@@ -28,6 +34,8 @@ Table Structure DXF R2000+
     0           <<< 2. LAYER table entry
     LAYER
     ...         <<< LAYER entity tags
+    0           <<< end of TABLE
+    ENDTAB
 
 Layer Entity Tags DXF R2000+
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -221,3 +229,17 @@ Lineweight override XRECORD:
     13          <<< lineweight value
     102
     }
+
+Name References
+---------------
+
+LAYER table entries are referenced by name:
+
+    - all graphical DXF entities
+    - VIEWPORT entity, frozen layers
+    - LAYER_FILTER
+    - LAYER_INDEX
+
+.. _LAYER: https://help.autodesk.com/view/OARX/2018/ENU/?guid=GUID-D94802B0-8BE8-4AC9-8054-17197688AFDB
+
+.. _TABLES Section: http://help.autodesk.com/view/OARX/2018/ENU/?guid=GUID-A9FD9590-C97B-4E41-9F26-BD82C34A4F9F

@@ -1,6 +1,8 @@
-#  Copyright (c) 2021-2022, Manfred Moitzi
+#  Copyright (c) 2021-2023, Manfred Moitzi
 #  License: MIT License
 from __future__ import annotations
+
+import pathlib
 from typing import Callable, Optional, TYPE_CHECKING, Type
 import abc
 import sys
@@ -16,7 +18,6 @@ from ezdxf import recover
 from ezdxf.lldxf import const
 from ezdxf.lldxf.validator import is_dxf_file, is_binary_dxf_file
 from ezdxf.dwginfo import dwg_file_info
-from ezdxf import units
 
 if TYPE_CHECKING:
     from ezdxf.entities import DXFGraphic
@@ -130,9 +131,7 @@ class Audit(Command):
 
     @staticmethod
     def add_parser(subparsers):
-        parser = subparsers.add_parser(
-            Audit.NAME, help="audit and repair DXF files"
-        )
+        parser = subparsers.add_parser(Audit.NAME, help="audit and repair DXF files")
         parser.add_argument(
             "files",
             metavar="FILE",
@@ -204,8 +203,12 @@ class Audit(Command):
 
             if args.save:
                 outname = build_outname(filename)
-                doc.saveas(outname)
-                print(f"Saved recovered file as: {outname}")
+                try:
+                    doc.saveas(outname)
+                except IOError as e:
+                    print(f"Can not save recovered file '{outname}':\n{str(e)}")
+                else:
+                    print(f"Saved recovered file as: '{outname}'")
 
         for pattern in args.files:
             names = list(glob.glob(pattern))
@@ -242,9 +245,7 @@ def load_document(filename: str):
 
     if auditor.has_errors:
         # But is most likely good enough for rendering.
-        msg = (
-            f"Audit process found {len(auditor.errors)} unrecoverable error(s)."
-        )
+        msg = f"Audit process found {len(auditor.errors)} unrecoverable error(s)."
         print(msg)
         logger.error(msg)
     if auditor.has_fixes:
@@ -261,8 +262,7 @@ HELP_LTYPE = (
     "but this approach is slower."
 )
 HELP_LWSCALE = (
-    "set custom line weight scaling, default is 0 to disable line "
-    "weights at all"
+    "set custom line weight scaling, default is 0 to disable line " "weights at all"
 )
 
 
@@ -372,12 +372,12 @@ class Draw(Command):
             for layer_properties in ctx.layers.values():
                 layer_properties.is_visible = True
 
-        config = Configuration.defaults()
+        config = Configuration()
         if args.all_entities_visible:
 
             class AllVisibleFrontend(Frontend):
                 def override_properties(
-                    self, entity: "DXFGraphic", properties: "Properties"
+                    self, entity: DXFGraphic, properties: Properties
                 ) -> None:
                     properties.is_visible = True
 
@@ -445,18 +445,18 @@ class View(Command):
         except ImportError as e:
             print(str(e))
             sys.exit(1)
-        from ezdxf.addons.drawing.qtviewer import CadViewer
+        from ezdxf.addons.drawing.qtviewer import CADViewer
         from ezdxf.addons.drawing.config import Configuration
 
-        config = Configuration.defaults()
-        config = config.with_changes(
+        config = Configuration(
             lineweight_scaling=args.lwscale,
         )
 
         signal.signal(signal.SIGINT, signal.SIG_DFL)  # handle Ctrl+C properly
         app = QtWidgets.QApplication(sys.argv)
+        app.setStyle("Fusion")
         set_app_icon(app)
-        viewer = CadViewer(config=config)
+        viewer = CADViewer.from_config(config)
         filename = args.file
         if filename:
             doc, auditor = load_document(filename)
@@ -469,204 +469,6 @@ class View(Command):
 
 
 @register
-class Pillow(Command):
-    """Launcher sub-command: pil"""
-
-    NAME = "pillow"
-
-    @staticmethod
-    def add_parser(subparsers):
-        parser = subparsers.add_parser(
-            Pillow.NAME, help="draw and convert DXF files by Pillow"
-        )
-        parser.add_argument(
-            "file",
-            metavar="FILE",
-            nargs="?",
-            help="DXF file to draw",
-        )
-        parser.add_argument(
-            "-o",
-            "--out",
-            required=False,
-            help="output filename, the filename extension defines the image format "
-            "(.png, .jpg, .tif, .bmp, ...)",
-        )
-        parser.add_argument(
-            "-l",
-            "--layout",
-            type=str,
-            default="Model",
-            help='name of the layout to draw, default is "Model"',
-        )
-        parser.add_argument(
-            "-i",
-            "--image_size",
-            type=str,
-            default="1920,1080",
-            help='image size in pixels as "width,height", default is "1920,1080", '
-            'supports also "x" as delimiter like "1920x1080". A single integer '
-            'is used for both directions e.g. "2000" defines an image size of '
-            "2000x2000. The image is centered for the smaller DXF drawing extent.",
-        )
-        parser.add_argument(
-            "-b",
-            "--background",
-            default=None,
-            help='override background color in hex format "RRGGBB" or "RRGGBBAA", '
-            'e.g. use "FFFFFF00" to get a white transparent background and a black '
-            "foreground color (ACI=7), because a light background gets a "
-            'black foreground color or vice versa  "00000000" for a black transparent '
-            "background and a white foreground color.",
-        ),
-        parser.add_argument(
-            "-r",
-            "--oversampling",
-            type=int,
-            default=2,
-            help="oversampling factor, default is 2, use 0 or 1 to disable oversampling",
-        )
-        parser.add_argument(
-            "-m",
-            "--margin",
-            type=int,
-            default=10,
-            help="minimal margin around the image in pixels, default is 10",
-        )
-        parser.add_argument(
-            "-t",
-            "--text-mode",
-            type=int,
-            choices=[0, 1, 2, 3],
-            default=2,
-            help="text mode: 0=ignore, 1=placeholder, 2=outline, 3=filled, default is 2",
-        )
-        parser.add_argument(
-            "--dpi",
-            type=int,
-            default=300,
-            help="output resolution in pixels/inch which is significant for the "
-            "linewidth, default is 300",
-        )
-        parser.add_argument(
-            "-v",
-            "--verbose",
-            action="store_true",
-            help="give more output",
-        )
-
-    @staticmethod
-    def run(args):
-        # Import on demand for a quicker startup:
-        from ezdxf import bbox
-        from ezdxf.addons.drawing import RenderContext, Frontend
-        from ezdxf.addons.drawing.config import Configuration, LinePolicy
-        from ezdxf.addons.drawing.pillow import (
-            PillowBackend,
-            PillowBackendException,
-        )
-        from ezdxf.addons.drawing.properties import LayoutProperties
-
-        verbose = args.verbose
-        if args.file:
-            filename = args.file
-        else:
-            print("argument FILE is required")
-            sys.exit(1)
-        print(f'loading file "{filename}"...')
-        doc, _ = load_document(filename)
-        try:
-            layout = doc.layout(args.layout)
-        except KeyError:
-            print(f'layout "{args.layout}" not found')
-            sys.exit(4)
-
-        bg = args.background
-        layout_properties = LayoutProperties.from_layout(layout)
-        if bg is not None:
-            if not bg.startswith("#"):
-                bg = "#" + bg
-            try:
-                layout_properties.set_colors(bg)
-            except ValueError:
-                print(
-                    f'ERROR: invalid background color value "{args.background}"'
-                )
-                sys.exit(4)
-
-        ctx = RenderContext(doc)
-        # force accurate linetype rendering by the frontend
-        config = Configuration.defaults().with_changes(
-            line_policy=LinePolicy.ACCURATE
-        )
-        if verbose:
-            print(f"detecting extents...\n")
-        bbox_cache = bbox.Cache()
-        if layout.is_any_paperspace:
-            # get entity bounding boxes in modelspace for faster paperspace
-            # rendering
-            bbox.extents(doc.modelspace(), fast=True, cache=bbox_cache)
-        extents = bbox.extents(layout, fast=True, cache=bbox_cache)
-        img_x, img_y = parse_image_size(args.image_size)
-        if verbose:
-            print(f"    units: {units.unit_name(layout.units)}")
-            print(
-                f"    modelspace size: {extents.size.x:.3f} x {extents.size.y:.3f}"
-            )
-            print(
-                f"    min extents: ({extents.extmin.x:.3f}, {extents.extmin.y:.3f})"
-            )
-            print(
-                f"    max extents: ({extents.extmax.x:.3f}, {extents.extmax.y:.3f})"
-            )
-            print(f"\nimage size: {img_x} x {img_y}")
-        try:
-            out = PillowBackend(
-                extents,
-                image_size=(img_x, img_y),
-                oversampling=args.oversampling,
-                margin=args.margin,
-                dpi=args.dpi,
-                text_mode=args.text_mode,
-            )
-        except PillowBackendException as e:
-            print(str(e))
-            sys.exit(5)
-
-        t0 = time.perf_counter()
-        if verbose:
-            print(f'drawing layout "{layout.name}"...')
-        Frontend(ctx, out, config=config, bbox_cache=bbox_cache).draw_layout(
-            layout, layout_properties=layout_properties
-        )
-        t1 = time.perf_counter()
-        if verbose:
-            print(f"took {t1-t0:.4f} seconds")
-        if args.out is not None:
-            print(f'exporting to "{args.out}"')
-            t0 = time.perf_counter()
-            out.export(args.out)
-            t1 = time.perf_counter()
-            if verbose:
-                print(f"took {t1 - t0:.4f} seconds")
-        else:
-            if verbose:
-                print("opening image with the default system viewer...")
-            out.resize().show(args.file)
-
-
-def parse_image_size(image_size: str) -> tuple[int, int]:
-    if "," in image_size:
-        sx, sy = image_size.split(",")
-    elif "x" in image_size:
-        sx, sy = image_size.split("x")
-    else:
-        sx = int(image_size)  # type: ignore
-        sy = sx
-    return int(sx), int(sy)
-
-
-@register
 class Browse(Command):
     """Launcher sub-command: browse"""
 
@@ -674,9 +476,7 @@ class Browse(Command):
 
     @staticmethod
     def add_parser(subparsers):
-        parser = subparsers.add_parser(
-            Browse.NAME, help="browse DXF file structure"
-        )
+        parser = subparsers.add_parser(Browse.NAME, help="browse DXF file structure")
         parser.add_argument(
             "file",
             metavar="FILE",
@@ -705,6 +505,7 @@ class Browse(Command):
 
         signal.signal(signal.SIGINT, signal.SIG_DFL)  # handle Ctrl+C properly
         app = QtWidgets.QApplication(sys.argv)
+        app.setStyle("Fusion")
         set_app_icon(app)
         main_window = browser.DXFStructureBrowser(
             args.file,
@@ -752,6 +553,7 @@ class BrowseAcisData(Command):
 
         signal.signal(signal.SIGINT, signal.SIG_DFL)  # handle Ctrl+C properly
         app = QtWidgets.QApplication(sys.argv)
+        app.setStyle("Fusion")
         set_app_icon(app)
         main_window = AcisStructureBrowser(
             args.file,
@@ -769,9 +571,7 @@ class Strip(Command):
 
     @staticmethod
     def add_parser(subparsers):
-        parser = subparsers.add_parser(
-            Strip.NAME, help="strip comments from DXF files"
-        )
+        parser = subparsers.add_parser(Strip.NAME, help="strip comments from DXF files")
         parser.add_argument(
             "file",
             metavar="FILE",
@@ -852,20 +652,24 @@ class Config(Command):
     def run(args):
         from ezdxf import options
 
+        action = False
         if args.reset:
             options.reset()
             options.delete_default_config_files()
+            action = True
         if args.home:
             options.write_home_config()
-        if args.print:
-            options.print()
+            action = True
         if args.write:
+            action = True
             filepath = Path(args.write).expanduser()
             try:
                 options.write_file(str(filepath))
                 print(f"configuration written to: {filepath}")
             except IOError as e:
                 print(str(e))
+        if args.print or action is False:
+            options.print()
 
 
 def load_every_document(filename: str):
@@ -987,9 +791,203 @@ class Info(Command):
                     file_count += 1
 
             if file_count == 0:
-                sys.stderr.write(
-                    f'No matching files for pattern: "{pattern}"\n'
-                )
+                sys.stderr.write(f'No matching files for pattern: "{pattern}"\n')
+
+
+@register
+class HPGL(Command):
+    """Launcher sub-command: hpgl"""
+
+    NAME = "hpgl"
+
+    @staticmethod
+    def add_parser(subparsers):
+        parser = subparsers.add_parser(
+            HPGL.NAME, help=f"view and/or convert HPGL/2 plot files to various formats"
+        )
+        parser.add_argument(
+            "file",
+            metavar="FILE",
+            nargs="?",
+            default="",
+            help=f"view and/or convert HPGL/2 plot files, wildcards (*, ?) supported in command line mode",
+        )
+        parser.add_argument(
+            "-e",
+            "--export",
+            metavar="FORMAT",
+            required=False,
+            help=f"convert HPGL/2 plot file to SVG, PDF or DXF from the command line (no gui)",
+        )
+        parser.add_argument(
+            "-r",
+            "--rotate",
+            type=int,
+            choices=(0, 90, 180, 270),
+            default=0,
+            required=False,
+            help="rotate page about 90, 180 or 270 degrees (no gui)",
+        )
+        parser.add_argument(
+            "-x",
+            "--mirror_x",
+            action="store_true",
+            required=False,
+            help="mirror page in x-axis direction, (no gui)",
+        )
+        parser.add_argument(
+            "-y",
+            "--mirror_y",
+            action="store_true",
+            required=False,
+            help="mirror page in y-axis direction, (no gui)",
+        )
+        parser.add_argument(
+            "-m",
+            "--merge_control",
+            type=int,
+            required=False,
+            default=2,
+            choices=(0, 1, 2),
+            help="provides control over the order of filled polygons, 0=off (print order), "
+            "1=luminance (order by luminance), 2=auto (default)",
+        )
+        parser.add_argument(
+            "-f",
+            "--force",
+            action="store_true",
+            required=False,
+            help="inserts the mandatory 'enter HPGL/2 mode' escape sequence into the data "
+            "stream; use this flag when no HPGL/2 data was found and you are sure the "
+            "file is a HPGL/2 plot file",
+        )
+        parser.add_argument(
+            "--aci",
+            action="store_true",
+            required=False,
+            help="use pen numbers as ACI colors and assign colors by layer (DXF only)",
+        )
+        parser.epilog = (
+            "Note that plot files are intended to be plotted on white paper."
+        )
+        parser.add_argument(
+            "--dpi",
+            type=int,
+            required=False,
+            default=96,
+            help="pixel density in dots per inch (PNG only)",
+        )
+        parser.epilog = (
+            "Note that plot files are intended to be plotted on white paper."
+        )
+
+    @staticmethod
+    def run(args):
+        if args.export:
+            if os.path.exists(args.file):
+                filenames = [args.file]
+            else:
+                filenames = glob.glob(args.file)
+            for filename in filenames:
+                export_hpgl2(Path(filename), args)
+        else:
+            launch_hpgl2_viewer(args.file, args.force)
+
+
+def export_hpgl2(filepath: Path, args) -> None:
+    from ezdxf.addons.hpgl2 import api as hpgl2
+    from ezdxf.addons.drawing.dxf import ColorMode
+
+    fmt = args.export.upper()
+    start_msg = f"converting HPGL/2 plot file '{filepath.name}' to {fmt}"
+    try:
+        data = filepath.read_bytes()
+    except IOError as e:
+        print(str(e), file=sys.stderr)
+        return
+    if args.force:
+        data = b"%1B" + data
+    export_path = filepath.with_suffix(f".{fmt.lower()}")
+    if fmt == "DXF":
+        print(start_msg)
+        color_mode = ColorMode.ACI if args.aci else ColorMode.RGB
+        doc = hpgl2.to_dxf(
+            data,
+            rotation=args.rotate,
+            mirror_x=args.mirror_x,
+            mirror_y=args.mirror_y,
+            color_mode=color_mode,
+            merge_control=args.merge_control,
+        )
+        try:
+            doc.saveas(export_path)
+        except IOError as e:
+            print(str(e), file=sys.stderr)
+
+    elif fmt == "SVG":
+        print(start_msg)
+        svg_string = hpgl2.to_svg(
+            data,
+            rotation=args.rotate,
+            mirror_x=args.mirror_x,
+            mirror_y=args.mirror_y,
+            merge_control=args.merge_control,
+        )
+        try:
+            export_path.write_text(svg_string)
+        except IOError as e:
+            print(str(e), file=sys.stderr)
+    elif fmt == "PDF":
+        print(start_msg)
+        pdf_bytes = hpgl2.to_pdf(
+            data,
+            rotation=args.rotate,
+            mirror_x=args.mirror_x,
+            mirror_y=args.mirror_y,
+            merge_control=args.merge_control,
+        )
+        try:
+            export_path.write_bytes(pdf_bytes)
+        except IOError as e:
+            print(str(e), file=sys.stderr)
+    elif fmt == "PNG":
+        print(start_msg)
+        png_bytes = hpgl2.to_pixmap(
+            data,
+            rotation=args.rotate,
+            mirror_x=args.mirror_x,
+            mirror_y=args.mirror_y,
+            merge_control=args.merge_control,
+            fmt="png",
+            dpi=args.dpi,
+        )
+        try:
+            export_path.write_bytes(png_bytes)
+        except IOError as e:
+            print(str(e), file=sys.stderr)
+    else:
+        print(f"invalid export format: {fmt}")
+        exit(1)
+    print(f"file '{export_path.name}' successfully written")
+
+
+def launch_hpgl2_viewer(filename: str, force: bool) -> None:
+    try:
+        from ezdxf.addons.xqt import QtWidgets
+    except ImportError as e:
+        print(str(e))
+        exit(1)
+    from ezdxf.addons.hpgl2.viewer import HPGL2Viewer
+
+    signal.signal(signal.SIGINT, signal.SIG_DFL)  # handle Ctrl+C properly
+    app = QtWidgets.QApplication(sys.argv)
+    app.setStyle("Fusion")
+    set_app_icon(app)
+    viewer = HPGL2Viewer()
+    viewer.show()
+    if filename and os.path.exists(filename):
+        viewer.load_plot_file(filename, force=force)
+    sys.exit(app.exec())
 
 
 def set_app_icon(app):

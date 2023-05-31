@@ -1,11 +1,11 @@
-#  Copyright (c) 2021, Manfred Moitzi
+#  Copyright (c) 2021-2023, Manfred Moitzi
 #  License: MIT License
 import sys
 import argparse
 from pathlib import Path
 from ezdxf import options, print_config
 from ezdxf import commands
-from ezdxf.tools import fonts
+from ezdxf.fonts import fonts
 
 YES_NO = {True: "yes", False: "no"}
 options.set(options.CORE, "LOAD_PROXY_GRAPHICS", "true")
@@ -17,6 +17,12 @@ def add_common_arguments(parser):
         "--version",
         action="store_true",
         help="show version and exit",
+    )
+    parser.add_argument(
+        "-f",
+        "--fonts",
+        action="store_true",
+        help="rebuild system font cache and print all fonts found",
     )
     parser.add_argument(
         "-v",
@@ -39,6 +45,13 @@ def add_common_arguments(parser):
 
 def print_version(verbose=False):
     print_config(verbose=verbose, stream=sys.stdout)
+
+
+def print_available_fonts(verbose=False):
+    from ezdxf.fonts import fonts
+    print("Rebuilding system font cache.")
+    fonts.build_system_font_cache()
+    fonts.font_manager.print_available_fonts(verbose)
 
 
 def setup_log(args):
@@ -89,6 +102,9 @@ def main():
         setup_log(args)
     if args.version:
         print_version(verbose=args.verbose)
+        help_ = False
+    if args.fonts:
+        print_available_fonts(args.verbose)
         help_ = False
 
     run = commands.get(args.command)

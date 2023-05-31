@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2022 Manfred Moitzi
+# Copyright (c) 2019-2023 Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
 from typing import TYPE_CHECKING, Iterable, Optional, Iterator
@@ -13,7 +13,8 @@ from ezdxf.lldxf.attributes import (
     group_code_mapping,
 )
 from ezdxf.lldxf.tags import Tags, DXFTag
-from ezdxf.lldxf.const import SUBCLASS_MARKER, DXF2000, DXFStructureError
+from ezdxf.lldxf import const
+
 from ezdxf.math import Vec3, UVec, X_AXIS, Z_AXIS, NULLVEC
 from ezdxf.math.transformtools import transform_extrusion
 from ezdxf.explode import explode_entity
@@ -21,7 +22,8 @@ from ezdxf.audit import AuditError
 from .dxfentity import base_class, SubclassProcessor
 from .dxfgfx import DXFGraphic, acdb_entity
 from .factory import register_entity
-from .dimension import OverrideMixin
+from .dimension import OverrideMixin, register_override_handles
+from .dimstyleoverride import DimStyleOverride
 
 if TYPE_CHECKING:
     from audit import Auditor
@@ -30,6 +32,7 @@ if TYPE_CHECKING:
     from ezdxf.lldxf.tagwriter import AbstractTagWriter
     from ezdxf.math import Matrix44
     from ezdxf.query import EntityQuery
+    from ezdxf import xref
 
 __all__ = ["Leader"]
 logger = logging.getLogger("ezdxf")
@@ -161,13 +164,13 @@ class Leader(DXFGraphic, OverrideMixin):
 
     DXFTYPE = "LEADER"
     DXFATTRIBS = DXFAttributes(base_class, acdb_entity, acdb_leader)
-    MIN_DXF_VERSION_FOR_EXPORT = DXF2000
+    MIN_DXF_VERSION_FOR_EXPORT = const.DXF2000
 
     def __init__(self) -> None:
         super().__init__()
         self.vertices: list[Vec3] = []
 
-    def _copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity) -> None:
         """Copy vertices."""
         assert isinstance(entity, Leader)
         entity.vertices = Vec3.list(self.vertices)
@@ -184,7 +187,7 @@ class Leader(DXFGraphic, OverrideMixin):
                     dxf, acdb_leader_group_codes, tags, recover=True
                 )
             else:
-                raise DXFStructureError(
+                raise const.DXFStructureError(
                     f"missing 'AcDbLeader' subclass in LEADER(#{dxf.handle})"
                 )
 
@@ -210,7 +213,7 @@ class Leader(DXFGraphic, OverrideMixin):
     def export_entity(self, tagwriter: AbstractTagWriter) -> None:
         """Export entity specific data as DXF tags."""
         super().export_entity(tagwriter)
-        tagwriter.write_tag2(SUBCLASS_MARKER, acdb_leader.name)
+        tagwriter.write_tag2(const.SUBCLASS_MARKER, acdb_leader.name)
         self.dxf.export_dxf_attribs(
             tagwriter,
             [
@@ -242,6 +245,55 @@ class Leader(DXFGraphic, OverrideMixin):
         for vertex in self.vertices:
             tagwriter.write_vertex(10, vertex)
 
+    def register_resources(self, registry: xref.Registry) -> None:
+        """Register required resources to the resource registry."""
+        assert self.doc is not None
+        super().register_resources(registry)
+        registry.add_dim_style(self.dxf.dimstyle)
+
+        # The leader entity cannot register the annotation entity!
+        if not self.has_xdata_list("ACAD", "DSTYLE"):
+            return
+
+        if self.doc.dxfversion > const.DXF12:
+            # overridden resources are referenced by handle
+            register_override_handles(self, registry)
+        else:
+            # overridden resources are referenced by name
+            self.override().register_resources_r12(registry)
+
+    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+        """Translate resources from self to the copied entity."""
+        super().map_resources(clone, mapping)
+        if self.dxf.hasattr("annotation_handle"):
+            clone.dxf.annotation_handle = mapping.get_handle(self.dxf.annotation_handle)
+
+        # DXF R2000+ references overridden resources by group code 1005 handles in the
+        # XDATA section, which are automatically mapped by the parent class DXFEntity!
+        assert self.doc is not None
+        if self.doc.dxfversion > const.DXF12:
+            return
+        self_override = self.override()
+        if not self_override.dimstyle_attribs:
+            return  # has no overrides
+
+        assert isinstance(clone, Leader)
+        self_override.map_resources_r12(clone, mapping)
+
+    def override(self) -> DimStyleOverride:
+        """Returns the :class:`~ezdxf.entities.DimStyleOverride` object.
+
+        .. warning::
+
+            The LEADER entity shares only the DIMSTYLE override infrastructure with the
+            DIMENSION entity but does not support any other features of the DIMENSION
+            entity!
+
+            HANDLE WITH CARE!
+
+        """
+        return DimStyleOverride(self)  # type: ignore
+
     def set_vertices(self, vertices: Iterable[UVec]):
         """Set vertices of the leader, vertices is an iterable of
         (x, y [,z]) tuples or :class:`~ezdxf.math.Vec3`.
@@ -270,28 +322,25 @@ class Leader(DXFGraphic, OverrideMixin):
             yield e
 
     def virtual_entities(self) -> Iterator[DXFGraphic]:
-        """Yields 'virtual' parts of LEADER as DXF primitives.
+        """Yields the DXF primitives the LEADER entity is build up as virtual entities.
 
-        These entities are located at the original positions, but are not stored
+        These entities are located at the original location, but are not stored
         in the entity database, have no handle and are not assigned to any
         layout.
-
         """
         return self.__virtual_entities__()
 
-    def explode(
-        self, target_layout: Optional[BaseLayout] = None
-    ) -> EntityQuery:
-        """
-        Explode parts of LEADER as DXF primitives into target layout, if target
-        layout is ``None``, the target layout is the layout of the LEADER.
+    def explode(self, target_layout: Optional[BaseLayout] = None) -> EntityQuery:
+        """Explode parts of the LEADER entity as DXF primitives into target layout,
+        if target layout is ``None``, the target layout is the layout of the LEADER
+        entity. This method destroys the source entity.
 
-        Returns an :class:`~ezdxf.query.EntityQuery` container with all
-        DXF parts.
+        Returns an :class:`~ezdxf.query.EntityQuery` container referencing all
+        DXF primitives.
 
         Args:
-            target_layout: target layout for DXF parts, ``None`` for same
-                layout as source entity.
+            target_layout: target layout for the created DXF primitives, ``None`` for
+                the same layout as the source entity.
 
         """
         return explode_entity(self, target_layout)

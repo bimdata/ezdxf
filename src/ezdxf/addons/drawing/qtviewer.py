@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# Copyright (c) 2020-2022, Matthew Broadway
+# Copyright (c) 2020-2023, Matthew Broadway
 # License: MIT License
 # mypy: ignore_errors=True
 from __future__ import annotations
-from typing import Iterable, Sequence
+from typing import Iterable, Sequence, Set, Optional
 import math
 import os
 import time
@@ -31,11 +31,14 @@ from ezdxf.addons.drawing.pyqt import (
 )
 from ezdxf.audit import Auditor
 from ezdxf.document import Drawing
-from ezdxf.entities import DXFGraphic
+from ezdxf.entities import DXFGraphic, DXFEntity
+from ezdxf.layouts import Layout
 from ezdxf.lldxf.const import DXFStructureError
 
 
 class CADGraphicsView(qw.QGraphicsView):
+    closing = Signal()
+
     def __init__(
         self,
         *,
@@ -63,6 +66,13 @@ class CADGraphicsView(qw.QGraphicsView):
             | qg.QPainter.TextAntialiasing
             | qg.QPainter.SmoothPixmapTransform
         )
+
+        self.setScene(qw.QGraphicsScene())
+        self.scale(1, -1)  # so that +y is up
+
+    def closeEvent(self, event: qg.QCloseEvent) -> None:
+        super().closeEvent(event)
+        self.closing.emit()
 
     def clear(self):
         pass
@@ -100,9 +110,7 @@ class CADGraphicsView(qw.QGraphicsView):
         # See QWheelEvent documentation
         delta_notches = event.angleDelta().y() / 120
         direction = math.copysign(1, delta_notches)
-        factor = (1.0 + self._zoom_per_scroll_notch * direction) ** abs(
-            delta_notches
-        )
+        factor = (1.0 + self._zoom_per_scroll_notch * direction) ** abs(delta_notches)
         resulting_zoom = self._zoom * factor
         if resulting_zoom < self._zoom_limits[0]:
             factor = self._zoom_limits[0] / self._zoom
@@ -110,6 +118,22 @@ class CADGraphicsView(qw.QGraphicsView):
             factor = self._zoom_limits[1] / self._zoom
         self.scale(factor, factor)
         self._zoom *= factor
+
+    def save_view(self) -> SavedView:
+        return SavedView(
+            self.transform(),
+            self._default_zoom,
+            self._zoom,
+            self.horizontalScrollBar().value(),
+            self.verticalScrollBar().value(),
+        )
+
+    def restore_view(self, view: SavedView):
+        self.setTransform(view.transform)
+        self._default_zoom = view.default_zoom
+        self._zoom = view.zoom
+        self.horizontalScrollBar().setValue(view.x)
+        self.verticalScrollBar().setValue(view.y)
 
     def drawForeground(self, painter: qg.QPainter, rect: qc.QRectF) -> None:
         if self._is_loading and self._loading_overlay:
@@ -123,15 +147,35 @@ class CADGraphicsView(qw.QGraphicsView):
             painter.restore()
 
 
-class CADGraphicsViewWithOverlay(CADGraphicsView):
+class SavedView:
+    def __init__(
+        self, transform: qg.QTransform, default_zoom: float, zoom: float, x: int, y: int
+    ):
+        self.transform = transform
+        self.default_zoom = default_zoom
+        self.zoom = zoom
+        self.x = x
+        self.y = y
 
+
+class CADGraphicsViewWithOverlay(CADGraphicsView):
     mouse_moved = Signal(qc.QPointF)
-    element_selected = Signal(object, int)
+    element_hovered = Signal(object, int)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._selected_items: list[qw.QGraphicsItem] = []
         self._selected_index = None
+        self._mark_selection = True
+
+    @property
+    def current_hovered_element(self) -> Optional[DXFEntity]:
+        if self._selected_items:
+            graphics_item = self._selected_items[self._selected_index]
+            dxf_entity = graphics_item.data(CorrespondingDXFEntity)
+            return dxf_entity
+        else:
+            return None
 
     def clear(self):
         super().clear()
@@ -144,7 +188,7 @@ class CADGraphicsViewWithOverlay(CADGraphicsView):
 
     def drawForeground(self, painter: qg.QPainter, rect: qc.QRectF) -> None:
         super().drawForeground(painter, rect)
-        if self._selected_items:
+        if self._selected_items and self._mark_selection:
             item = self._selected_items[self._selected_index]
             r = item.sceneTransform().mapRect(item.boundingRect())
             painter.fillRect(r, qg.QColor(0, 255, 0, 100))
@@ -168,30 +212,124 @@ class CADGraphicsViewWithOverlay(CADGraphicsView):
             self._emit_selected()
 
     def _emit_selected(self):
-        self.element_selected.emit(self._selected_items, self._selected_index)
-        self.scene().invalidate(
-            self.sceneRect(), qw.QGraphicsScene.ForegroundLayer
-        )
+        self.element_hovered.emit(self._selected_items, self._selected_index)
+        self.scene().invalidate(self.sceneRect(), qw.QGraphicsScene.ForegroundLayer)
+
+    def toggle_selection_marker(self):
+        self._mark_selection = not self._mark_selection
 
 
-class CadViewer(qw.QMainWindow):
-    def __init__(self, config: Configuration = Configuration.defaults()):
+class CADWidget(qw.QWidget):
+    def __init__(self, view: CADGraphicsView, config: Configuration = Configuration()):
         super().__init__()
+        layout = qw.QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(view)
+        self.setLayout(layout)
+        self._view = view
+        self._view.closing.connect(self.close)
         self._config = config
-        # Avoid using Optional[...], otherwise mypy requires None checks
-        # everywhere!
-        self.doc: Drawing = None  # type: ignore
+        self._bbox_cache = ezdxf.bbox.Cache()
+        self._doc: Drawing = None  # type: ignore
         self._render_context: RenderContext = None  # type: ignore
         self._visible_layers: set[str] = set()
         self._current_layout: str = "Model"
         self._reset_backend()
-        self._bbox_cache = ezdxf.bbox.Cache()
 
-        self.view = CADGraphicsViewWithOverlay()
-        self.view.setScene(qw.QGraphicsScene())
-        self.view.scale(1, -1)  # so that +y is up
-        self.view.element_selected.connect(self._on_element_selected)
-        self.view.mouse_moved.connect(self._on_mouse_moved)
+    def _reset_backend(self):
+        # clear caches
+        self._backend = PyQtBackend()
+
+    @property
+    def doc(self) -> Drawing:
+        return self._doc
+
+    @property
+    def view(self) -> CADGraphicsView:
+        return self._view
+
+    @property
+    def render_context(self) -> RenderContext:
+        return self._render_context
+
+    @property
+    def current_layout(self) -> str:
+        return self._current_layout
+
+    def set_document(
+        self,
+        document: Drawing,
+        *,
+        layout: str = "Model",
+    ):
+        self._doc = document
+        # initialize bounding box cache for faste paperspace drawing
+        self._bbox_cache = ezdxf.bbox.Cache()
+        self._render_context = self._make_render_context(document)
+        self._reset_backend()
+        self._visible_layers = set()
+        self._current_layout = None
+        self.draw_layout(layout)
+
+    def set_visible_layers(self, layers: Set[str]) -> None:
+        self._visible_layers = layers
+        self.draw_layout(self._current_layout, reset_view=False)
+
+    def _make_render_context(self, doc: Drawing) -> RenderContext:
+        def update_layers_state(layers: Sequence[LayerProperties]):
+            if self._visible_layers:
+                set_layers_state(layers, self._visible_layers, state=True)
+
+        render_context = RenderContext(doc)
+        render_context.set_layer_properties_override(update_layers_state)
+        return render_context
+
+    def draw_layout(
+        self,
+        layout_name: str,
+        reset_view: bool = True,
+    ):
+        self._current_layout = layout_name
+        self._view.begin_loading()
+        new_scene = qw.QGraphicsScene()
+        self._backend.set_scene(new_scene)
+        layout = self._doc.layout(layout_name)
+        self._update_render_context(layout)
+        try:
+            self._create_frontend().draw_layout(layout)
+        finally:
+            self._backend.finalize()
+        self._view.end_loading(new_scene)
+        self._view.buffer_scene_rect()
+        if reset_view:
+            self._view.fit_to_scene()
+
+    def _create_frontend(self) -> Frontend:
+        return Frontend(
+            ctx=self._render_context,
+            out=self._backend,
+            config=self._config,
+            bbox_cache=self._bbox_cache,
+        )
+
+    def _update_render_context(self, layout: Layout) -> None:
+        assert self._render_context is not None
+        self._render_context.set_current_layout(layout)
+
+
+class CADViewer(qw.QMainWindow):
+    def __init__(self, cad: Optional[CADWidget] = None):
+        super().__init__()
+        self._doc: Optional[Drawing] = None
+        if cad is None:
+            self._cad = CADWidget(CADGraphicsViewWithOverlay(), config=Configuration())
+        else:
+            self._cad = cad
+        self._view = self._cad.view
+
+        if isinstance(self._view, CADGraphicsViewWithOverlay):
+            self._view.element_hovered.connect(self._on_element_hovered)
+            self._view.mouse_moved.connect(self._on_mouse_moved)
 
         menu = self.menuBar()
         select_doc_action = QAction("Select Document", self)
@@ -202,6 +340,28 @@ class CadViewer(qw.QMainWindow):
         toggle_sidebar_action = QAction("Toggle Sidebar", self)
         toggle_sidebar_action.triggered.connect(self._toggle_sidebar)
         menu.addAction(toggle_sidebar_action)
+
+        toggle_selection_marker_action = QAction("Toggle Entity Marker", self)
+        toggle_selection_marker_action.triggered.connect(self._toggle_selection_marker)
+        menu.addAction(toggle_selection_marker_action)
+
+        self.reload_menu = menu.addMenu("Reload")
+        reload_action = QAction("Reload", self)
+        reload_action.setShortcut(qg.QKeySequence("F5"))
+        reload_action.triggered.connect(self._reload)
+        self.reload_menu.addAction(reload_action)
+        self.keep_view_action = QAction("Keep View", self)
+        self.keep_view_action.setCheckable(True)
+        self.keep_view_action.setChecked(True)
+        self.reload_menu.addAction(self.keep_view_action)
+        watch_action = QAction("Watch", self)
+        watch_action.setCheckable(True)
+        watch_action.toggled.connect(self._toggle_watch)
+        self.reload_menu.addAction(watch_action)
+        self._watch_timer = qc.QTimer()
+        self._watch_timer.setInterval(50)
+        self._watch_timer.timeout.connect(self._check_watch)
+        self._watch_mtime = None
 
         self.sidebar = qw.QSplitter(qc.Qt.Vertical)
         self.layers = qw.QListWidget()
@@ -223,20 +383,45 @@ class CadViewer(qw.QMainWindow):
 
         container = qw.QSplitter()
         self.setCentralWidget(container)
-        container.addWidget(self.view)
+        container.addWidget(self._cad)
         container.addWidget(self.sidebar)
         container.setCollapsible(0, False)
         container.setCollapsible(1, True)
         w = container.width()
         container.setSizes([int(3 * w / 4), int(w / 4)])
-
         self.setWindowTitle("CAD Viewer")
         self.resize(1600, 900)
         self.show()
 
-    def _reset_backend(self):
-        # clear caches
-        self._backend = PyQtBackend(use_text_cache=True)
+    @staticmethod
+    def from_config(config: Configuration) -> CADViewer:
+        return CADViewer(cad=CADWidget(CADGraphicsViewWithOverlay(), config=config))
+
+    def _create_cad_widget(self):
+        self._view = CADGraphicsViewWithOverlay()
+        self._cad = CADWidget(self._view)
+
+    def load_file(self, path: str, layout: str = "Model"):
+        try:
+            if os.path.splitext(path)[1].lower() == ".dwg":
+                doc = odafc.readfile(path)
+                auditor = doc.audit()
+            else:
+                try:
+                    doc = ezdxf.readfile(path)
+                except ezdxf.DXFError:
+                    doc, auditor = recover.readfile(path)
+                else:
+                    auditor = doc.audit()
+            self.set_document(doc, auditor, layout=layout)
+        except IOError as e:
+            qw.QMessageBox.critical(self, "Loading Error", str(e))
+        except DXFStructureError as e:
+            qw.QMessageBox.critical(
+                self,
+                "DXF Structure Error",
+                f'Invalid DXF file "{path}": {str(e)}',
+            )
 
     def _select_doc(self):
         path, _ = qw.QFileDialog.getOpenFileName(
@@ -245,26 +430,7 @@ class CadViewer(qw.QMainWindow):
             filter="CAD Documents (*.dxf *.DXF *.dwg *.DWG)",
         )
         if path:
-            try:
-                if os.path.splitext(path)[1].lower() == ".dwg":
-                    doc = odafc.readfile(path)
-                    auditor = doc.audit()
-                else:
-                    try:
-                        doc = ezdxf.readfile(path)
-                    except ezdxf.DXFError:
-                        doc, auditor = recover.readfile(path)
-                    else:
-                        auditor = doc.audit()
-                self.set_document(doc, auditor)
-            except IOError as e:
-                qw.QMessageBox.critical(self, "Loading Error", str(e))
-            except DXFStructureError as e:
-                qw.QMessageBox.critical(
-                    self,
-                    "DXF Structure Error",
-                    f'Invalid DXF file "{path}": {str(e)}',
-                )
+            self.load_file(path)
 
     def set_document(
         self,
@@ -285,31 +451,23 @@ class CadViewer(qw.QMainWindow):
                 auditor.print_error_report(auditor.errors)
                 return
 
-        self.doc = document
-        # initialize bounding box cache for faste paperspace drawing
-        self._bbox_cache = ezdxf.bbox.Cache()
-        self._render_context = self._make_render_context(document)
-        self._reset_backend()
-        self._visible_layers = set()
-        self._current_layout = None
+        if document.filename:
+            try:
+                self._watch_mtime = os.stat(document.filename).st_mtime
+            except OSError:
+                self._watch_mtime = None
+        else:
+            self._watch_mtime = None
+        self._cad.set_document(document, layout=layout)
+        self._doc = document
         self._populate_layouts()
         self._populate_layer_list()
-        self.draw_layout(layout)
         self.setWindowTitle("CAD Viewer - " + str(document.filename))
-
-    def _make_render_context(self, doc) -> RenderContext:
-        def update_layers_state(layers: Sequence[LayerProperties]):
-            if self._visible_layers:
-                set_layers_state(layers, self._visible_layers, state=True)
-
-        render_context = RenderContext(doc)
-        render_context.set_layer_properties_override(update_layers_state)
-        return render_context
 
     def _populate_layer_list(self):
         self.layers.blockSignals(True)
         self.layers.clear()
-        for layer in self._render_context.layers.values():
+        for layer in self._cad.render_context.layers.values():
             name = layer.layer
             item = qw.QListWidgetItem()
             self.layers.addItem(item)
@@ -318,9 +476,7 @@ class CadViewer(qw.QMainWindow):
                 qc.Qt.Checked if layer.is_visible else qc.Qt.Unchecked
             )
             checkbox.stateChanged.connect(self._layers_updated)
-            text_color = (
-                "#FFFFFF" if is_dark_color(layer.color, 0.4) else "#000000"
-            )
+            text_color = "#FFFFFF" if is_dark_color(layer.color, 0.4) else "#000000"
             checkbox.setStyleSheet(
                 f"color: {text_color}; background-color: {layer.color}"
             )
@@ -335,7 +491,7 @@ class CadViewer(qw.QMainWindow):
             return run
 
         self.select_layout_menu.clear()
-        for layout_name in self.doc.layout_names_in_taborder():
+        for layout_name in self._cad.doc.layout_names_in_taborder():
             action = QAction(layout_name, self)
             action.triggered.connect(draw_layout(layout_name))
             self.select_layout_menu.addAction(action)
@@ -346,15 +502,9 @@ class CadViewer(qw.QMainWindow):
         reset_view: bool = True,
     ):
         print(f"drawing {layout_name}")
-        self._current_layout = layout_name
-        self.view.begin_loading()
-        new_scene = qw.QGraphicsScene()
-        self._backend.set_scene(new_scene)
-        layout = self.doc.layout(layout_name)
-        self._update_render_context(layout)
         try:
             start = time.perf_counter()
-            self.create_frontend().draw_layout(layout)
+            self._cad.draw_layout(layout_name, reset_view=reset_view)
             duration = time.perf_counter() - start
             print(f"took {duration:.4f} seconds")
         except DXFStructureError as e:
@@ -363,27 +513,9 @@ class CadViewer(qw.QMainWindow):
                 "DXF Structure Error",
                 f'Abort rendering of layout "{layout_name}": {str(e)}',
             )
-        finally:
-            self._backend.finalize()
-        self.view.end_loading(new_scene)
-        self.view.buffer_scene_rect()
-        if reset_view:
-            self.view.fit_to_scene()
-
-    def create_frontend(self):
-        return Frontend(
-            ctx=self._render_context,
-            out=self._backend,
-            config=self._config,
-            bbox_cache=self._bbox_cache
-        )
-
-    def _update_render_context(self, layout):
-        assert self._render_context is not None
-        self._render_context.set_current_layout(layout)
 
     def resizeEvent(self, event: qg.QResizeEvent) -> None:
-        self.view.fit_to_scene()
+        self._view.fit_to_scene()
 
     def _layer_checkboxes(self) -> Iterable[tuple[int, qw.QCheckBox]]:
         for i in range(self.layers.count()):
@@ -399,15 +531,48 @@ class CadViewer(qw.QMainWindow):
                 item.setCheckState(item_state)
                 item.blockSignals(False)
 
-        self._visible_layers = set()
+        visible_layers = set()
         for i, layer in self._layer_checkboxes():
             if layer.checkState() == qc.Qt.Checked:
-                self._visible_layers.add(layer.text())
-        self.draw_layout(self._current_layout, reset_view=False)
+                visible_layers.add(layer.text())
+        self._cad.set_visible_layers(visible_layers)
 
     @Slot()
     def _toggle_sidebar(self):
         self.sidebar.setHidden(not self.sidebar.isHidden())
+
+    @Slot()
+    def _toggle_selection_marker(self):
+        self._view.toggle_selection_marker()
+
+    @Slot()
+    def _reload(self):
+        if self._cad.doc is not None and self._cad.doc.filename:
+            keep_view = self.keep_view_action.isChecked()
+            view = self._view.save_view() if keep_view else None
+            self.load_file(self._cad.doc.filename, layout=self._cad.current_layout)
+            if keep_view:
+                self._view.restore_view(view)
+
+    @Slot()
+    def _toggle_watch(self):
+        if self._watch_timer.isActive():
+            self._watch_timer.stop()
+        else:
+            self._watch_timer.start()
+
+    @Slot()
+    def _check_watch(self):
+        if self._watch_mtime is None or self._cad.doc is None:
+            return
+        filename = self._cad.doc.filename
+        if filename:
+            try:
+                mtime = os.stat(filename).st_mtime
+            except OSError:
+                return
+            if mtime != self._watch_mtime:
+                self._reload()
 
     @Slot(qc.QPointF)
     def _on_mouse_moved(self, mouse_pos: qc.QPointF):
@@ -416,17 +581,15 @@ class CadViewer(qw.QMainWindow):
         )
 
     @Slot(object, int)
-    def _on_element_selected(
-        self, elements: list[qw.QGraphicsItem], index: int
-    ):
+    def _on_element_hovered(self, elements: list[qw.QGraphicsItem], index: int):
         if not elements:
             text = "No element selected"
         else:
-            text = (
-                f"Selected: {index + 1} / {len(elements)}    (click to cycle)\n"
-            )
+            text = f"Selected: {index + 1} / {len(elements)}    (click to cycle)\n"
             element = elements[index]
-            dxf_entity = element.data(CorrespondingDXFEntity)
+            dxf_entity: DXFGraphic | str | None = element.data(CorrespondingDXFEntity)
+            if isinstance(dxf_entity, str):
+                dxf_entity = self.load_dxf_entity(dxf_entity)
             if dxf_entity is None:
                 text += "No data"
             else:
@@ -442,8 +605,12 @@ class CadViewer(qw.QMainWindow):
                     for entity in reversed(dxf_parent_stack):
                         text += f"- {entity}\n"
                         text += _entity_attribs_string(entity, indent="    ")
-
         self.selected_info.setPlainText(text)
+
+    def load_dxf_entity(self, entity_handle: str) -> DXFGraphic | None:
+        if self._doc is not None:
+            return self._doc.entitydb.get(entity_handle)
+        return None
 
 
 def _entity_attribs_string(dxf_entity: DXFGraphic, indent: str = "") -> str:

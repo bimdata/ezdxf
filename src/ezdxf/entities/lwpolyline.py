@@ -102,7 +102,7 @@ class LWPolyline(DXFGraphic):
         super().__init__()
         self.lwpoints = LWPolylinePoints()
 
-    def _copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity) -> None:
         """Copy lwpoints."""
         assert isinstance(entity, LWPolyline)
         entity.lwpoints = copy.deepcopy(self.lwpoints)
@@ -415,9 +415,9 @@ class LWPolyline(DXFGraphic):
     def explode(self, target_layout: Optional[BaseLayout] = None) -> EntityQuery:
         """Explode the LWPOLYLINE entity as DXF primitives (LINE or ARC) into
         the target layout, if the target layout is ``None``, the target layout
-        is the layout of the source entity.
+        is the layout of the source entity. This method destroys the source entity.
 
-        Returns an :class:`~ezdxf.query.EntityQuery` container of all DXF
+        Returns an :class:`~ezdxf.query.EntityQuery` container referencing all DXF
         primitives.
 
         Args:

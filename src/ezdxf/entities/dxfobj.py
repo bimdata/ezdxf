@@ -41,13 +41,6 @@ class DXFObject(DXFEntity):
 
     MIN_DXF_VERSION_FOR_EXPORT = DXF2000
 
-    def audit(self, auditor: Auditor) -> None:
-        """Validity check. (internal API)"""
-        if not self.is_alive:
-            return
-        super().audit(auditor)
-        auditor.check_owner_exist(self)
-
 
 @register_entity
 class Placeholder(DXFObject):
@@ -92,7 +85,7 @@ class XRecord(DXFObject):
         super().__init__()
         self.tags = Tags()
 
-    def _copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity) -> None:
         assert isinstance(entity, XRecord)
         entity.tags = Tags(self.tags)
 
@@ -167,7 +160,7 @@ class VBAProject(DXFObject):
         super().__init__()
         self.data = b""
 
-    def _copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity) -> None:
         assert isinstance(entity, VBAProject)
         entity.data = entity.data
 
@@ -250,7 +243,7 @@ class SortEntsTable(DXFObject):
         super().__init__()
         self.table: dict[str, str] = dict()
 
-    def _copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity) -> None:
         assert isinstance(entity, SortEntsTable)
         entity.table = dict(entity.table)
 

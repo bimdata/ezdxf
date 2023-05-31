@@ -1,4 +1,4 @@
-#  Copyright (c) 2021-2022, Manfred Moitzi
+#  Copyright (c) 2021-2023, Manfred Moitzi
 #  License: MIT License
 from __future__ import annotations
 from typing import Union, Iterable, Sequence, Optional, TYPE_CHECKING
@@ -519,7 +519,7 @@ class BoundaryPaths:
 
 def flatten_to_polyline_path(
     path: AbstractBoundaryPath, distance: float, segments: int = 16
-) -> "PolylinePath":
+) -> PolylinePath:
     import ezdxf.path  # avoid cyclic imports
 
     # keep path in original OCS!
@@ -575,7 +575,7 @@ class PolylinePath(AbstractBoundaryPath):
         path_vertices: Iterable[tuple[float, ...]],
         is_closed: bool = True,
         flags: int = 1,
-    ) -> "PolylinePath":
+    ) -> PolylinePath:
         """Create a new :class:`PolylinePath` object from vertices.
 
         Args:
@@ -592,7 +592,7 @@ class PolylinePath(AbstractBoundaryPath):
         return new_path
 
     @classmethod
-    def load_tags(cls, tags: Tags) -> "PolylinePath":
+    def load_tags(cls, tags: Tags) -> PolylinePath:
         path = PolylinePath()
         path.source_boundary_objects = pop_source_boundary_objects_tags(tags)
         for tag in tags:
@@ -703,32 +703,25 @@ class EdgePath(AbstractBoundaryPath):
         return iter(self.edges)
 
     @classmethod
-    def load_tags(cls, tags: Tags) -> "EdgePath":
+    def load_tags(cls, tags: Tags) -> EdgePath:
         edge_path = cls()
         edge_path.source_boundary_objects = pop_source_boundary_objects_tags(
             tags
         )
-        edge_groups = group_tags(tags, splitcode=72)
-        for edge_tags in edge_groups:
-            edge_path.edges.append(edge_path.load_edge(edge_tags))
+        for edge_tags in group_tags(tags, splitcode=72):
+            if len(edge_tags) == 0:
+                continue
+            edge_type = edge_tags[0].value
+            if 0 < edge_type < 5:
+                edge_path.edges.append(EDGE_CLASSES[edge_type].load_tags(edge_tags[1:]))
         return edge_path
-
-    @staticmethod
-    def load_edge(tags: Tags) -> AbstractEdge:
-        edge_type = tags[0].value
-        if 0 < edge_type < 5:
-            return EDGE_CLASSES[edge_type].load_tags(tags[1:])
-        else:
-            raise const.DXFStructureError(
-                f"HATCH: unknown edge type: {edge_type}"
-            )
 
     def transform(self, ocs: OCSTransform, elevation: float) -> None:
         """Transform edge boundary paths."""
         for edge in self.edges:
             edge.transform(ocs, elevation=elevation)
 
-    def add_line(self, start: UVec, end: UVec) -> "LineEdge":
+    def add_line(self, start: UVec, end: UVec) -> LineEdge:
         """Add a :class:`LineEdge` from `start` to `end`.
 
         Args:
@@ -749,7 +742,7 @@ class EdgePath(AbstractBoundaryPath):
         start_angle: float = 0.0,
         end_angle: float = 360.0,
         ccw: bool = True,
-    ) -> "ArcEdge":
+    ) -> ArcEdge:
         """Add an :class:`ArcEdge`.
 
         **Adding Clockwise Oriented Arcs:**
@@ -772,7 +765,7 @@ class EdgePath(AbstractBoundaryPath):
                 clockwise oriented arc)
             end_angle: end angle of arc in degrees (`start_angle` for a
                 clockwise oriented arc)
-            ccw: ``True`` for counter clockwise ``False`` for
+            ccw: ``True`` for counter-clockwise ``False`` for
                 clockwise orientation
 
         """
@@ -820,7 +813,7 @@ class EdgePath(AbstractBoundaryPath):
                 clockwise oriented ellipse)
             end_angle: end angle of ellipse in degrees (`start_angle` for a
                 clockwise oriented ellipse)
-            ccw: ``True`` for counter clockwise ``False`` for
+            ccw: ``True`` for counter-clockwise ``False`` for
                 clockwise orientation
 
         """

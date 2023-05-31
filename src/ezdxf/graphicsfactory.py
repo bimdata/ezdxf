@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2022, Manfred Moitzi
+# Copyright (c) 2013-2023, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
 from typing import (
@@ -63,6 +63,7 @@ if TYPE_CHECKING:
         Region,
         RevolvedSurface,
         Shape,
+        Solid,
         Solid3d,
         SweptSurface,
         Text,
@@ -230,7 +231,7 @@ class CreatorInterface:
             dxfattribs["end_angle"] = float(start_angle)
         return self.new_entity("ARC", dxfattribs)  # type: ignore
 
-    def add_solid(self, points: Iterable[UVec], dxfattribs=None) -> Spline:
+    def add_solid(self, points: Iterable[UVec], dxfattribs=None) -> Solid:
         """Add a :class:`~ezdxf.entities.Solid` entity, `points` is an iterable
         of 3 or 4 points.
 
@@ -452,7 +453,7 @@ class CreatorInterface:
             )
 
         close = dxfattribs.pop("closed", close)
-        polyline: "Polyline" = self.new_entity("POLYLINE", dxfattribs)  # type: ignore
+        polyline: Polyline = self.new_entity("POLYLINE", dxfattribs)  # type: ignore
         polyline.close(close)
         if format is not None:
             polyline.append_formatted_vertices(points, format=format)
@@ -531,7 +532,7 @@ class CreatorInterface:
         )
         m_close = dxfattribs.pop("m_close", False)
         n_close = dxfattribs.pop("n_close", False)
-        polyface: "Polyface" = self.new_entity("POLYLINE", dxfattribs)  # type: ignore
+        polyface: Polyface = self.new_entity("POLYLINE", dxfattribs)  # type: ignore
         polyface.close(m_close, n_close)
         if self.doc:
             polyface.add_sub_entities_to_entitydb(self.doc.entitydb)
@@ -540,7 +541,7 @@ class CreatorInterface:
 
     def _add_quadrilateral(
         self, type_: str, points: Iterable[UVec], dxfattribs=None
-    ) -> "DXFGraphic":
+    ) -> DXFGraphic:
         dxfattribs = dict(dxfattribs or {})
         entity = self.new_entity(type_, dxfattribs)
         for x, point in enumerate(self._four_points(points)):
@@ -627,7 +628,7 @@ class CreatorInterface:
                 DeprecationWarning,
             )
         close = dxfattribs.pop("closed", close)
-        lwpolyline: "LWPolyline" = self.new_entity("LWPOLYLINE", dxfattribs)  # type: ignore
+        lwpolyline: LWPolyline = self.new_entity("LWPOLYLINE", dxfattribs)  # type: ignore
         lwpolyline.set_points(points, format=format)
         lwpolyline.closed = close
         return lwpolyline
@@ -646,7 +647,7 @@ class CreatorInterface:
         if self.dxfversion < DXF2000:
             raise DXFVersionError("MTEXT requires DXF R2000")
         dxfattribs = dict(dxfattribs or {})
-        mtext: "MText" = self.new_entity("MTEXT", dxfattribs)  # type: ignore
+        mtext: MText = self.new_entity("MTEXT", dxfattribs)  # type: ignore
         mtext.text = str(text)
         return mtext
 
@@ -900,7 +901,7 @@ class CreatorInterface:
             raise DXFVersionError("SPLINE requires DXF R2000")
         dxfattribs = dict(dxfattribs or {})
         dxfattribs["degree"] = int(degree)
-        spline: "Spline" = self.new_entity("SPLINE", dxfattribs)  # type: ignore
+        spline: Spline = self.new_entity("SPLINE", dxfattribs)  # type: ignore
         if fit_points is not None:
             spline.fit_points = Vec3.generate(fit_points)
         return spline
@@ -954,25 +955,18 @@ class CreatorInterface:
         self,
         fit_points: Iterable[UVec],
         tangents: Optional[Iterable[UVec]] = None,
-        estimate: str = "5-p",
         dxfattribs=None,
     ) -> Spline:
         """Add a :class:`~ezdxf.entities.Spline` entity passing through the
         given fit points.
-        This method tries to create the same curve as CAD applications do.
-        To understand the limitations and for more information see function
-        :func:`ezdxf.math.fit_points_to_cad_cv`.
 
         Args:
             fit_points: iterable of fit points as (x, y[, z]) in :ref:`WCS`
             tangents: start- and end tangent, default is autodetect
-            estimate: tangent direction estimation method
             dxfattribs: additional DXF attributes
 
         """
-        s = fit_points_to_cad_cv(
-            fit_points, tangents=tangents, estimate=estimate
-        )
+        s = fit_points_to_cad_cv(fit_points, tangents=tangents)
         spline = self.add_spline(dxfattribs=dxfattribs)
         spline.apply_construction_tool(s)
         return spline
@@ -1200,7 +1194,7 @@ class CreatorInterface:
         size_in_units: tuple[float, float],
         rotation: float = 0.0,
         dxfattribs=None,
-    ) -> "Image":
+    ) -> Image:
         """
         Add an :class:`~ezdxf.entities.Image` entity, requires a
         :class:`~ezdxf.entities.ImageDef` entity, see :ref:`tut_image`.
@@ -1240,7 +1234,7 @@ class CreatorInterface:
 
         """
         dxfattribs = dict(dxfattribs or {})
-        wipeout: "Wipeout" = self.new_entity("WIPEOUT", dxfattribs=dxfattribs)  # type: ignore
+        wipeout: Wipeout = self.new_entity("WIPEOUT", dxfattribs=dxfattribs)  # type: ignore
         wipeout.set_masking_area(vertices)
         doc = self.doc
         if doc and ("ACAD_WIPEOUT_VARS" not in doc.rootdict):
@@ -1249,7 +1243,7 @@ class CreatorInterface:
 
     def add_underlay(
         self,
-        underlay_def: "UnderlayDefinition",
+        underlay_def: UnderlayDefinition,
         insert: UVec = (0, 0, 0),
         scale=(1, 1, 1),
         rotation: float = 0.0,
@@ -1297,7 +1291,7 @@ class CreatorInterface:
         base: UVec,
         p1: UVec,
         p2: UVec,
-        location: UVec = None,
+        location: Optional[UVec] = None,
         text: str = "<>",
         angle: float = 0,
         # 0=horizontal, 90=vertical, else=rotated
@@ -1346,7 +1340,7 @@ class CreatorInterface:
 
         """
         type_ = {"dimtype": const.DIM_LINEAR | const.DIM_BLOCK_EXCLUSIVE}
-        dimline: "Dimension" = self.new_entity("DIMENSION", dxfattribs=type_)  # type: ignore
+        dimline: Dimension = self.new_entity("DIMENSION", dxfattribs=type_)  # type: ignore
         dxfattribs = dict(dxfattribs or {})
         dxfattribs["dimstyle"] = self._safe_dimstyle(dimstyle)
         dxfattribs["defpoint"] = Vec3(base)  # group code 10
@@ -1495,7 +1489,7 @@ class CreatorInterface:
         line1: tuple[UVec, UVec],
         line2: tuple[UVec, UVec],
         *,
-        location: UVec = None,
+        location: Optional[UVec] = None,
         text: str = "<>",
         text_rotation: Optional[float] = None,
         dimstyle: str = "EZ_CURVED",
@@ -1545,7 +1539,7 @@ class CreatorInterface:
 
         """
         type_ = {"dimtype": const.DIM_ANGULAR | const.DIM_BLOCK_EXCLUSIVE}
-        dimline: "Dimension" = self.new_entity("DIMENSION", dxfattribs=type_)  # type: ignore
+        dimline: Dimension = self.new_entity("DIMENSION", dxfattribs=type_)  # type: ignore
 
         dxfattribs = dict(dxfattribs or {})
         dxfattribs["dimstyle"] = self._safe_dimstyle(dimstyle)
@@ -1574,7 +1568,7 @@ class CreatorInterface:
         p1: UVec,
         p2: UVec,
         *,
-        location: UVec = None,
+        location: Optional[UVec] = None,
         text: str = "<>",
         text_rotation: Optional[float] = None,
         dimstyle: str = "EZ_CURVED",
@@ -1656,7 +1650,7 @@ class CreatorInterface:
         end_angle: float,
         distance: float,
         *,
-        location: UVec = None,
+        location: Optional[UVec] = None,
         text: str = "<>",
         text_rotation: Optional[float] = None,
         dimstyle: str = "EZ_CURVED",
@@ -1727,7 +1721,7 @@ class CreatorInterface:
         arc: ConstructionArc,
         distance: float,
         *,
-        location: UVec = None,
+        location: Optional[UVec] = None,
         text: str = "<>",
         text_rotation: Optional[float] = None,
         dimstyle: str = "EZ_CURVED",
@@ -1786,7 +1780,7 @@ class CreatorInterface:
         p1: UVec,
         p2: UVec,
         *,
-        location: UVec = None,
+        location: Optional[UVec] = None,
         text: str = "<>",
         text_rotation: Optional[float] = None,
         dimstyle: str = "EZ_CURVED",
@@ -1841,7 +1835,7 @@ class CreatorInterface:
         # always set dimtype to 8 for DXF R2013+, the DXF export handles the
         # version dependent dimtype
         type_ = {"dimtype": const.DIM_ARC | const.DIM_BLOCK_EXCLUSIVE}
-        dimline: "ArcDimension" = self.new_entity(  # type: ignore
+        dimline: ArcDimension = self.new_entity(  # type: ignore
             "ARC_DIMENSION", dxfattribs=type_
         )
         dxfattribs = dict(dxfattribs or {})
@@ -1877,7 +1871,7 @@ class CreatorInterface:
         end_angle: float,
         distance: float,
         *,
-        location: UVec = None,
+        location: Optional[UVec] = None,
         text: str = "<>",
         text_rotation: Optional[float] = None,
         dimstyle: str = "EZ_CURVED",
@@ -1949,7 +1943,7 @@ class CreatorInterface:
         arc: ConstructionArc,
         distance: float,
         *,
-        location: UVec = None,
+        location: Optional[UVec] = None,
         text: str = "<>",
         text_rotation: Optional[float] = None,
         dimstyle: str = "EZ_CURVED",
@@ -2633,7 +2627,7 @@ class CreatorInterface:
             raise DXFVersionError("MLine requires DXF R2000")
         dxfattribs = dict(dxfattribs or {})
         style_name = dxfattribs.pop("style_name", "Standard")
-        mline: "MLine" = self.new_entity("MLINE", dxfattribs)  # type: ignore
+        mline: MLine = self.new_entity("MLINE", dxfattribs)  # type: ignore
         # close() method regenerates geometry!
         mline.set_flag_state(mline.CLOSED, close)
         mline.set_style(style_name)
@@ -2671,7 +2665,7 @@ class CreatorInterface:
         if self.dxfversion < DXF2000:
             raise DXFVersionError("Helix requires DXF R2000")
         dxfattribs = dict(dxfattribs or {})
-        helix: "Helix" = self.new_entity("HELIX", dxfattribs)  # type: ignore
+        helix: Helix = self.new_entity("HELIX", dxfattribs)  # type: ignore
         base = Vec3(0, 0, 0)
         helix.dxf.axis_base_point = base
         helix.dxf.radius = float(radius)

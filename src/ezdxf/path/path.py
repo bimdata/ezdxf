@@ -1,15 +1,21 @@
-# Copyright (c) 2020-2022, Manfred Moitzi
+# Copyright (c) 2020-2023, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
+import abc
 from typing import (
-    Iterable,
     Optional,
     Iterator,
-    no_type_check,
     Any,
+    TypeVar,
+    Type,
+    Generic,
+    Callable,
+    Sequence,
 )
+from typing_extensions import Self
 from ezdxf.math import (
     Vec3,
+    Vec2,
     NULLVEC,
     OCS,
     Bezier3P,
@@ -29,38 +35,46 @@ from .commands import (
     PathElement,
 )
 
-__all__ = ["Path"]
+__all__ = ["AbstractPath", "Path", "Path2d"]
 
 MAX_DISTANCE = 0.01
 MIN_SEGMENTS = 4
 G1_TOL = 1e-4
 
+T = TypeVar("T", Vec2, Vec3)
 
-class Path:
-    __slots__ = (
-        "_vertices",
-        "_start_index",
-        "_commands",
-        "_has_sub_paths",
-        "_user_data",
-    )
+_slots = ("_vertices", "_start_index", "_commands", "_has_sub_paths", "_user_data")
+
+
+class AbstractPath(Generic[T], abc.ABC):
+    __slots__ = _slots
+    _pnt_class: Type[T]
 
     def __init__(self, start: UVec = NULLVEC):
-        # stores all command vertices in a contiguous list
-        self._vertices: list[Vec3] = [Vec3(start)]
+        # stores all command vertices in a contiguous list:
+        self._vertices: list[T] = [self._pnt_class(start)]
         # start index of each command
         self._start_index: list[int] = []
         self._commands: list[Command] = []
         self._has_sub_paths = False
         self._user_data: Any = None  # should be immutable data!
 
+    @abc.abstractmethod
+    def transform(self, m: Matrix44) -> Self:
+        """Returns a new transformed path.
+
+        Args:
+             m: transformation matrix of type :class:`~ezdxf.math.Matrix44`
+
+        """
+        ...
+
     def __len__(self) -> int:
         """Returns count of path elements."""
         return len(self._commands)
 
     def __getitem__(self, item) -> PathElement:
-        """Returns the path element at given index, slicing is not supported.
-        """
+        """Returns the path element at given index, slicing is not supported."""
         if isinstance(item, slice):
             raise TypeError("slicing not supported")
         cmd = self._commands[item]
@@ -74,7 +88,9 @@ class Path:
             return Curve3To(vertices[index + 1], vertices[index])
         if cmd == Command.CURVE4_TO:
             return Curve4To(  # end, ctrl1, ctrl2
-                vertices[index + 2], vertices[index], vertices[index + 1]
+                vertices[index + 2],
+                vertices[index],
+                vertices[index + 1],
             )
         raise ValueError(f"Invalid command: {cmd}")
 
@@ -85,17 +101,21 @@ class Path:
         """Returns all path elements as list."""
         return list(self.__iter__())
 
-    def __copy__(self) -> Path:
+    def __copy__(self) -> Self:
         """Returns a new copy of :class:`Path` with shared immutable data."""
-        copy = Path()
-        copy._commands = self._commands.copy()
-        # vertices are immutable - no copying required
+        copy = self.__class__()
+        # vertices itself are immutable - no copying required
         copy._vertices = self._vertices.copy()
-        copy._start_index = self._start_index.copy()
-        copy._has_sub_paths = self._has_sub_paths
-        # copy by reference: user data should be immutable data!
-        copy._user_data = self._user_data
+        self._copy_properties(copy)
         return copy
+
+    def _copy_properties(self, clone: AbstractPath) -> None:
+        assert len(self._vertices) == len(clone._vertices)
+        clone._commands = self._commands.copy()
+        clone._start_index = self._start_index.copy()
+        clone._has_sub_paths = self._has_sub_paths
+        # copy by reference: user data should be immutable data!
+        clone._user_data = self._user_data
 
     clone = __copy__
 
@@ -112,7 +132,7 @@ class Path:
         self._user_data = data
 
     @property
-    def start(self) -> Vec3:
+    def start(self) -> T:
         """:class:`Path` start point, resetting the start point of an empty
         path is possible.
         """
@@ -123,18 +143,22 @@ class Path:
         if self._commands:
             raise ValueError("Requires an empty path.")
         else:
-            self._vertices[0] = Vec3(location)
+            self._vertices[0] = self._pnt_class(location)
 
     @property
-    def end(self) -> Vec3:
+    def end(self) -> T:
         """:class:`Path` end point."""
         return self._vertices[-1]
 
-    def control_vertices(self) -> list[Vec3]:
+    def control_vertices(self) -> list[T]:
         """Yields all path control vertices in consecutive order."""
         if self._commands:
             return list(self._vertices)
         return []
+
+    def command_codes(self) -> list[int]:
+        """Internal API."""
+        return list(self._commands)
 
     @property
     def is_closed(self) -> bool:
@@ -192,7 +216,7 @@ class Path:
         """Add a line from actual path end point to `location`."""
         self._commands.append(Command.LINE_TO)
         self._start_index.append(len(self._vertices))
-        self._vertices.append(Vec3(location))
+        self._vertices.append(self._pnt_class(location))
 
     def move_to(self, location: UVec) -> None:
         """Start a new sub-path at `location`. This creates a gap between the
@@ -205,7 +229,7 @@ class Path:
         """
         commands = self._commands
         if not commands:
-            self._vertices[0] = Vec3(location)
+            self._vertices[0] = self._pnt_class(location)
             return
         self._has_sub_paths = True
         if commands[-1] == Command.MOVE_TO:
@@ -215,7 +239,7 @@ class Path:
             self._start_index.pop()
         commands.append(Command.MOVE_TO)
         self._start_index.append(len(self._vertices))
-        self._vertices.append(Vec3(location))
+        self._vertices.append(self._pnt_class(location))
 
     def curve3_to(self, location: UVec, ctrl: UVec) -> None:
         """Add a quadratic Bèzier-curve from actual path end point to
@@ -223,7 +247,7 @@ class Path:
         """
         self._commands.append(Command.CURVE3_TO)
         self._start_index.append(len(self._vertices))
-        self._vertices.extend((Vec3(ctrl), Vec3(location)))
+        self._vertices.extend((self._pnt_class(ctrl), self._pnt_class(location)))
 
     def curve4_to(self, location: UVec, ctrl1: UVec, ctrl2: UVec) -> None:
         """Add a cubic Bèzier-curve from actual path end point to `location`,
@@ -231,7 +255,8 @@ class Path:
         """
         self._commands.append(Command.CURVE4_TO)
         self._start_index.append(len(self._vertices))
-        self._vertices.extend((Vec3(ctrl1), Vec3(ctrl2), Vec3(location)))
+        pnt = self._pnt_class
+        self._vertices.extend((pnt(ctrl1), pnt(ctrl2), pnt(location)))
 
     def close(self) -> None:
         """Close path by adding a line segment from the end point to the start
@@ -255,7 +280,7 @@ class Path:
         else:
             self.close()
 
-    def _start_of_last_sub_path(self) -> Optional[Vec3]:
+    def _start_of_last_sub_path(self) -> Optional[T]:
         move_to = Command.MOVE_TO
         commands = self._commands
         index = len(commands) - 1
@@ -266,7 +291,7 @@ class Path:
             index -= 1
         return None
 
-    def reversed(self) -> Path:
+    def reversed(self) -> Self:
         """Returns a new :class:`Path` with reversed segments and control
         vertices.
 
@@ -305,7 +330,7 @@ class Path:
             elif cmd == Command.MOVE_TO:
                 start += 1
 
-    def clockwise(self) -> Path:
+    def clockwise(self) -> Self:
         """Returns new :class:`Path` in clockwise orientation.
 
         Raises:
@@ -317,7 +342,7 @@ class Path:
         else:
             return self.reversed()
 
-    def counter_clockwise(self) -> Path:
+    def counter_clockwise(self) -> Self:
         """Returns new :class:`Path` in counter-clockwise orientation.
 
         Raises:
@@ -330,7 +355,8 @@ class Path:
         else:
             return self.clone()
 
-    def approximate(self, segments: int = 20) -> Iterator[Vec3]:
+    @abc.abstractmethod
+    def approximate(self, segments: int = 20) -> Iterator[T]:
         """Approximate path by vertices, `segments` is the count of
         approximation segments for each Bézier curve.
 
@@ -341,16 +367,10 @@ class Path:
         indistinguishable from line segments.
 
         """
+        ...
 
-        def approx_curve3(s, c, e) -> Iterable[Vec3]:
-            return Bezier3P((s, c, e)).approximate(segments)
-
-        def approx_curve4(s, c1, c2, e) -> Iterable[Vec3]:
-            return Bezier4P((s, c1, c2, e)).approximate(segments)
-
-        yield from self._approximate(approx_curve3, approx_curve4)
-
-    def flattening(self, distance: float, segments: int = 16) -> Iterator[Vec3]:
+    @abc.abstractmethod
+    def flattening(self, distance: float, segments: int = 16) -> Iterator[T]:
         """Approximate path by vertices and use adaptive recursive flattening
         to approximate Bèzier curves. The argument `segments` is the
         minimum count of approximation segments for each curve, if the distance
@@ -370,66 +390,44 @@ class Path:
             segments: minimum segment count per Bézier curve
 
         """
+        ...
 
-        def approx_curve3(s, c, e) -> Iterable[Vec3]:
-            if distance == 0.0:
-                raise ValueError(f"invalid max distance: {distance}")
-            return Bezier3P((s, c, e)).flattening(distance, segments)
-
-        def approx_curve4(s, c1, c2, e) -> Iterable[Vec3]:
-            if distance == 0.0:
-                raise ValueError(f"invalid max distance: {distance}")
-            return Bezier4P((s, c1, c2, e)).flattening(distance, segments)
-
-        yield from self._approximate(approx_curve3, approx_curve4)
-
-    @no_type_check
-    def _approximate(self, approx_curve3, approx_curve4) -> Iterator[Vec3]:
+    def _approximate(self, curve3: Callable, curve4: Callable) -> Iterator[T]:
         if not self._commands:
             return
 
         start = self._vertices[0]
         yield start
 
-        # localize variables:
-        line_to, curve3_to, curve4_to, move_to = Command
         vertices = self._vertices
         for si, cmd in zip(self._start_index, self._commands):
-            if cmd == line_to or cmd == move_to:
+            if cmd == Command.LINE_TO or cmd == Command.MOVE_TO:
                 end_location = vertices[si]
                 yield end_location
-            elif cmd == curve3_to:
+            elif cmd == Command.CURVE3_TO:
                 ctrl, end_location = vertices[si : si + 2]
-                pts = iter(approx_curve3(start, ctrl, end_location))
+                pts = curve3(start, ctrl, end_location)
                 next(pts)  # skip first vertex
                 yield from pts
-            elif cmd == curve4_to:
+            elif cmd == Command.CURVE4_TO:
                 ctrl1, ctrl2, end_location = vertices[si : si + 3]
-                pts = iter(approx_curve4(start, ctrl1, ctrl2, end_location))
+                pts = curve4(start, ctrl1, ctrl2, end_location)
                 next(pts)  # skip first vertex
                 yield from pts
             else:
                 raise ValueError(f"Invalid command: {cmd}")
             start = end_location
 
-    def transform(self, m: Matrix44) -> Path:
-        """Returns a new transformed path.
-
-        Args:
-             m: transformation matrix of type :class:`~ezdxf.math.Matrix44`
-
-        """
-        new_path = self.clone()
-        new_path._vertices = list(m.transform_vertices(self._vertices))
-        return new_path
-
     def to_wcs(self, ocs: OCS, elevation: float) -> None:
         """Transform path from given `ocs` to WCS coordinates inplace."""
+        # Important: requires a 3D path otherwise would change the type of path
+        if self._pnt_class is not Vec3:
+            raise TypeError("Not supported by 2D paths.")
         self._vertices = list(
             ocs.to_wcs(v.replace(z=elevation)) for v in self._vertices
         )
 
-    def sub_paths(self) -> Iterator[Path]:
+    def sub_paths(self) -> Iterator[Self]:
         """Yield sub-path as :term:`Single-Path` objects.
 
         It is safe to call :meth:`sub_paths` on any path-type:
@@ -448,7 +446,7 @@ class Path:
                 path.append_path_element(cmd)
         yield path
 
-    def extend_multi_path(self, path: Path) -> None:
+    def extend_multi_path(self, path: AbstractPath[T]) -> None:
         """Extend the path by another path. The source path is automatically a
         :term:`Multi-Path` object, even if the previous end point matches the
         start point of the appended path. Ignores paths without any commands
@@ -460,7 +458,7 @@ class Path:
             for cmd in path.commands():
                 self.append_path_element(cmd)
 
-    def append_path(self, path: Path) -> None:
+    def append_path(self, path: AbstractPath[T]) -> None:
         """Append another path to this path. Adds a :code:`self.line_to(path.start)`
         if the end of this path != the start of appended path.
 
@@ -474,3 +472,102 @@ class Path:
             self.start = path.start
         for cmd in path.commands():
             self.append_path_element(cmd)
+
+
+class Path(AbstractPath[Vec3]):
+    __slots__ = _slots
+    _pnt_class = Vec3
+
+    def approximate(self, segments: int = 20) -> Iterator[Vec3]:
+        def curve3(p0: T, p1: T, p2: T) -> Iterator[Vec3]:
+            return iter(Bezier3P((p0, p1, p2)).approximate(segments))
+
+        def curve4(p0: T, p1: T, p2: T, p3: T) -> Iterator[Vec3]:
+            return iter(Bezier4P((p0, p1, p2, p3)).approximate(segments))
+
+        return self._approximate(curve3, curve4)
+
+    def flattening(self, distance: float, segments: int = 16) -> Iterator[Vec3]:
+        def curve3(p0: T, p1: T, p2: T) -> Iterator[Vec3]:
+            if distance == 0.0:
+                raise ValueError(f"invalid max distance: 0.0")
+            return iter(Bezier3P((p0, p1, p2)).flattening(distance, segments))
+
+        def curve4(p0: T, p1: T, p2: T, p3: T) -> Iterator[Vec3]:
+            if distance == 0.0:
+                raise ValueError(f"invalid max distance: 0.0")
+            return iter(Bezier4P((p0, p1, p2, p3)).flattening(distance, segments))
+
+        return self._approximate(curve3, curve4)
+
+    def to_2d_path(self) -> Path2d:
+        """Returns a new 2D path. The conversion is almost as fast as a copy.
+
+        .. versionadded:: 1.1
+
+        """
+        path2d = Path2d()
+        path2d._vertices = Vec2.list(self._vertices)
+        self._copy_properties(path2d)
+        return path2d
+
+    def transform(self, m: Matrix44) -> Self:
+        """Returns a new transformed 3D path.
+
+        Args:
+             m: transformation matrix of type :class:`~ezdxf.math.Matrix44`
+
+        """
+        new_path = self.clone()
+        new_path._vertices = list(m.transform_vertices(self._vertices))
+        return new_path
+
+
+class Path2d(AbstractPath[Vec2]):
+    __slots__ = _slots
+    _pnt_class = Vec2
+
+    def approximate(self, segments: int = 20) -> Iterator[Vec2]:
+        def curve3(p0: T, p1: T, p2: T) -> Iterator[Vec2]:
+            return Vec2.generate(Bezier3P((p0, p1, p2)).approximate(segments))
+
+        def curve4(p0: T, p1: T, p2: T, p3: T) -> Iterator[Vec2]:
+            return Vec2.generate(Bezier4P((p0, p1, p2, p3)).approximate(segments))
+
+        return self._approximate(curve3, curve4)
+
+    def flattening(self, distance: float, segments: int = 16) -> Iterator[Vec2]:
+        def curve3(p0: T, p1: T, p2: T) -> Iterator[Vec2]:
+            if distance == 0.0:
+                raise ValueError(f"invalid max distance: 0.0")
+            return Vec2.generate(Bezier3P((p0, p1, p2)).flattening(distance, segments))
+
+        def curve4(p0: T, p1: T, p2: T, p3: T) -> Iterator[Vec2]:
+            if distance == 0.0:
+                raise ValueError(f"invalid max distance: 0.0")
+            return Vec2.generate(
+                Bezier4P((p0, p1, p2, p3)).flattening(distance, segments)
+            )
+
+        return self._approximate(curve3, curve4)
+
+    def to_3d_path(self, elevation: float = 0.0) -> Path:
+        """Returns a new 3D path, the z-axis of all vertices is set to `elevation`.
+        The conversion is almost as fast as a copy.
+        """
+        path3d = Path()
+        elevation = float(elevation)
+        path3d._vertices = [Vec3(v.x, v.y, elevation) for v in self._vertices]
+        self._copy_properties(path3d)
+        return path3d
+
+    def transform(self, m: Matrix44) -> Self:
+        """Returns a new transformed 2D path.
+
+        Args:
+             m: transformation matrix of type :class:`~ezdxf.math.Matrix44`
+
+        """
+        new_path = self.clone()
+        new_path._vertices = list(m.fast_2d_transform(self._vertices))
+        return new_path

@@ -1,4 +1,4 @@
-# Copyright (c) 2011-2021, Manfred Moitzi
+# Copyright (c) 2011-2023, Manfred Moitzi
 # License: MIT License
 import ezdxf
 from ezdxf.tools.test import load_entities
@@ -15,14 +15,55 @@ def test_load_section():
     assert section[0].dxftype() == "DICTIONARY"
 
 
-def test_auditor_removes_invalid_entities():
-    doc = ezdxf.new()
-    count = len(doc.objects)
-    # hack hack hack!
-    doc.objects._entity_space.add(Point())
-    auditor = doc.audit()
-    assert len(auditor.fixes) == 1
-    assert len(doc.objects) == count, "should call purge() automatically"
+class TestAuditObjectSection:
+    def test_auditor_removes_invalid_entities(self):
+        doc = ezdxf.new()
+        count = len(doc.objects)
+        # hack hack hack!
+        doc.objects._entity_space.add(Point())
+        auditor = doc.audit()
+        assert len(auditor.fixes) == 1
+        assert len(doc.objects) == count, "should call purge() automatically"
+
+    def test_audit_restores_deleted_owner_tag(self):
+        doc = ezdxf.new()
+        d = doc.rootdict.add_new_dict("TestMe")
+        d.dxf.discard("owner")
+        doc.audit()
+        assert d.dxf.owner == doc.rootdict.dxf.handle, "expected rootdict as owner"
+
+    def test_validate_known_dictionaries(self):
+        doc = ezdxf.new()
+        materials = doc.rootdict.get_required_dict("ACAD_MATERIAL")
+        v1 = materials.add_dict_var("X", "VAR1")
+        v2 = materials.add_dict_var("Y", "VAR2")
+        assert len(doc.materials) == 5
+
+        auditor = doc.audit()
+        assert len(auditor.fixes) == 2
+        assert len(doc.materials) == 3
+        assert v1.is_alive is False
+        assert v2.is_alive is False
+
+    def test_remove_orphaned_dictionary_and_owned_entries(self):
+        doc = ezdxf.new()
+        orphaned_dict = doc.objects.add_dictionary("ABBA")
+        d1 = orphaned_dict.add_dict_var("D1", "VAR1")
+
+        doc.audit()
+        assert orphaned_dict.is_alive is False
+        assert d1.is_alive is False
+
+    def test_remove_orphaned_dictionary_but_preserve_shared_entries(self):
+        doc = ezdxf.new()
+        valid_dict = doc.rootdict.add_new_dict("MyDict")
+        d1 = valid_dict.add_dict_var("D1", "VAR1")
+        orphaned_dict = doc.objects.add_dictionary("ABBA")
+        orphaned_dict["D1"] = d1
+
+        doc.audit()
+        assert orphaned_dict.is_alive is False
+        assert d1.is_alive is True
 
 
 TESTOBJECTS = """  0

@@ -18,13 +18,18 @@ from ezdxf.audit import Auditor, AuditError
 
 
 class MockDoc:
-    class MockEntityDB:
+    class Objects:
+        def delete_entity(self, entity):
+            pass
+
+    class EntityDB:
         def __getitem__(self, item):
             return item
 
     def __init__(self):
-        self.entitydb = MockDoc.MockEntityDB()
+        self.entitydb = MockDoc.EntityDB()
         self.dxfversion = "AC1015"
+        self.objects = MockDoc.Objects()
 
 
 class TestNoneEmptyDXFDict:
@@ -102,6 +107,10 @@ class TestNoneEmptyDXFDict:
 
     def test_items(self, dxfdict):
         assert 14 == len(list(dxfdict.items()))
+
+    def test_find_key(self, dxfdict):
+        entry = dxfdict["ACAD_COLOR"]
+        assert dxfdict.find_key(entry) == "ACAD_COLOR"
 
 
 class TestEmptyDXFDict:
@@ -274,15 +283,6 @@ def test_audit_fix_invalid_pointer():
     assert "TEST_VAR_3" not in d
 
 
-def test_audit_restores_deleted_owner_tag():
-    doc = ezdxf.new()
-    d = doc.objects.add_dictionary()
-    d.dxf.discard("owner")
-    auditor = Auditor(doc)
-    d.audit(auditor)
-    assert d.dxf.owner == doc.rootdict.dxf.handle, "assign to root dict"
-
-
 def test_link_dxf_object_to_dictionary():
     from ezdxf.entities import DXFObject
 
@@ -415,9 +415,7 @@ class TestCopyNotHardOwnerDictionary:
         dict_var = dictionary.add_dict_var("DICTVAR", "VarContent")
         xrecord = dictionary.add_xrecord("XRECORD")
         xrecord.reset([(1, "String"), (40, 3.1415), (90, 4711)])
-        dictionary2 = doc.rootdict.get_required_dict(
-            "COPYTEST2", hard_owned=False
-        )
+        dictionary2 = doc.rootdict.get_required_dict("COPYTEST2", hard_owned=False)
         dictionary2["DICTVAR"] = dict_var
         dictionary2["XRECORD"] = xrecord
         return dictionary2
@@ -579,4 +577,3 @@ AcDbDictionary
 281
 1
 """
-

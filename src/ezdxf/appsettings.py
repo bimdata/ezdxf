@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from ezdxf.lldxf import const, validator
 from ezdxf.math import BoundingBox
 from ezdxf import bbox
+from ezdxf.enums import EndCaps, JoinStyle
 
 if TYPE_CHECKING:
     from ezdxf.document import Drawing
@@ -60,7 +61,7 @@ def set_current_linetype_scale(doc: Drawing, scale: float):
 
 
 def set_current_textstyle(doc: Drawing, name: str):
-    """Set current textstyle."""
+    """Set current text style."""
     if name not in doc.styles:
         raise const.DXFValueError(f'undefined textstyle: "{name}"')
     doc.header[CURRENT_TEXTSTYLE] = name
@@ -71,6 +72,13 @@ def set_current_dimstyle(doc: Drawing, name: str):
     if name not in doc.dimstyles:
         raise const.DXFValueError(f'undefined dimstyle: "{name}"')
     doc.header[CURRENT_DIMSTYLE] = name
+
+
+def set_current_dimstyle_attribs(doc: Drawing, name: str):
+    """Set current dimstyle and copy all dimstyle attributes to the HEADER section."""
+    set_current_dimstyle(doc, name)
+    dimstyle = doc.dimstyles.get(name)
+    dimstyle.copy_to_header(doc)
 
 
 def restore_wcs(doc: Drawing):
@@ -117,3 +125,13 @@ def show_lineweight(doc: Drawing, state=True) -> None:
     "thickness" (lineweight) if `state` is ``True``.
     """
     doc.header["$LWDISPLAY"] = int(state)
+
+
+def set_lineweight_display_style(
+    doc: Drawing, end_caps: EndCaps, join_style: JoinStyle
+) -> None:
+    """Set the style of end caps and joints for linear entities when displaying
+    line weights. These settings only affect objects created afterwards.
+    """
+    doc.header["$ENDCAPS"] = int(end_caps)
+    doc.header["$JOINSTYLE"] = int(join_style)

@@ -34,6 +34,14 @@ T = TypeVar("T", bound="DXFObject")
 
 
 class ObjectCollection(Generic[T]):
+    """
+    Note:
+    ObjectCollections may contain entries where the name stored in the entity as
+    "name" attribute diverges from the key in the DICTIONARY object e.g. MLEADERSTYLE
+    collection may have entries for "Standard" and "Annotative" but both MLEADERSTYLE
+    objects have the name "Standard".
+
+    """
     def __init__(
         self,
         doc: Drawing,
@@ -41,10 +49,17 @@ class ObjectCollection(Generic[T]):
         object_type: str = "MATERIAL",
     ):
         self.doc: Drawing = doc
+        self.object_dict_name = dict_name
         self.object_type: str = object_type
         self.object_dict: Dictionary = doc.rootdict.get_required_dict(
             dict_name
         )
+
+    def update_object_dict(self) -> None:
+        self.object_dict = self.doc.rootdict.get_required_dict(self.object_dict_name)
+
+    def create_required_entries(self) -> None:
+        pass
 
     def __iter__(self) -> Iterator[tuple[str, T]]:
         return self.object_dict.items()
@@ -53,13 +68,28 @@ class ObjectCollection(Generic[T]):
         return len(self.object_dict)
 
     def __contains__(self, name: str) -> bool:
-        return self.get(name) is not None
+        return self.has_entry(name)
 
     def __getitem__(self, name: str) -> T:
         entry = self.get(name)
         if entry is None:
             raise DXFKeyError(name)
         return entry
+
+    @property
+    def handle(self) -> str:
+        """Returns the DXF handle of the DICTIONARY object."""
+        return self.object_dict.dxf.handle
+
+    @property
+    def is_hard_owner(self) -> bool:
+        """Returns ``True`` if the collection is hard owner of entities.
+        Hard owned entities will be destroyed by deleting the dictionary.
+        """
+        return self.object_dict.is_hard_owner
+
+    def has_entry(self, name: str) -> bool:
+        return self.get(name) is not None
 
     def is_unique_name(self, name: str) -> bool:
         name = make_table_key(name)
@@ -69,7 +99,7 @@ class ObjectCollection(Generic[T]):
         return True
 
     def get(self, name: str, default: Optional[T] = None) -> Optional[T]:
-        """Get object by name. Object collection entries are case insensitive.
+        """Get object by name. Object collection entries are case-insensitive.
 
         Args:
             name: object name as string

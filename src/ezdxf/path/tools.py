@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2022, Manfred Moitzi
+# Copyright (c) 2020-2023, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
 from typing import (
@@ -7,8 +7,8 @@ from typing import (
     Iterator,
     Optional,
     Sequence,
+    TypeVar,
 )
-
 import math
 from ezdxf.math import (
     Vec2,
@@ -27,6 +27,7 @@ from ezdxf.math import (
     reverse_bezier_curves,
     bulge_to_arc,
     linear_vertex_spacing,
+    linspace,
     inscribe_circle_tangent_length,
     cubic_bezier_arc_parameters,
     cubic_bezier_bbox,
@@ -35,13 +36,14 @@ from ezdxf.math import (
 from ezdxf.math.triangulation import mapbox_earcut_2d
 from ezdxf.query import EntityQuery
 
-from .path import Path
+from .path import Path, Path2d, AbstractPath
 from .commands import Command
 from . import converter, nesting
 
 if TYPE_CHECKING:
     from ezdxf.query import EntityQuery
-    from ezdxf.layouts import Layout
+    from ezdxf.eztypes import GenericLayoutType
+
 
 __all__ = [
     "bbox",
@@ -62,6 +64,7 @@ __all__ = [
     "add_2d_polyline",
     "add_spline",
     "to_multi_path",
+    "to_3d_paths",
     "single_paths",
     "have_close_control_vertices",
     "lines_to_curve3",
@@ -79,6 +82,8 @@ MIN_SEGMENTS = 4
 G1_TOL = 1e-4
 IS_CLOSE_TOL = 1e-10
 
+T = TypeVar("T", Path, Path2d)
+
 
 def to_multi_path(paths: Iterable[Path]) -> Path:
     """Returns a multi-path object from all given paths and their sub-paths.
@@ -90,7 +95,18 @@ def to_multi_path(paths: Iterable[Path]) -> Path:
     return multi_path
 
 
-def single_paths(paths: Iterable[Path]) -> Iterable[Path]:
+def to_3d_paths(paths: Iterable[Path | Path2d]) -> Iterator[Path]:
+    """Yields all paths as 3D :class:`Path` instances."""
+    if isinstance(paths, AbstractPath):
+        paths = [paths]
+    for path in paths:
+        if isinstance(path, Path2d):
+            yield path.to_3d_path()
+        else:
+            yield path
+
+
+def single_paths(paths: Iterable[T]) -> Iterable[T]:
     """Yields all given paths and their sub-paths as single path objects."""
     for p in paths:
         if p.has_sub_paths:
@@ -99,37 +115,37 @@ def single_paths(paths: Iterable[Path]) -> Iterable[Path]:
             yield p
 
 
-def transform_paths(paths: Iterable[Path], m: Matrix44) -> list[Path]:
-    """Transform multiple :class:`Path` objects at once by transformation
-    matrix `m`. Returns a list of the transformed :class:`Path` objects.
+def transform_paths(paths: Iterable[T], m: Matrix44) -> list[T]:
+    """Transform multiple path objects at once by transformation
+    matrix `m`. Returns a list of the transformed path objects.
 
     Args:
-        paths: iterable of :class:`Path` objects
+        paths: iterable of :class:`Path` or :class:`Path2d` objects
         m: transformation matrix of type :class:`~ezdxf.math.Matrix44`
 
     """
     return [p.transform(m) for p in paths]
 
 
-def transform_paths_to_ocs(paths: Iterable[Path], ocs: OCS) -> list[Path]:
+def transform_paths_to_ocs(paths: Iterable[Path | Path2d], ocs: OCS) -> list[Path]:
     """Transform multiple :class:`Path` objects at once from WCS to OCS.
     Returns a list of the transformed :class:`Path` objects.
 
     Args:
-        paths: iterable of :class:`Path` objects
+        paths: iterable of :class:`Path` or :class:`Path2d` objects
         ocs: OCS transformation of type :class:`~ezdxf.math.OCS`
 
     """
     t = ocs.matrix.copy()
     t.transpose()
-    return transform_paths(paths, t)
+    return transform_paths(to_3d_paths(paths), t)
 
 
-def bbox(paths: Iterable[Path], *, fast=False) -> BoundingBox:
+def bbox(paths: Iterable[Path | Path2d], *, fast=False) -> BoundingBox:
     """Returns the :class:`~ezdxf.math.BoundingBox` for the given paths.
 
     Args:
-        paths: iterable of :class:`~ezdxf.path.Path` objects
+        paths: iterable of :class:`Path` or :class:`Path2d` objects
         fast: calculates the precise bounding box of Bèzier curves if
             ``False``, otherwise uses the control points of Bézier curves to
             determine their bounding box.
@@ -146,11 +162,8 @@ def bbox(paths: Iterable[Path], *, fast=False) -> BoundingBox:
     return box
 
 
-def precise_bbox(path: Path) -> BoundingBox:
-    """Returns the precise :class:`~ezdxf.math.BoundingBox` for the given
-    :class:`~ezdxf.path.Path`.
-
-    """
+def precise_bbox(path: Path | Path2d) -> BoundingBox:
+    """Returns the precise :class:`~ezdxf.math.BoundingBox` for the given paths."""
     if len(path) == 0:  # empty path
         return BoundingBox()
     start = path.start
@@ -258,8 +271,8 @@ def _get_non_uniform_scaling(current_size: Vec3, target_size: Vec3):
 
 
 def render_lwpolylines(
-    layout: "Layout",
-    paths: Iterable[Path],
+    layout: GenericLayoutType,
+    paths: Iterable[Path | Path2d],
     *,
     distance: float = MAX_DISTANCE,
     segments: int = MIN_SEGMENTS,
@@ -275,7 +288,7 @@ def render_lwpolylines(
 
     Args:
         layout: the modelspace, a paperspace layout or a block definition
-        paths: iterable of :class:`Path` objects
+        paths: iterable of :class:`Path` or :class:`Path2d` objects
         distance:  maximum distance, see :meth:`Path.flattening`
         segments: minimum segment count per Bézier curve
         extrusion: extrusion vector for all paths
@@ -300,8 +313,8 @@ def render_lwpolylines(
 
 
 def render_polylines2d(
-    layout: "Layout",
-    paths: Iterable[Path],
+    layout: GenericLayoutType,
+    paths: Iterable[Path | Path2d],
     *,
     distance: float = 0.01,
     segments: int = 4,
@@ -317,7 +330,7 @@ def render_polylines2d(
 
     Args:
         layout: the modelspace, a paperspace layout or a block definition
-        paths: iterable of :class:`Path` objects
+        paths: iterable of :class:`Path` or :class:`Path2d` objects
         distance:  maximum distance, see :meth:`Path.flattening`
         segments: minimum segment count per Bézier curve
         extrusion: extrusion vector for all paths
@@ -342,8 +355,8 @@ def render_polylines2d(
 
 
 def render_hatches(
-    layout: "Layout",
-    paths: Iterable[Path],
+    layout: GenericLayoutType,
+    paths: Iterable[Path | Path2d],
     *,
     edge_path: bool = True,
     distance: float = MAX_DISTANCE,
@@ -361,7 +374,7 @@ def render_hatches(
 
     Args:
         layout: the modelspace, a paperspace layout or a block definition
-        paths: iterable of :class:`Path` objects
+        paths: iterable of :class:`Path` or :class:`Path2d`  objects
         edge_path: ``True`` for edge paths build of LINE and SPLINE edges,
             ``False`` for only LWPOLYLINE paths as boundary paths
         distance:  maximum distance, see :meth:`Path.flattening`
@@ -391,8 +404,8 @@ def render_hatches(
 
 
 def render_mpolygons(
-    layout: "Layout",
-    paths: Iterable[Path],
+    layout: GenericLayoutType,
+    paths: Iterable[Path | Path2d],
     *,
     distance: float = MAX_DISTANCE,
     segments: int = MIN_SEGMENTS,
@@ -410,7 +423,7 @@ def render_mpolygons(
 
     Args:
         layout: the modelspace, a paperspace layout or a block definition
-        paths: iterable of :class:`Path` objects
+        paths: iterable of :class:`Path` or :class:`Path2d` objects
         distance:  maximum distance, see :meth:`Path.flattening`
         segments: minimum segment count per Bézier curve to flatten polyline paths
         extrusion: extrusion vector for all paths
@@ -435,8 +448,8 @@ def render_mpolygons(
 
 
 def render_polylines3d(
-    layout: "Layout",
-    paths: Iterable[Path],
+    layout: GenericLayoutType,
+    paths: Iterable[Path | Path2d],
     *,
     distance: float = MAX_DISTANCE,
     segments: int = MIN_SEGMENTS,
@@ -447,7 +460,7 @@ def render_polylines3d(
 
     Args:
         layout: the modelspace, a paperspace layout or a block definition
-        paths: iterable of :class:`Path` objects
+        paths: iterable of :class:`Path`or :class:`Path2d` objects
         distance:  maximum distance, see :meth:`Path.flattening`
         segments: minimum segment count per Bézier curve
         dxfattribs: additional DXF attribs
@@ -471,8 +484,8 @@ def render_polylines3d(
 
 
 def render_lines(
-    layout: "Layout",
-    paths: Iterable[Path],
+    layout: GenericLayoutType,
+    paths: Iterable[Path | Path2d],
     *,
     distance: float = MAX_DISTANCE,
     segments: int = MIN_SEGMENTS,
@@ -483,7 +496,7 @@ def render_lines(
 
     Args:
         layout: the modelspace, a paperspace layout or a block definition
-        paths: iterable of :class:`Path` objects
+        paths: iterable of :class:`Path`or :class:`Path2d` objects
         distance:  maximum distance, see :meth:`Path.flattening`
         segments: minimum segment count per Bézier curve
         dxfattribs: additional DXF attribs
@@ -506,8 +519,8 @@ def render_lines(
 
 
 def render_splines_and_polylines(
-    layout: "Layout",
-    paths: Iterable[Path],
+    layout: GenericLayoutType,
+    paths: Iterable[Path | Path2d],
     *,
     g1_tol: float = G1_TOL,
     dxfattribs=None,
@@ -517,7 +530,7 @@ def render_splines_and_polylines(
 
     Args:
         layout: the modelspace, a paperspace layout or a block definition
-        paths: iterable of :class:`Path` objects
+        paths: iterable of :class:`Path`or :class:`Path2d` objects
         g1_tol: tolerance for G1 continuity check
         dxfattribs: additional DXF attribs
 
@@ -594,9 +607,9 @@ def add_bezier4p(path: Path, curves: Iterable[Bezier4P]) -> None:
             path.line_to(start)
 
         # add linear bezier segments as LINE_TO commands
-        if start.isclose(
-            ctrl1, rel_tol=rel_tol, abs_tol=abs_tol
-        ) and end.isclose(ctrl2, rel_tol=rel_tol, abs_tol=abs_tol):
+        if start.isclose(ctrl1, rel_tol=rel_tol, abs_tol=abs_tol) and end.isclose(
+            ctrl2, rel_tol=rel_tol, abs_tol=abs_tol
+        ):
             path.line_to(end)
         else:
             path.curve4_to(end, ctrl1, ctrl2)
@@ -640,24 +653,35 @@ def add_2d_polyline(
     close: bool,
     ocs: OCS,
     elevation: float,
+    segments: int = 1,
 ) -> None:
     """Internal API to add 2D polylines which may include bulges to an
     **empty** path.
 
     """
 
-    def bulge_to(p1: Vec3, p2: Vec3, bulge: float):
+    def bulge_to(p1: Vec3, p2: Vec3, bulge: float, segments: int):
         if p1.isclose(p2, rel_tol=IS_CLOSE_TOL, abs_tol=0):
             return
+        # each cubic_bezier adds 3 segments, need 1 minimum
+        num_bez = math.ceil(segments / 3)
         center, start_angle, end_angle, radius = bulge_to_arc(p1, p2, bulge)
-        ellipse = ConstructionEllipse.from_arc(
-            center,
-            radius,
-            Z_AXIS,
-            math.degrees(start_angle),
-            math.degrees(end_angle),
-        )
-        curves = list(cubic_bezier_from_ellipse(ellipse))
+        # normalize angles into range 0 .. 2pi
+        start_angle = start_angle % math.tau
+        end_angle = end_angle % math.tau
+        if start_angle > end_angle:
+            end_angle += math.tau
+        angles = list(linspace(start_angle, end_angle, num_bez + 1))
+        curves = []
+        for i in range(num_bez):
+            ellipse = ConstructionEllipse.from_arc(
+                center,
+                radius,
+                Z_AXIS,
+                math.degrees(angles[i]),
+                math.degrees(angles[i + 1]),
+            )
+            curves.extend(list(cubic_bezier_from_ellipse(ellipse)))
         curve0 = curves[0]
         cp0 = curve0.control_points[0]
         if cp0.isclose(p2, rel_tol=IS_CLOSE_TOL, abs_tol=0):
@@ -681,17 +705,15 @@ def add_2d_polyline(
             continue
 
         if prev_bulge:
-            bulge_to(prev_point, point, prev_bulge)
+            bulge_to(prev_point, point, prev_bulge, segments)
         else:
             path.line_to(point)
         prev_point = point
         prev_bulge = bulge
 
-    if close and not path.start.isclose(
-        path.end, rel_tol=IS_CLOSE_TOL, abs_tol=0
-    ):
+    if close and not path.start.isclose(path.end, rel_tol=IS_CLOSE_TOL, abs_tol=0):
         if prev_bulge:
-            bulge_to(path.end, path.start, prev_bulge)
+            bulge_to(path.end, path.start, prev_bulge, segments)
         else:
             path.line_to(path.start)
 
@@ -703,7 +725,7 @@ def add_spline(path: Path, spline: BSpline, level=4, reset=True) -> None:
     """Add a B-spline as multiple cubic Bèzier-curves.
 
     Non-rational B-splines of 3rd degree gets a perfect conversion to
-    cubic bezier curves with a minimal count of curve segments, all other
+    cubic Bézier curves with a minimal count of curve segments, all other
     B-spline require much more curve segments for approximation.
 
     Auto-detect the connection point to the given `path`, if neither the start-
@@ -711,7 +733,7 @@ def add_spline(path: Path, spline: BSpline, level=4, reset=True) -> None:
     from the path end point to the start point of the B-spline will be added
     automatically. (see :meth:`add_bezier4p`).
 
-    By default the start of an **empty** path is set to the start point of
+    By default, the start of an **empty** path is set to the start point of
     the spline, setting argument `reset` to ``False`` prevents this
     behavior.
 
@@ -818,8 +840,7 @@ def _get_local_fillet_ucs(p0, p1, p2, radius) -> tuple[Vec3, float, UCS]:
 
 
 def fillet(points: Sequence[Vec3], radius: float) -> Path:
-    """
-    Returns a :class:`Path` with circular fillets of given `radius` between
+    """Returns a :class:`Path` with circular fillets of given `radius` between
     straight line segments.
 
     Args:
@@ -855,9 +876,7 @@ def _segment_count(angle: float, count: int) -> int:
     return max(int(angle / (math.tau / count)), 1)
 
 
-def polygonal_fillet(
-    points: Sequence[Vec3], radius: float, count: int = 32
-) -> Path:
+def polygonal_fillet(points: Sequence[Vec3], radius: float, count: int = 32) -> Path:
     """
     Returns a :class:`Path` with polygonal fillets of given `radius` between
     straight line segments. The `count` argument defines the vertex count of the
@@ -956,15 +975,22 @@ def chamfer2(points: Sequence[Vec3], a: float, b: float) -> Path:
 
 
 def triangulate(
-    paths: Iterable[Path], max_flattening_distance: float = 0.01
+    paths: Iterable[Path], max_sagitta: float = 0.01, min_segments: int = 16
 ) -> Iterator[Sequence[Vec2]]:
     """Tessellate nested 2D paths into triangle-faces. For 3D paths the
     projection onto the xy-plane will be triangulated.
 
+    Args:
+        paths: iterable of nested Path instances
+        max_sagitta: maximum distance from the center of the curve to the
+            center of the line segment between two approximation points to determine if
+            a segment should be subdivided.
+        min_segments: minimum segment count per Bézier curve
+
     """
     for polygon in nesting.group_paths(single_paths(paths)):
-        exterior = polygon[0].flattening(max_flattening_distance)
-        holes = [p.flattening(max_flattening_distance) for p in polygon[1:]]
+        exterior = polygon[0].flattening(max_sagitta, min_segments)
+        holes = [p.flattening(max_sagitta, min_segments) for p in polygon[1:]]
         yield from mapbox_earcut_2d(exterior, holes)
 
 

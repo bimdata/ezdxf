@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2022 Manfred Moitzi
+# Copyright (c) 2019-2023 Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
 from typing import TYPE_CHECKING, Union, Iterable, Optional
@@ -14,16 +14,21 @@ from ezdxf.lldxf.attributes import (
 from ezdxf.lldxf.const import SUBCLASS_MARKER, DXF2000, DXFTypeError
 from ezdxf.lldxf import const
 from ezdxf.lldxf.tags import Tags
-from ezdxf.math import NULLVEC, Z_AXIS, UVec
-from .dxfentity import base_class, SubclassProcessor
+from ezdxf.math import NULLVEC, Z_AXIS, UVec, Matrix44, Vec3
+from .dxfentity import base_class, SubclassProcessor, DXFEntity
 from .dxfgfx import DXFGraphic, acdb_entity
 from .dxfobj import DXFObject
 from .factory import register_entity
+from ezdxf.math.transformtools import (
+    InsertTransformationError,
+    InsertCoordinateSystem,
+)
 
 if TYPE_CHECKING:
     from ezdxf.document import Drawing
     from ezdxf.entities import DXFNamespace
     from ezdxf.lldxf.tagwriter import AbstractTagWriter
+    from ezdxf import xref
 
 
 __all__ = [
@@ -79,7 +84,7 @@ acdb_underlay = DefSubclass(
         # 2 = Underlay is on
         # 4 = Monochrome
         # 8 = Adjust for background
-        "flags": DXFAttr(280, default=2),
+        "flags": DXFAttr(280, default=10),
         # Contrast value (20-100; default = 100)
         "contrast": DXFAttr(
             281,
@@ -111,8 +116,10 @@ class Underlay(DXFGraphic):
         self._boundary_path: list[UVec] = []
         self._underlay_def: Optional[UnderlayDefinition] = None
 
-    def copy(self):
-        raise DXFTypeError("Copying of underlay not supported.")
+    def copy_data(self, entity: DXFEntity) -> None:
+        assert isinstance(entity, Underlay)
+        entity._boundary_path = list(self._boundary_path)
+        entity._underlay_def = self._underlay_def
 
     def load_dxf_attribs(
         self, processor: Optional[SubclassProcessor] = None
@@ -150,6 +157,15 @@ class Underlay(DXFGraphic):
         db = doc.entitydb
         self._underlay_def = db.get(self.dxf.get("underlay_def_handle", None))  # type: ignore
 
+    def post_bind_hook(self):
+        assert isinstance(self.dxf.handle, str)
+        underlay_def = self._underlay_def
+        if (
+            isinstance(underlay_def, UnderlayDefinition)
+            and self.doc is underlay_def.doc  # it's not a xref copy!
+        ):
+            underlay_def.append_reactor_handle(self.dxf.handle)
+
     def export_entity(self, tagwriter: AbstractTagWriter) -> None:
         """Export entity specific data as DXF tags."""
         super().export_entity(tagwriter)
@@ -174,6 +190,40 @@ class Underlay(DXFGraphic):
     def export_boundary_path(self, tagwriter: AbstractTagWriter):
         for vertex in self.boundary_path:
             tagwriter.write_vertex(11, vertex[:2])
+
+    def register_resources(self, registry: xref.Registry) -> None:
+        super().register_resources(registry)
+        if isinstance(self._underlay_def, UnderlayDefinition):
+            registry.add_handle(self._underlay_def.dxf.handle)
+
+    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+        assert isinstance(clone, Underlay)
+        super().map_resources(clone, mapping)
+        underlay_def_copy = self.map_underlay_def(clone, mapping)
+        clone._underlay_def = underlay_def_copy
+        clone.dxf.underlay_def_handle = underlay_def_copy.dxf.handle
+        underlay_def_copy.append_reactor_handle(clone.dxf.handle)
+
+    def map_underlay_def(
+        self, clone: Underlay, mapping: xref.ResourceMapper
+    ) -> UnderlayDefinition:
+        underlay_def = self._underlay_def
+        assert isinstance(underlay_def, UnderlayDefinition)
+
+        underlay_def_copy = mapping.get_reference_of_copy(underlay_def.dxf.handle)
+        assert isinstance(underlay_def_copy, UnderlayDefinition)
+
+        doc = clone.doc
+        assert doc is not None
+
+        underlay_dict = doc.rootdict.get_required_dict(underlay_def.acad_dict_name)
+        if underlay_dict.find_key(underlay_def_copy):  # entry already exist
+            return underlay_def_copy
+
+        # create required dictionary entry
+        key = doc.objects.next_underlay_key(lambda k: k not in underlay_dict)
+        underlay_dict.take_ownership(key, underlay_def_copy)
+        return underlay_def_copy
 
     def set_underlay_def(self, underlay_def: UnderlayDefinition) -> None:
         self._underlay_def = underlay_def
@@ -260,12 +310,51 @@ class Underlay(DXFGraphic):
         del self._boundary_path
         super().destroy()
 
+    def transform(self, m: Matrix44) -> Underlay:
+        """Transform UNDERLAY entity by transformation matrix `m` inplace.
+
+        Unlike the transformation matrix `m`, the UNDERLAY entity can not
+        represent a non-orthogonal target coordinate system and an
+        :class:`InsertTransformationError` will be raised in that case.
+
+        """
+        dxf = self.dxf
+        source_system = InsertCoordinateSystem(
+            insert=Vec3(dxf.insert),
+            scale=(dxf.scale_x, dxf.scale_y, dxf.scale_z),
+            rotation=dxf.rotation,
+            extrusion=dxf.extrusion,
+        )
+        try:
+            target_system = source_system.transform(m)
+        except InsertTransformationError:
+            raise InsertTransformationError(
+                "UNDERLAY entity can not represent a non-orthogonal target coordinate system."
+            )
+        dxf.insert = target_system.insert
+        dxf.rotation = target_system.rotation
+        dxf.extrusion = target_system.extrusion
+        dxf.scale_x = target_system.scale_factor_x
+        dxf.scale_y = target_system.scale_factor_y
+        dxf.scale_z = target_system.scale_factor_z
+        self.post_transform(m)
+        return self
+
 
 @register_entity
 class PdfUnderlay(Underlay):
-    """DXF PDFUNDERLAY entity - BricsCAD export PDFREFERENCE"""
+    """DXF PDFUNDERLAY entity"""
 
     DXFTYPE = "PDFUNDERLAY"
+
+
+@register_entity
+class PdfReference(Underlay):
+    """PDFREFERENCE ia a synonym for PDFUNDERLAY, ezdxf creates always PDFUNDERLAY
+    entities.
+    """
+
+    DXFTYPE = "PDFREFERENCE"
 
 
 @register_entity
@@ -319,8 +408,16 @@ class UnderlayDefinition(DXFObject):
         self.dxf.export_dxf_attribs(tagwriter, ["filename", "name"])
 
     @property
-    def entity_name(self):
-        return self.DXFTYPE[:3] + "UNDERLAY"
+    def file_format(self) -> str:
+        return self.DXFTYPE[:3]
+
+    @property
+    def entity_name(self) -> str:
+        return self.file_format + "UNDERLAY"
+
+    @property
+    def acad_dict_name(self) -> str:
+        return f"ACAD_{self.file_format}DEFINITIONS"
 
     def post_new_hook(self):
         self.set_reactors([self.dxf.owner])
@@ -328,7 +425,7 @@ class UnderlayDefinition(DXFObject):
 
 @register_entity
 class PdfDefinition(UnderlayDefinition):
-    """DXF PDFDEFINITION entity  - BricsCAD export PDFREFERENCE"""
+    """DXF PDFDEFINITION entity"""
 
     DXFTYPE = "PDFDEFINITION"
 

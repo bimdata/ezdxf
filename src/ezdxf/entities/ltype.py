@@ -27,6 +27,7 @@ from .factory import register_entity
 if TYPE_CHECKING:
     from ezdxf.entities import DXFNamespace
     from ezdxf.lldxf.tagwriter import AbstractTagWriter
+    from ezdxf import xref
 
 __all__ = ["Linetype", "compile_line_pattern", "CONTINUOUS_PATTERN"]
 
@@ -160,7 +161,7 @@ class Linetype(DXFEntity):
         super().__init__()
         self.pattern_tags = LinetypePattern(Tags())
 
-    def _copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity) -> None:
         """Copy pattern_tags."""
         assert isinstance(entity, Linetype)
         entity.pattern_tags = deepcopy(self.pattern_tags)
@@ -246,3 +247,22 @@ class Linetype(DXFEntity):
         or shapes are not supported and return a continuous line pattern.
         """
         return self.pattern_tags.compile()
+
+    def register_resources(self, registry: xref.Registry) -> None:
+        """Register required resources to the resource registry."""
+        assert self.doc is not None, "LTYPE entity must be assigned to a document"
+        super().register_resources(registry)
+        # register text styles and shape files for complex linetypes
+        style_handle = self.pattern_tags.get_style_handle()
+        style = self.doc.styles.get_entry_by_handle(style_handle)
+        if style is not None:
+            registry.add_entity(style)
+
+    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+        """Translate registered resources from self to the copied entity."""
+        assert isinstance(clone, Linetype)
+        super().map_resources(clone, mapping)
+        style_handle = self.pattern_tags.get_style_handle()
+        if style_handle != "0":
+            # map text style or shape file handle of complex linetype
+            clone.pattern_tags.set_style_handle(mapping.get_handle(style_handle))

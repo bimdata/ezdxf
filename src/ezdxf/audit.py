@@ -1,4 +1,4 @@
-# Copyright (c) 2017-2022, Manfred Moitzi
+# Copyright (c) 2017-2023, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
 from typing import (
@@ -40,6 +40,7 @@ class AuditError(IntEnum):
     REMOVED_INVALID_DXF_OBJECT = 12
     REMOVED_STANDALONE_ATTRIB_ENTITY = 13
     MISPLACED_ROOT_DICT = 14
+    ROOT_DICT_NOT_FOUND = 15
 
     UNDEFINED_LINETYPE = 100
     UNDEFINED_DIMENSION_STYLE = 101
@@ -59,7 +60,7 @@ class AuditError(IntEnum):
     UNDEFINED_BLOCK_NAME = 115
     INVALID_INTEGER_VALUE = 116
     INVALID_FLOATING_POINT_VALUE = 117
-    REMOVED_ENTITY_FROM_BLOCK_RECORD = 118
+    MISSING_PERSISTENT_REACTOR = 118
 
     # DXF entity property errors:
     INVALID_ENTITY_HANDLE = 201
@@ -107,8 +108,8 @@ class ErrorEntry:
 
 
 class Auditor:
-    def __init__(self, doc: Drawing):
-        assert doc is not None
+    def __init__(self, doc: Drawing) -> None:
+        assert doc is not None and doc.rootdict is not None and doc.entitydb is not None
         self.doc = doc
         self._rootdict_handle = doc.rootdict.dxf.handle
         self.errors: list[ErrorEntry] = []
@@ -117,8 +118,8 @@ class Auditor:
         self._post_audit_jobs: list[Callable[[], None]] = []
 
     def reset(self) -> None:
-        self.errors = []
-        self.fixes = []
+        self.errors.clear()
+        self.fixes.clear()
         self.empty_trashcan()
 
     def __len__(self) -> int:
@@ -142,11 +143,18 @@ class Auditor:
 
     @property
     def has_errors(self) -> bool:
+        """Returns ``True`` if any unrecoverable errors were detected."""
         return bool(self.errors)
 
     @property
     def has_fixes(self) -> bool:
+        """Returns ``True`` if any recoverable errors were fixed while auditing."""
         return bool(self.fixes)
+
+    @property
+    def has_issues(self) -> bool:
+        """Returns ``True`` if the DXF document has any errors or fixes."""
+        return self.has_fixes or self.has_errors
 
     def print_error_report(
         self,
@@ -154,10 +162,10 @@ class Auditor:
         stream: Optional[TextIO] = None,
     ) -> None:
         def entity_str(count, code, entity):
-            if entity is not None:
-                return f"{count:4d}. Issue [{code}] in {str(entity)}."
+            if entity is not None and entity.is_alive:
+                return f"{count:4d}. Error [{code}] in {str(entity)}."
             else:
-                return f"{count:4d}. Issue [{code}]."
+                return f"{count:4d}. Error [{code}]."
 
         if errors is None:
             errors = self.errors
@@ -168,18 +176,16 @@ class Auditor:
             stream = sys.stdout
 
         if len(errors) == 0:
-            stream.write("No issues found.\n\n")
+            stream.write("No unrecoverable errors found.\n\n")
         else:
-            stream.write(f"{len(errors)} issues found.\n\n")
+            stream.write(f"{len(errors)} errors found.\n\n")
             for count, error in enumerate(errors):
-                stream.write(
-                    entity_str(count + 1, error.code, error.entity) + "\n"
-                )
+                stream.write(entity_str(count + 1, error.code, error.entity) + "\n")
                 stream.write("   " + error.message + "\n\n")
 
     def print_fixed_errors(self, stream: Optional[TextIO] = None) -> None:
         def entity_str(count, code, entity):
-            if entity is not None:
+            if entity is not None and entity.is_alive:
                 return f"{count:4d}. Issue [{code}] fixed in {str(entity)}."
             else:
                 return f"{count:4d}. Issue [{code}] fixed."
@@ -192,9 +198,7 @@ class Auditor:
         else:
             stream.write(f"{len(self.fixes)} issues fixed.\n\n")
             for count, error in enumerate(self.fixes):
-                stream.write(
-                    entity_str(count + 1, error.code, error.entity) + "\n"
-                )
+                stream.write(entity_str(count + 1, error.code, error.entity) + "\n")
                 stream.write("   " + error.message + "\n\n")
 
     def add_error(
@@ -225,15 +229,18 @@ class Auditor:
         self.errors = [err for err in self.errors if err.code in codes]
 
     def run(self) -> list[ErrorEntry]:
+        if not self.check_root_dict():
+            # no root dict found: abort audit process
+            return self.errors
         self.doc.entitydb.audit(self)
-        self.check_root_dict()
+        self.check_root_dict_entries()
         self.check_tables()
-        self.audit_all_database_entities()
         self.doc.objects.audit(self)
         self.doc.blocks.audit(self)
         self.doc.groups.audit(self)
-        self.check_block_reference_cycles()
         self.doc.layouts.audit(self)
+        self.audit_all_database_entities()
+        self.check_block_reference_cycles()
         self.empty_trashcan()
         self.doc.objects.purge()
         return self.errors
@@ -257,14 +264,33 @@ class Auditor:
     def add_post_audit_job(self, job: Callable):
         self._post_audit_jobs.append(job)
 
-    def check_root_dict(self) -> None:
-        root_dict = self.doc.rootdict
+    def check_root_dict(self) -> bool:
+        rootdict = self.doc.rootdict
+        if rootdict.dxftype() != "DICTIONARY":
+            self.add_error(
+                AuditError.ROOT_DICT_NOT_FOUND,
+                f"Critical error - first object in OBJECTS section is not the expected "
+                f"root dictionary, found {str(rootdict)}.",
+            )
+            return False
+        if rootdict.dxf.get("owner") != "0":
+            rootdict.dxf.owner = "0"
+            self.fixed_error(
+                code=AuditError.INVALID_OWNER_HANDLE,
+                message=f"Fixed invalid owner handle in root {str(rootdict)}.",
+            )
+        return True
+
+    def check_root_dict_entries(self) -> None:
+        rootdict = self.doc.rootdict
+        if rootdict.dxftype() != "DICTIONARY":
+            return
         for name in REQUIRED_ROOT_DICT_ENTRIES:
-            if name not in root_dict:
+            if name not in rootdict:
                 self.add_error(
                     code=AuditError.MISSING_REQUIRED_ROOT_DICT_ENTRY,
-                    message=f"Missing root dict entry: {name}",
-                    dxf_entity=root_dict,
+                    message=f"Missing rootdict entry: {name}",
+                    dxf_entity=rootdict,
                 )
 
     def check_tables(self) -> None:
@@ -287,8 +313,7 @@ class Auditor:
         db = self.doc.entitydb
         db.locked = True
         # To create new entities while auditing, add a post audit job by calling
-        # Auditor.app_post_audit_job() with a callable object or
-        # function as argument.
+        # Auditor.app_post_audit_job() with a callable object or function as argument.
         self._post_audit_jobs = []
         for entity in db.values():
             if entity.is_alive:
@@ -409,7 +434,7 @@ class Auditor:
                 entity.dxf.owner = "0"
                 self.fixed_error(
                     code=AuditError.INVALID_OWNER_HANDLE,
-                    message=f"Fixed invalid owner handle in root {str(self)}.",
+                    message=f"Fixed invalid owner handle in root {str(entity)}.",
                 )
             elif entity.dxftype() == "TABLE":
                 name = entity.dxf.get("name", "UNKNOWN")
@@ -431,7 +456,7 @@ class Auditor:
             entity.dxf.discard("extrusion")
             self.fixed_error(
                 code=AuditError.INVALID_EXTRUSION_VECTOR,
-                message=f"Fixed extrusion vector for entity: {str(self)}.",
+                message=f"Fixed extrusion vector for entity: {str(entity)}.",
                 dxf_entity=entity,
             )
 
@@ -443,7 +468,7 @@ class Auditor:
             entity.dxf.discard("transparency")
             self.fixed_error(
                 code=AuditError.INVALID_TRANSPARENCY,
-                message=f"Fixed invalid transparency for entity: {str(self)}.",
+                message=f"Fixed invalid transparency for entity: {str(entity)}.",
                 dxf_entity=entity,
             )
 
@@ -468,7 +493,7 @@ class BlockCycleDetector:
         ledger = dict()
         for block in blocks:
             inserts = {
-                self.key(insert.dxf.name) for insert in block.query("INSERT")
+                self.key(insert.dxf.get("name", "")) for insert in block.query("INSERT")
             }
             ledger[self.key(block.name)] = inserts
         return ledger

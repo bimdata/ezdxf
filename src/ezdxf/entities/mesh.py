@@ -214,7 +214,7 @@ class Mesh(DXFGraphic):
         self._edges = EdgeArray()  # edge indices stored as array.array('L')
         self._creases = array.array("f")  # creases stored as array.array('f')
 
-    def _copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity) -> None:
         """Copy data: vertices, faces, edges, creases."""
         assert isinstance(entity, Mesh)
         entity._vertices = copy.deepcopy(self._vertices)
@@ -389,12 +389,11 @@ class Mesh(DXFGraphic):
 
     @contextmanager
     def edit_data(self) -> Iterator[MeshData]:
-        """Context manager various mesh data, returns :class:`MeshData`.
+        """Context manager for various mesh data, returns a :class:`MeshData` instance.
 
-        Despite that vertices, edge and faces since `ezdxf` v0.8.9 are
-        accessible as packed data types, the usage of :class:`MeshData`
-        by context manager :meth:`edit_data` is still recommended.
-
+        Despite that vertices, edge and faces are accessible as packed data types, the
+        usage of :class:`MeshData` by context manager :meth:`edit_data` is still
+        recommended.
         """
         data = self.get_data()
         yield data
