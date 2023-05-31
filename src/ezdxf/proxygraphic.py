@@ -297,6 +297,8 @@ class ProxyGraphic:
         """Implements the SupportsVirtualEntities protocol."""
         try:
             yield from self.unsafe_virtual_entities()
+        except UnicodeDecodeError:
+            pass
         except Exception as e:
             raise ProxyGraphicError(f"Proxy graphic error: {str(e)}")
 
