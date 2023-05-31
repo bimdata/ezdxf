@@ -847,6 +847,7 @@ class Designer:
             properties.layer,
             properties.pen,
             self._current_entity_handle,
+            properties.output_id,
         )
 
     def set_current_entity_handle(self, handle: str) -> None:

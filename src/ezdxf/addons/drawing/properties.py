@@ -216,11 +216,13 @@ class Properties:
 
 class BackendProperties(NamedTuple):
     """The backend receives a condensed version of the entity properties."""
+
     color: Color = "#000000"
     lineweight: float = 0.25  # in mm
     layer: str = "0"  # maybe useful to group entities (SVG, PDF)
     pen: int = 1  # equals the ACI (1-255), for pen based backends like plotters
     handle: str = ""  # top level entity handle
+    output_id: str = ""  # Bimdata formated handle
 
     @property
     def rgb(self) -> RGB:
@@ -711,8 +713,7 @@ class RenderContext:
     def resolve_pen(
         self, entity: DXFGraphic, *, resolved_layer: Optional[str] = None
     ) -> int:
-        """Resolve the aci-color of `entity` as pen number in the range of [1..255].
-        """
+        """Resolve the aci-color of `entity` as pen number in the range of [1..255]."""
         pen = entity.dxf.color  # defaults to BYLAYER
         entity_layer = resolved_layer or layer_key(self.resolve_layer(entity))
         layer_properties = self.layers.get(entity_layer, DEFAULT_LAYER_PROPERTIES)
