@@ -303,6 +303,8 @@ class FontManager:
             raise FontNotFoundError(str(e))
         except TTLibError as e:
             raise FontNotFoundError(str(e))
+        except KeyError as e:
+            raise FontNotFoundError(str(e))
         self._loaded_ttf_fonts[font_name] = font
         return font
 
