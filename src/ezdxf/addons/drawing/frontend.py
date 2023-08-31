@@ -90,6 +90,9 @@ from ezdxf.render import hatching
 from ezdxf.fonts import fonts
 from .type_hints import Color
 
+# For BIMData use
+import numpy as np
+from ezdxf.math import is_point_in_polygon_2d
 
 __all__ = ["Frontend"]
 
@@ -101,6 +104,79 @@ POST_ISSUE_MSG = (
     "Please post sample DXF file at https://github.com/mozman/ezdxf/issues."
 )
 logger = logging.getLogger("ezdxf")
+
+
+# --------------- BIMDATA fix - remove holes from Hatch entitiy ---------------
+def make_holes_in_polygons(external_paths, holes):
+    """
+    Create polygons without holes by incorporating holes into polygon geometry
+
+    :param external_paths: (list) external paths from Hatch entity
+    :param holes: (list) holes from hatch entity
+    """
+
+    for hole in holes:
+        for external_path_idx, external_path in enumerate(external_paths):
+            if (
+                is_point_in_polygon_2d(
+                    hole._vertices[0], external_path.to_2d_path()._vertices
+                )
+                == 1
+            ):
+                output_idx = closest_node(
+                    hole._vertices[0].xyz[:2],
+                    [
+                        (vertice.x, vertice.y)
+                        for vertice in external_path.to_2d_path()._vertices
+                    ],
+                )
+
+                external_paths[external_path_idx] = ezdxf.path.from_vertices(
+                    external_path._vertices[: output_idx + 1]
+                    + hole._vertices
+                    + external_path._vertices[output_idx:]
+                )
+                break
+
+    holes = []
+    return external_paths, holes
+
+
+def distance(xy_1, xy_2):
+    """
+    calculating the distance between two points
+
+    :param xy_1: (tuple) first point coordinate (xy)
+    :param xy_2: (tuple) second point coordinate (xy)
+
+    :return: (float) distance beetween xy_1 & xy_2
+    """
+
+    pt_1 = np.array((xy_1[0], xy_1[1]))
+    pt_2 = np.array((xy_2[0], xy_2[1]))
+    return np.linalg.norm(pt_1 - pt_2)
+
+
+def closest_node(input_node, nodes):
+    """
+    Finding the nearest point
+
+    :param input_node: (list) xy coordinates to test
+    :param nodes: (tuple) XY point of origin
+
+    :return out_idx: (int) nearest node index
+    """
+
+    dist = 1e100
+    for node_idx, node in enumerate(nodes):
+        if distance(input_node, node) <= dist:
+            dist = distance(input_node, node)
+            out_idx = node_idx
+
+    return out_idx
+
+
+# --------------- END - BIMDATA fix - remove holes from Hatch entitiy ---------------
 
 
 class Frontend:
@@ -588,6 +664,9 @@ class Frontend:
             external_paths, holes = winding_deconstruction(polygons)  # type: ignore
 
         if show_only_outline:
+            if holes:
+                external_paths, holes = make_holes_in_polygons(external_paths, holes)
+
             for p in itertools.chain(ignore_text_boxes(external_paths), holes):
                 self._designer.draw_path(p, properties)
             return
