@@ -4,15 +4,14 @@ from __future__ import annotations
 from typing import Iterable, Sequence, no_type_check
 
 import copy
-import itertools
 from xml.etree import ElementTree as ET
 
-from ezdxf.math import AnyVec, Vec2
-from ezdxf.path import Path, Path2d, Command
+from ezdxf.math import Vec2, BoundingBox2d
+from ezdxf.path import Command
 
 
 from .type_hints import Color
-from .backend import BackendInterface
+from .backend import BackendInterface, BkPath2d, BkPoints2d
 from .config import Configuration, LineweightPolicy
 from .properties import BackendProperties
 from . import layout, recorder
@@ -21,29 +20,53 @@ __all__ = ["SVGBackend"]
 
 
 class SVGBackend(recorder.Recorder):
+    """This is a native SVG rendering backend and does not require any external packages
+    to render SVG images other than the core dependencies.  This backend support content
+    cropping at page margins.
+    """
+
     def __init__(self) -> None:
         super().__init__()
         self._init_flip_y = True
 
     def get_xml_root_element(
-        self, page: layout.Page, settings: layout.Settings = layout.Settings()
+        self,
+        page: layout.Page,
+        *,
+        settings: layout.Settings = layout.Settings(),
+        render_box: BoundingBox2d | None = None,
     ) -> ET.Element:
+        top_origin = True
         settings = copy.copy(settings)
-        # The DXF coordinates are mapped to integer viewBox coordinates in the first
+        # DXF coordinates are mapped to integer viewBox coordinates in the first
         # quadrant, producing compact SVG files. The larger the coordinate range, the
         # more precise and the lager the files.
         settings.output_coordinate_space = 1_000_000
 
         # This player changes the original recordings!
         player = self.player()
+        if render_box is None:
+            render_box = player.bbox()
 
-        output_layout = layout.Layout(player.bbox(), flip_y=self._init_flip_y)
+        # the page origin (0, 0) is in the top-left corner.
+        output_layout = layout.Layout(render_box, flip_y=self._init_flip_y)
         page = output_layout.get_final_page(page, settings)
         if page.width == 0 or page.height == 0:
             return ET.Element("svg")  # empty page
 
-        m = output_layout.get_placement_matrix(page, settings)
+        m = output_layout.get_placement_matrix(
+            page, settings=settings, top_origin=top_origin
+        )
+        # transform content to the output coordinates space:
         player.transform(m)
+        if settings.crop_at_margins:
+            p1, p2 = page.get_margin_rect(top_origin=top_origin)  # in mm
+            # scale factor to map page coordinates to output space coordinates:
+            output_scale = settings.page_output_scale_factor(page)
+            max_sagitta = 0.1 * output_scale  # curve approximation 0.1 mm
+            # crop content inplace by the margin rect:
+            player.crop_rect(p1 * output_scale, p2 * output_scale, max_sagitta)
+
         self._init_flip_y = False
         backend = self.make_backend(page, settings)
         player.replay(backend)
@@ -52,7 +75,9 @@ class SVGBackend(recorder.Recorder):
     def get_string(
         self,
         page: layout.Page,
+        *,
         settings: layout.Settings = layout.Settings(),
+        render_box: BoundingBox2d | None = None,
         xml_declaration=True,
     ) -> str:
         """Returns the XML data as unicode string.
@@ -60,11 +85,14 @@ class SVGBackend(recorder.Recorder):
         Args:
             page: page definition, see :class:`~ezdxf.addons.drawing.layout.Page`
             settings: layout settings, see :class:`~ezdxf.addons.drawing.layout.Settings`
+            render_box: set explicit region to render, default is content bounding box
             xml_declaration: inserts the "<?xml version='1.0' encoding='utf-8'?>" string
                 in front of the <svg> element
 
         """
-        xml = self.get_xml_root_element(page, settings)
+        xml = self.get_xml_root_element(
+            page, settings=settings, render_box=render_box
+        )
         return ET.tostring(xml, encoding="unicode", xml_declaration=xml_declaration)
 
     @staticmethod
@@ -258,41 +286,38 @@ class SVGRenderBackend(BackendInterface):
         self.background.set("fill", color_str)
         self.background.set("fill-opacity", str(opacity))
 
-    def draw_point(self, pos: AnyVec, properties: BackendProperties) -> None:
+    def draw_point(self, pos: Vec2, properties: BackendProperties) -> None:
         self.add_strokes(self.make_polyline_str([pos, pos]), properties)
 
-    def draw_line(
-        self, start: AnyVec, end: AnyVec, properties: BackendProperties
-    ) -> None:
+    def draw_line(self, start: Vec2, end: Vec2, properties: BackendProperties) -> None:
         self.add_strokes(self.make_polyline_str([start, end]), properties)
 
     def draw_solid_lines(
-        self, lines: Iterable[tuple[AnyVec, AnyVec]], properties: BackendProperties
+        self, lines: Iterable[tuple[Vec2, Vec2]], properties: BackendProperties
     ) -> None:
         lines = list(lines)
         if len(lines) == 0:
             return
         self.add_strokes(self.make_multi_line_str(lines), properties)
 
-    def draw_path(self, path: Path | Path2d, properties: BackendProperties) -> None:
+    def draw_path(self, path: BkPath2d, properties: BackendProperties) -> None:
         self.add_strokes(self.make_path_str(path), properties)
 
     def draw_filled_paths(
-        self,
-        paths: Iterable[Path | Path2d],
-        holes: Iterable[Path | Path2d],
-        properties: BackendProperties,
+        self, paths: Iterable[BkPath2d], properties: BackendProperties
     ) -> None:
         d = []
-        for path in itertools.chain(paths, holes):
+        for path in paths:
             if len(path):
                 d.append(self.make_path_str(path, close=True))
         self.add_filling(" ".join(d), properties)
 
     def draw_filled_polygon(
-        self, points: Iterable[AnyVec], properties: BackendProperties
+        self, points: BkPoints2d, properties: BackendProperties
     ) -> None:
-        self.add_filling(self.make_polyline_str(list(points), close=True), properties)
+        self.add_filling(
+            self.make_polyline_str(points.vertices(), close=True), properties
+        )
 
     @staticmethod
     def make_polyline_str(points: Sequence[Vec2], close=False) -> str:
@@ -324,7 +349,7 @@ class SVGRenderBackend(BackendInterface):
 
     @staticmethod
     @no_type_check
-    def make_path_str(path: Path | Path2d, close=False) -> str:
+    def make_path_str(path: BkPath2d, close=False) -> str:
         d: list[str] = [CMD_M_ABS.format(path.start)]
         if len(path) == 0:
             return ""

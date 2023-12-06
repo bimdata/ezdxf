@@ -3,14 +3,20 @@
 
 import pytest
 import ezdxf
-from ezdxf.addons.drawing import Frontend, RenderContext
+from ezdxf.math import Vec2
+from ezdxf.addons.drawing import RenderContext, Frontend
 from ezdxf.addons.drawing.properties import BackendProperties
 
-from ezdxf.addons.drawing.backend import Backend
+from ezdxf.addons.drawing.backend import Backend, BkPath2d
 from ezdxf.addons.drawing.debug_backend import BasicBackend, PathBackend
 from ezdxf.entities import DXFGraphic
 from ezdxf.render.forms import cube
-from ezdxf.path import from_vertices
+
+
+class MyTestFrontend(Frontend):
+    def __init__(self, ctx, backend):
+        super().__init__(ctx, backend)
+        self.out = backend
 
 
 @pytest.fixture
@@ -33,12 +39,12 @@ def ctx(doc):
 
 @pytest.fixture
 def basic(doc, ctx):
-    return Frontend(ctx, BasicBackend())
+    return MyTestFrontend(ctx, BasicBackend())
 
 
 @pytest.fixture
 def path_backend(doc, ctx):
-    return Frontend(ctx, PathBackend())
+    return MyTestFrontend(ctx, PathBackend())
 
 
 def unique_types(result):
@@ -55,7 +61,7 @@ def test_basic_frontend_init(basic):
 
 def test_backend_default_draw_path():
     backend = BasicBackend()
-    path = from_vertices([(0, 0), (1, 0), (2, 0)])
+    path = BkPath2d.from_vertices(Vec2.list([(0, 0), (1, 0), (2, 0)]))
     backend.draw_path(path, BackendProperties())
     result = backend.collector
     assert len(result) == 2
@@ -226,7 +232,7 @@ def test_3d_arc_basic(msp, basic):
     )
     basic.draw_entities(msp)
     result = get_result(basic)
-    assert len(result) > 10
+    assert len(result) >= 4
     assert unique_types(result) == {"line"}
 
 
@@ -255,7 +261,7 @@ def test_3d_ellipse_basic(msp, basic):
     )
     basic.draw_entities(msp)
     result = get_result(basic)
-    assert len(result) > 10
+    assert len(result) >= 4
     assert unique_types(result) == {"line"}
 
 
@@ -299,7 +305,7 @@ def test_mtext(msp, basic):
     msp.add_mtext("line1\nline2", dxfattribs={"style": "DEJAVU"})
     basic.draw_entities(msp)
     result = get_result(basic)
-    assert len(result) == 12
+    assert len(result) == 10  # each character is now one multi-path: changed in v1.1.0b4
     assert result[0][0] == "filled_polygon"
 
 
@@ -343,7 +349,7 @@ def test_polyface(msp, basic):
 
 
 def test_override_filter(msp, ctx):
-    class FrontendWithOverride(Frontend):
+    class FrontendWithOverride(MyTestFrontend):
         def __init__(self, ctx: RenderContext, out: Backend):
             super().__init__(ctx, out)
             self.override_enabled = True

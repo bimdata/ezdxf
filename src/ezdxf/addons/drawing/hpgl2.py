@@ -2,16 +2,14 @@
 #  License: MIT License
 from __future__ import annotations
 from typing import Iterable, Sequence, no_type_check
-
 import copy
-import itertools
 
 from ezdxf import colors
-from ezdxf.math import AnyVec
-from ezdxf.path import Path, Path2d, Command
+from ezdxf.math import Vec2, BoundingBox2d
+from ezdxf.path import Command
 
 from .type_hints import Color
-from .backend import BackendInterface
+from .backend import BackendInterface, BkPath2d, BkPoints2d
 from .config import Configuration, LineweightPolicy
 from .properties import BackendProperties
 from . import layout, recorder
@@ -29,10 +27,18 @@ WHITE = colors.RGB(255, 255, 255)
 BLACK = colors.RGB(0, 0, 0)
 MAX_FLATTEN = 10
 
+# comparing Command.<attrib> to ints is very slow
+CMD_MOVE_TO = int(Command.MOVE_TO)
+CMD_LINE_TO = int(Command.LINE_TO)
+CMD_CURVE3_TO = int(Command.CURVE3_TO)
+CMD_CURVE4_TO = int(Command.CURVE4_TO)
+
 
 class PlotterBackend(recorder.Recorder):
     """The :class:`PlotterBackend` creates HPGL/2 plot files for output on raster
-    plotters. This backend does not need any additional packages.
+    plotters. This backend does not need any additional packages.  This backend support
+    content cropping at page margins.
+
     The plot files are tested by the plot file viewer `ViewCompanion Standard`_
     but not on real hardware - please use with care and give feedback.
 
@@ -46,8 +52,9 @@ class PlotterBackend(recorder.Recorder):
     def get_bytes(
         self,
         page: layout.Page,
-        settings: layout.Settings = layout.Settings(),
         *,
+        settings: layout.Settings = layout.Settings(),
+        render_box: BoundingBox2d | None = None,
         curves=True,
         decimal_places: int = 1,
         base=64,
@@ -57,27 +64,42 @@ class PlotterBackend(recorder.Recorder):
         Args:
             page: page definition, see :class:`~ezdxf.addons.drawing.layout.Page`
             settings: layout settings, see :class:`~ezdxf.addons.drawing.layout.Settings`
+            render_box: set explicit region to render, default is content bounding box
             curves: use Bèzier curves for HPGL/2 output
             decimal_places: HPGL/2 output precision, less decimal places creates smaller
                 files but for the price of imprecise curves (text)
             base: base for polyline encoding, 32 for 7 bit encoding or 64 for 8 bit encoding
 
         """
+        top_origin = False
         settings = copy.copy(settings)
         # This player changes the original recordings!
         player = self.player()
+        if render_box is None:
+            render_box = player.bbox()
 
-        output_layout = layout.Layout(player.bbox(), flip_y=False)
+        # the page origin (0, 0) is in the bottom-left corner.
+        output_layout = layout.Layout(render_box, flip_y=False)
         page = output_layout.get_final_page(page, settings)
         if page.width == 0 or page.height == 0:
             return b""  # empty page
-        # The DXF coordinates are mapped to integer coordinates (plu) in the first
+        # DXF coordinates are mapped to integer coordinates (plu) in the first
         # quadrant: 40 plu = 1mm
         settings.output_coordinate_space = (
             max(page.width_in_mm, page.height_in_mm) * MM_TO_PLU
         )
-        m = output_layout.get_placement_matrix(page, settings)
+        # transform content to the output coordinates space:
+        m = output_layout.get_placement_matrix(
+            page, settings=settings, top_origin=top_origin
+        )
         player.transform(m)
+        if settings.crop_at_margins:
+            p1, p2 = page.get_margin_rect(top_origin=top_origin)  # in mm
+            # scale factor to map page coordinates to output space coordinates:
+            output_scale = settings.page_output_scale_factor(page)
+            max_sagitta = 0.1 * MM_TO_PLU  # curve approximation 0.1 mm
+            # crop content inplace by the margin rect:
+            player.crop_rect(p1 * output_scale, p2 * output_scale, max_sagitta)
         backend = _RenderBackend(
             page,
             settings=settings,
@@ -96,7 +118,9 @@ class PlotterBackend(recorder.Recorder):
         Has often the smallest file size and should be compatible to all output devices
         but has a low quality text rendering.
         """
-        return self.get_bytes(page, settings, curves=False, decimal_places=0, base=32)
+        return self.get_bytes(
+            page, settings=settings, curves=False, decimal_places=0, base=32
+        )
 
     def low_quality(
         self, page: layout.Page, settings: layout.Settings = layout.Settings()
@@ -106,7 +130,9 @@ class PlotterBackend(recorder.Recorder):
         Has a smaller file size than normal quality and the output device must support
         8-bit encoding and Bèzier curves.
         """
-        return self.get_bytes(page, settings, curves=True, decimal_places=0, base=64)
+        return self.get_bytes(
+            page, settings=settings, curves=True, decimal_places=0, base=64
+        )
 
     def normal_quality(
         self, page: layout.Page, settings: layout.Settings = layout.Settings()
@@ -116,7 +142,9 @@ class PlotterBackend(recorder.Recorder):
         Has a smaller file size than high quality and the output device must support
         8-bit encoding, Bèzier curves and fractional coordinates.
         """
-        return self.get_bytes(page, settings, curves=True, decimal_places=1, base=64)
+        return self.get_bytes(
+            page, settings=settings, curves=True, decimal_places=1, base=64
+        )
 
     def high_quality(
         self, page: layout.Page, settings: layout.Settings = layout.Settings()
@@ -126,7 +154,9 @@ class PlotterBackend(recorder.Recorder):
         Has the largest file size and the output device must support 8-bit encoding,
         Bèzier curves and fractional coordinates.
         """
-        return self.get_bytes(page, settings, curves=True, decimal_places=2, base=64)
+        return self.get_bytes(
+            page, settings=settings, curves=True, decimal_places=2, base=64
+        )
 
 
 class PenTable:
@@ -254,7 +284,7 @@ class _RenderBackend(BackendInterface):
         self.data.append(f"PW{width:g};".encode())  # pen width in mm
         self.current_pen_width = width
 
-    def enter_polygon_mode(self, start_point: AnyVec) -> None:
+    def enter_polygon_mode(self, start_point: Vec2) -> None:
         x = round(start_point.x, self.decimal_places)
         y = round(start_point.y, self.decimal_places)
         self.data.append(f"PA;PU{x},{y};PM;".encode())
@@ -274,12 +304,12 @@ class _RenderBackend(BackendInterface):
         self.set_pen_width(pen_width)
 
     def add_polyline_encoded(
-        self, vertices: Iterable[AnyVec], properties: BackendProperties
+        self, vertices: Iterable[Vec2], properties: BackendProperties
     ):
         self.set_properties(properties)
         self.data.append(polyline_encoder(vertices, self.factional_bits, self.base))
 
-    def add_path(self, path: Path | Path2d, properties: BackendProperties):
+    def add_path(self, path: BkPath2d, properties: BackendProperties):
         if self.curves and path.has_curves:
             self.set_properties(properties)
             self.data.append(path_encoder(path, self.decimal_places))
@@ -321,16 +351,14 @@ class _RenderBackend(BackendInterface):
         # background is always a white paper
         pass
 
-    def draw_point(self, pos: AnyVec, properties: BackendProperties) -> None:
+    def draw_point(self, pos: Vec2, properties: BackendProperties) -> None:
         self.add_polyline_encoded([pos], properties)
 
-    def draw_line(
-        self, start: AnyVec, end: AnyVec, properties: BackendProperties
-    ) -> None:
+    def draw_line(self, start: Vec2, end: Vec2, properties: BackendProperties) -> None:
         self.add_polyline_encoded([start, end], properties)
 
     def draw_solid_lines(
-        self, lines: Iterable[tuple[AnyVec, AnyVec]], properties: BackendProperties
+        self, lines: Iterable[tuple[Vec2, Vec2]], properties: BackendProperties
     ) -> None:
         lines = list(lines)
         if len(lines) == 0:
@@ -338,23 +366,20 @@ class _RenderBackend(BackendInterface):
         for line in lines:
             self.add_polyline_encoded(line, properties)
 
-    def draw_path(self, path: Path | Path2d, properties: BackendProperties) -> None:
+    def draw_path(self, path: BkPath2d, properties: BackendProperties) -> None:
         for sub_path in path.sub_paths():
             if len(sub_path) == 0:
                 continue
             self.add_path(sub_path, properties)
 
     def draw_filled_paths(
-        self,
-        paths: Iterable[Path | Path2d],
-        holes: Iterable[Path | Path2d],
-        properties: BackendProperties,
+        self, paths: Iterable[BkPath2d], properties: BackendProperties
     ) -> None:
-        all_paths = list(itertools.chain(paths, holes))
-        if len(all_paths) == 0:
+        paths = list(paths)
+        if len(paths) == 0:
             return
-        self.enter_polygon_mode(all_paths[0].start)
-        for p in all_paths:
+        self.enter_polygon_mode(paths[0].start)
+        for p in paths:
             for sub_path in p.sub_paths():
                 if len(sub_path) == 0:
                     continue
@@ -363,12 +388,12 @@ class _RenderBackend(BackendInterface):
         self.fill_polygon()
 
     def draw_filled_polygon(
-        self, points: Iterable[AnyVec], properties: BackendProperties
+        self, points: BkPoints2d, properties: BackendProperties
     ) -> None:
-        points = list(points)
-        if points:
-            self.enter_polygon_mode(points[0])
-            self.add_polyline_encoded(points, properties)
+        points2d: list[Vec2] = points.vertices()
+        if points2d:
+            self.enter_polygon_mode(points2d[0])
+            self.add_polyline_encoded(points2d, properties)
             self.fill_polygon()
 
     def configure(self, config: Configuration) -> None:
@@ -415,7 +440,7 @@ def map_lineweight_to_stroke_width(
     return round(min_stroke_width + round(lineweight * factor), 2)
 
 
-def flatten_path(path: Path | Path2d) -> Sequence[AnyVec]:
+def flatten_path(path: BkPath2d) -> Sequence[Vec2]:
     points = list(path.flattening(distance=FLATTEN_MAX))
     return points
 
@@ -448,7 +473,7 @@ def pe_encode(value: float, frac_bits: int = 0, base: int = 64) -> bytes:
     return bytes(chars)
 
 
-def polyline_encoder(vertices: Iterable[AnyVec], frac_bits: int, base: int) -> bytes:
+def polyline_encoder(vertices: Iterable[Vec2], frac_bits: int, base: int) -> bytes:
     cmd = b"PE"
     if base == 32:
         cmd = b"PE7"
@@ -471,7 +496,7 @@ def polyline_encoder(vertices: Iterable[AnyVec], frac_bits: int, base: int) -> b
 
 
 @no_type_check
-def path_encoder(path: Path2d, decimal_places: int | None) -> bytes:
+def path_encoder(path: BkPath2d, decimal_places: int | None) -> bytes:
     # first point as absolute coordinates
     current = path.start
     x = round(current.x, decimal_places)

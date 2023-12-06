@@ -7,12 +7,14 @@ from typing import Iterable, NamedTuple, Optional, Sequence
 import os
 import platform
 import json
+import logging
 
 from pathlib import Path
 from fontTools.ttLib import TTFont, TTLibError
 from .font_face import FontFace
 from . import shapefile, lff
 
+logger = logging.getLogger("ezdxf")
 WINDOWS = "Windows"
 LINUX = "Linux"
 MACOS = "Darwin"
@@ -39,7 +41,9 @@ FONT_DIRECTORIES = {
 }
 
 DEFAULT_FONTS = [
-    "Arial.ttf",
+    "ArialUni.ttf",  # for Windows
+    "Arial Unicode.ttf",  # for macOS
+    "Arial.ttf",  # for the case  "Arial Unicode" does not exist
     "DejaVuSansCondensed.ttf",  # widths of glyphs is similar to Arial
     "DejaVuSans.ttf",
     "LiberationSans-Regular.ttf",
@@ -89,7 +93,11 @@ class FontCache:
         try:
             return self._cache[self.key(font_name)]
         except KeyError:
-            return self._cache[self.key(fallback)]
+            entry = self._cache.get(self.key(fallback))
+            if entry is not None:
+                return entry
+            else:  # no fallback font available
+                raise FontNotFoundError("no fonts available, not even fallback fonts")
 
     def find_best_match(self, font_face: FontFace) -> Optional[FontFace]:
         entry = self._cache.get(self.key(font_face.filename), None)
@@ -261,7 +269,7 @@ class FontManager:
                 cache_entry = self._font_cache.get(name, fallback_name)
                 fallback_name = cache_entry.file_path.name
                 break
-            except KeyError:
+            except FontNotFoundError:
                 pass
         self._fallback_font_name = fallback_name
         return fallback_name
@@ -384,11 +392,11 @@ class FontManager:
         else:
             return font_face.filename
 
-    def build(self, folders: Optional[Sequence[str]] = None) -> None:
+    def build(self, folders: Optional[Sequence[str]] = None, support_dirs=True) -> None:
         """Adds all supported font types located in the given `folders` to the font
         manager. If no directories are specified, the known font folders for Windows,
-        Linux and macOS are searched by default. Searches recursively all
-        subdirectories.
+        Linux and macOS are searched by default, except `support_dirs` is ``False``. 
+        Searches recursively all subdirectories. 
 
         The folders stored in the config SUPPORT_DIRS option are scanned recursively for
         .shx, .shp and .lff fonts, the basic stroke fonts included in CAD applications.
@@ -400,7 +408,9 @@ class FontManager:
             dirs = list(folders)
         else:
             dirs = FONT_DIRECTORIES.get(self.platform, LINUX_FONT_DIRS)
-        self.scan_all(dirs + list(options.support_dirs))
+        if support_dirs:
+            dirs = dirs + list(options.support_dirs)
+        self.scan_all(dirs)
 
     def scan_all(self, folders: Iterable[str]) -> None:
         for folder in folders:
@@ -422,8 +432,12 @@ class FontManager:
                 continue
             ext = file.suffix.lower()
             if ext in SUPPORTED_TTF_TYPES:
-                font_face = get_ttf_font_face(file)
-                self._font_cache.add_entry(file, font_face)
+                try:
+                    font_face = get_ttf_font_face(file)
+                except Exception as e:
+                    logger.warning(f"cannot open font '{file}': {str(e)}")
+                else:
+                    self._font_cache.add_entry(file, font_face)
             elif ext in SUPPORTED_SHAPE_FILES:
                 font_face = get_shape_file_font_face(file)
                 self._font_cache.add_entry(file, font_face)
@@ -442,11 +456,10 @@ def normalize_style(style: str) -> str:
 
 
 def get_ttf_font_face(font_path: Path) -> FontFace:
-    try:
-        ttf = TTFont(font_path, fontNumber=0)
-    except IOError:
-        return FontFace(filename=font_path.name)
-
+    """The caller should catch ALL exception (see scan_folder function above) - strange 
+    things can happen when reading TTF files.
+    """
+    ttf = TTFont(font_path, fontNumber=0)
     names = ttf["name"].names
     family = ""
     style = ""
@@ -457,9 +470,16 @@ def get_ttf_font_face(font_path: Path) -> FontFace:
             style = record.string.decode(record.getEncoding())
         if family and style:
             break
-    os2_table = ttf["OS/2"]
-    weight = os2_table.usWeightClass
-    width = os2_table.usWidthClass
+    
+    try:
+        os2_table = ttf["OS/2"]
+    except Exception:  # e.g. ComickBook_Simple.ttf has an invalid "OS/2" table
+        logger.info(f"cannot load OS/2 table of font '{font_path.name}'")
+        weight = 400
+        width = 5
+    else:
+        weight = os2_table.usWeightClass
+        width = os2_table.usWidthClass
     return FontFace(
         filename=font_path.name,
         family=family,

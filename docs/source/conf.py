@@ -15,16 +15,11 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 
 # import os, sys
-# sys.path.insert(0, os.path.abspath('../..'))
 import ezdxf
 
 # -- General configuration -----------------------------------------------------
 html_static_path = ['_static']
-html_context = {
-    'css_files': [
-        '_static/theme_overrides.css',  # override wide tables in RTD theme
-        ],
-     }
+html_css_files = ['theme_overrides.css']
 
 # If your documentation needs a minimal Sphinx version, state it here.
 # needs_sphinx = '1.0'
@@ -35,6 +30,7 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.napoleon',
     'sphinx.ext.autosummary',
+    'sphinxcontrib.jquery',
 ]
 autodoc_typehints_format = "short"
 autodoc_preserve_defaults = True
@@ -78,7 +74,7 @@ release = ezdxf.__version__
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
-exclude_patterns = []
+exclude_patterns = ["README.md"]
 
 # The reST default role (used for this markup: `text`) to use for all documents.
 #default_role = None

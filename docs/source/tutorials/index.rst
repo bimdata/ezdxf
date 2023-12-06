@@ -36,4 +36,5 @@ Tutorials
     ordinate_dimension
     geo
     custom_data
-
+    xref_module
+    image_export

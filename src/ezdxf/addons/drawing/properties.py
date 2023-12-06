@@ -14,6 +14,8 @@ from typing import (
 )
 import re
 import copy
+import logging
+import sys
 
 from ezdxf import options
 from ezdxf.colors import RGB
@@ -70,6 +72,7 @@ MODEL_SPACE_BG_COLOR = "#212830"
 PAPER_SPACE_BG_COLOR = "#ffffff"
 VIEWPORT_COLOR = "#aaaaaa"  # arbitrary choice
 OLE2FRAME_COLOR = "#89adba"  # arbitrary choice
+logger = logging.getLogger("ezdxf")
 
 
 def get_gid(entity: Optional[DXFGraphic]) -> str:
@@ -558,7 +561,12 @@ class RenderContext:
                     family=family, weight=700 if bold else 400, italic=italic
                 )
         else:
-            font_face = fonts.resolve_font_face(font_file, order=self.shx_resolve_order)
+            try:
+                font_face = fonts.resolve_font_face(
+                    font_file, order=self.shx_resolve_order
+                )
+            except fonts.FontNotFoundError:
+                logger.warning("no fonts available, not even fallback fonts")
 
         if font_face is None:  # fall back to default font
             font_face = fonts.FontFace()

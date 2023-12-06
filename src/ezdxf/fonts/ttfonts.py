@@ -6,6 +6,7 @@ from fontTools.pens.basePen import BasePen
 from fontTools.ttLib import TTFont
 
 from ezdxf.math import Matrix44, UVec, BoundingBox2d
+from ezdxf.path import Path
 from .font_manager import FontManager, UnsupportedFont
 from .font_measurements import FontMeasurements
 from .glyphs import GlyphPath, Glyphs
@@ -19,11 +20,11 @@ font_manager = FontManager()
 class PathPen(BasePen):
     def __init__(self, glyph_set) -> None:
         super().__init__(glyph_set)
-        self._path = GlyphPath()
+        self._path = Path()
 
     @property
     def path(self) -> GlyphPath:
-        return self._path
+        return GlyphPath(self._path)
 
     def _moveTo(self, pt: UVec) -> None:
         self._path.move_to(pt)
@@ -126,14 +127,14 @@ class TTFontRenderer(Glyphs):
     def get_glyph_path(self, char: str) -> GlyphPath:
         """Returns the raw glyph path, without any scaling applied."""
         try:
-            return self._glyph_path_cache[char]
+            return self._glyph_path_cache[char].clone()
         except KeyError:
             pass
         pen = PathPen(self.glyph_set)
         self.get_generic_glyph(char).draw(pen)
         glyph_path = pen.path
         self._glyph_path_cache[char] = glyph_path
-        return glyph_path
+        return glyph_path.clone()
 
     def get_glyph_width(self, char: str) -> float:
         """Returns the raw glyph width, without any scaling applied."""
@@ -149,11 +150,11 @@ class TTFontRenderer(Glyphs):
         self._glyph_width_cache[char] = width
         return width
 
-    def get_text_path(
+    def get_text_glyph_paths(
         self, s: str, cap_height: float = 1.0, width_factor: float = 1.0
-    ) -> GlyphPath:
-        """Returns the concatenated glyph paths of string s, scaled to cap height."""
-        text_path = GlyphPath()
+    ) -> list[GlyphPath]:
+        """Returns the glyph paths of string `s` as a list, scaled to cap height."""
+        glyph_paths: list[GlyphPath] = []
         x_offset: float = 0
         requires_kerning = isinstance(self.kerning, KerningTable)
         resize_factor = self.get_scaling_factor(cap_height)
@@ -170,14 +171,13 @@ class TTFontRenderer(Glyphs):
                 x_offset += self.kerning.get(prev_char, char) * x_factor
             # set horizontal offset:
             m[3, 0] = x_offset
-            glyph_path = self.get_glyph_path(char).transform(m)
-            if x_offset == 0:
-                text_path = glyph_path
-            elif len(glyph_path):
-                text_path.extend_multi_path(glyph_path)
+            glyph_path = self.get_glyph_path(char)
+            glyph_path.transform_inplace(m)
+            if len(glyph_path):
+                glyph_paths.append(glyph_path)
             x_offset += self.get_glyph_width(char) * x_factor
             prev_char = char
-        return text_path
+        return glyph_paths
 
     def detect_space_width(self) -> float:
         """Returns the space width for the raw (unscaled) font."""

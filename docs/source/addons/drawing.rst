@@ -145,15 +145,17 @@ which is for some backends a requirement to place the DXF content on size limite
 
 .. autoclass:: ezdxf.addons.drawing.recorder.Player
 
-    .. automethod:: copy
-
     .. automethod:: bbox
 
-    .. automethod:: transform
+    .. automethod:: copy
+
+    .. automethod:: crop_rect
+
+    .. automethod:: recordings
 
     .. automethod:: replay
 
-    .. automethod:: recordings
+    .. automethod:: transform
 
 .. autoclass:: ezdxf.addons.drawing.recorder.Override
 
@@ -195,6 +197,8 @@ The :class:`Layout` class uses following classes and enums for configuration:
     .. automethod:: scale
 
 
+.. autoclass:: ezdxf.addons.drawing.layout.PageAlignment
+
 .. autoclass:: ezdxf.addons.drawing.layout.Settings
 
 .. autoclass:: ezdxf.addons.drawing.layout.Units
@@ -204,10 +208,7 @@ SVGBackend
 
 .. versionadded:: 1.1
 
-This is a native SVG rendering backend and does not require any external packages to
-render SVG images other than the core dependencies.
-
-.. class:: ezdxf.addons.drawing.svg.SVGBackend
+.. autoclass:: ezdxf.addons.drawing.svg.SVGBackend
 
     .. automethod:: get_xml_root_element
 
@@ -536,7 +537,7 @@ BackendInterface
 
 .. class:: ezdxf.addons.drawing.backend.BackendInterface
 
-    The public interface definition for the rendering backend.
+    Public interface definition for 2D rendering backends.
 
     For more information read the source code: `backend.py`_
 

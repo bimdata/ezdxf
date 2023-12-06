@@ -4,10 +4,10 @@ from __future__ import annotations
 from typing_extensions import TypeAlias
 import abc
 
-from ezdxf.path import Path2d
+from ezdxf.npshapes import NumpyPath2d
 from .font_measurements import FontMeasurements
 
-GlyphPath: TypeAlias = Path2d
+GlyphPath: TypeAlias = NumpyPath2d
 
 
 class Glyphs(abc.ABC):
@@ -24,8 +24,16 @@ class Glyphs(abc.ABC):
     ) -> float:
         ...
 
-    @abc.abstractmethod
     def get_text_path(
         self, text: str, cap_height: float, width_factor: float = 1.0
     ) -> GlyphPath:
+        glyph_paths = self.get_text_glyph_paths(text, cap_height, width_factor)
+        if len(glyph_paths) == 0:
+            return GlyphPath(None)
+        return NumpyPath2d.concatenate(glyph_paths)
+
+    @abc.abstractmethod
+    def get_text_glyph_paths(
+        self, text: str, cap_height: float, width_factor: float = 1.0
+    ) -> list[GlyphPath]:
         ...

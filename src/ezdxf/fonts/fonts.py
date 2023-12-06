@@ -6,7 +6,6 @@ import abc
 import enum
 import logging
 import os
-import sys
 import pathlib
 
 from ezdxf import options
@@ -23,16 +22,17 @@ from .glyphs import GlyphPath, Glyphs
 if TYPE_CHECKING:
     from ezdxf.document import Drawing
     from ezdxf.entities import DXFEntity, Textstyle
-    from ezdxf.path import Path2d
 
 logger = logging.getLogger("ezdxf")
 FONT_MANAGER_CACHE_FILE = "font_manager_cache.json"
+# SUT = System Under Test, see build_sut_font_manager_cache() function
+SUT_FONT_MANAGER_CACHE = False
 CACHE_DIRECTORY = ".cache"
 font_manager = FontManager()
 
 SHX_FONTS = {
     # See examples in: CADKitSamples/Shapefont.dxf
-    # Shape file structure is not documented, therefore replace this fonts by
+    # Shape file structure is not documented, therefore, replace these fonts by
     # true type fonts.
     # `None` is for: use the default font.
     #
@@ -123,7 +123,7 @@ def build_system_font_cache() -> None:
     location in the cache directory of the users home directory "~/.cache/ezdxf" or the
     directory specified by the environment variable "XDG_CACHE_HOME".
     """
-    build_font_manager_cache(_get_font_manger_path())
+    build_font_manager_cache(_get_font_manager_path())
 
 
 def find_font_face(font_name: str) -> FontFace:
@@ -270,16 +270,13 @@ def load():
     _load_font_manager()
 
 
-def _get_font_manger_path():
+def _get_font_manager_path():
     cache_path = options.xdg_path("XDG_CACHE_HOME", CACHE_DIRECTORY)
     return cache_path / FONT_MANAGER_CACHE_FILE
 
 
 def _load_font_manager() -> None:
-    if "pytest" in sys.modules:
-        return  # do nothing: system under test (sut)
-
-    fm_path = _get_font_manger_path()
+    fm_path = _get_font_manager_path()
     if fm_path.exists():
         try:
             font_manager.loads(fm_path.read_text())
@@ -294,9 +291,12 @@ def build_sut_font_manager_cache(repo_font_path: pathlib.Path) -> None:
 
     Load the fonts included in the repository folder "./fonts" to guarantee the tests
     have the same fonts available on all systems.
+
+    This function should be called from "conftest.py".
+
     """
-    if font_manager.has_font("DejaVuSans.ttf"):
-        return
+    global SUT_FONT_MANAGER_CACHE
+    SUT_FONT_MANAGER_CACHE = True
     font_manager.clear()
     cache_file = repo_font_path / "font_manager_cache.json"
     if cache_file.exists():
@@ -305,7 +305,7 @@ def build_sut_font_manager_cache(repo_font_path: pathlib.Path) -> None:
             return
         except IOError as e:
             print(f"Error loading cache file: {str(e)}")
-    font_manager.build([str(repo_font_path)])
+    font_manager.build([str(repo_font_path)], support_dirs=False)
     s = font_manager.dumps()
     try:
         cache_file.write_text(s)
@@ -313,16 +313,30 @@ def build_sut_font_manager_cache(repo_font_path: pathlib.Path) -> None:
         print(f"Error writing cache file: {str(e)}")
 
 
+def make_cache_directory(path: pathlib.Path) -> None:
+    if not path.exists():
+        try:
+            path.mkdir(parents=True)
+        except IOError:
+            pass
+
+
 def build_font_manager_cache(path: pathlib.Path) -> None:
     font_manager.clear()
     font_manager.build()
     s = font_manager.dumps()
-    if not path.parent.exists():
-        path.parent.mkdir(parents=True)
+    cache_dir = path.parent
+    make_cache_directory(cache_dir)
+    if not cache_dir.exists():
+        logger.warning(
+            f"Cannot create cache home directory: '{str(cache_dir)}', cache files will "
+            f"not be saved.\nSee also issue https://github.com/mozman/ezdxf/issues/923."
+        )
+        return
     try:
         path.write_text(s)
     except IOError as e:
-        logger.info(f"Error writing cache file: {str(e)}")
+        logger.warning(f"Error writing cache file: '{str(e)}'")
 
 
 class FontRenderType(enum.Enum):
@@ -374,6 +388,14 @@ class AbstractFont:
         and `width_factor`."""
         ...
 
+    @abc.abstractmethod
+    def text_glyph_paths(
+        self, text: str, cap_height: float, width_factor: float = 1.0
+    ) -> list[GlyphPath]:
+        """Returns a list of 2D glyph paths for the given text, bypasses the stored
+        `cap_height` and `width_factor`."""
+        ...
+
 
 class MonospaceFont(AbstractFont):
     """Represents a monospaced font where each letter has the same cap- and descender
@@ -423,24 +445,30 @@ class MonospaceFont(AbstractFont):
         return len(text) * cap_height * width_factor
 
     def text_path(self, text: str) -> GlyphPath:
-        """Returns the rectangle text width x cap height as :class:`~ezdxf.path.Path2d` instance."""
+        """Returns the rectangle text width x cap height as :class:`NumpyPath2d` instance."""
         return self.text_path_ex(text, self.measurements.cap_height, self._width_factor)
 
     def text_path_ex(
         self, text: str, cap_height: float, width_factor: float = 1.0
     ) -> GlyphPath:
-        """Returns the rectangle text width x cap height as  :class:`~ezdxf.path.Path2d`
+        """Returns the rectangle text width x cap height as  :class:`NumpyPath2d`
         instance, bypasses the stored `cap_height` and `width_factor`.
         """
-        from ezdxf.path import Path2d
+        from ezdxf.path import Path
 
         text_width = self.text_width_ex(text, cap_height, width_factor)
-        p = Path2d((0, 0))
+        p = Path((0, 0))
         p.line_to((text_width, 0))
         p.line_to((text_width, cap_height))
         p.line_to((0, cap_height))
         p.close()
-        return p
+        return GlyphPath(p)
+
+    def text_glyph_paths(
+        self, text: str, cap_height: float, width_factor: float = 1.0
+    ) -> list[GlyphPath]:
+        """Returns the same rectangle as the method :meth:`text_path_ex` in a list."""
+        return [self.text_path_ex(text, cap_height, width_factor)]
 
     def space_width(self) -> float:
         """Returns the width of a "space" char."""
@@ -494,16 +522,16 @@ class _CachedFont(AbstractFont, abc.ABC):
         and `width_factor`."""
         return self.glyph_cache.get_text_path(text, cap_height, width_factor)
 
+    def text_glyph_paths(
+        self, text: str, cap_height: float, width_factor: float = 1.0
+    ) -> list[GlyphPath]:
+        """Returns a list of 2D glyph paths for the given text, bypasses the stored
+        `cap_height` and `width_factor`."""
+        return self.glyph_cache.get_text_glyph_paths(text, cap_height, width_factor)
+
     def space_width(self) -> float:
         """Returns the width of a "space" char."""
         return self._space_width
-
-# --------------------------------------------------------------------------------------
-# NOTES:
-# "romantic.ttf" uses the Private Use Area (PUA) codepoints (f000-e000) for its glyphs
-# and has no glyphs for the usual code points.
-# see example: "CADKitSamples\Proposed Townhouse.dxf"
-# I deleted this font from my system!
 
 
 class TrueTypeFont(_CachedFont):
@@ -630,7 +658,7 @@ def make_font(
     """
     if font_name == MONOSPACE:
         return MonospaceFont(cap_height, width_factor)
-    ext = pathlib.Path(font_name).suffix
+    ext = pathlib.Path(font_name).suffix.lower()
     last_resort = MonospaceFont(cap_height, width_factor)
     if ext in SUPPORTED_TTF_TYPES:
         try:
@@ -657,6 +685,10 @@ def make_font(
         )
         if font_face is not None:
             return make_font(font_face.filename, cap_height, width_factor)
+    else:
+        logger.warning(f"unsupported font-name suffix: {font_name}")
+        font_name = font_manager.fallback_font_name()
+
     # return default TrueType font
     try:
         return TrueTypeFont(font_name, cap_height, width_factor)
