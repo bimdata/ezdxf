@@ -193,16 +193,12 @@ class MatplotlibBackend(Backend):
         else:
             self.ax.add_patch(patch)
 
-
-def draw_filled_polygon(
-        self, points: Iterable[AnyVec], properties: BackendProperties
-    ):
+    def draw_filled_polygon(self, points: BkPoints2d, properties: BackendProperties):
         self.ax.fill(
             *zip(*((p.x, p.y) for p in points.vertices())),
             color=properties.color,
             linewidth=0,
             zorder=self._get_z(),
-            gid=properties.output_id,
         )
 
     def clear(self):
