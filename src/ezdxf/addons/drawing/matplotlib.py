@@ -119,7 +119,7 @@ class MatplotlibBackend(Backend):
                     linewidth=self.get_lineweight(properties),
                     color=properties.color,
                     zorder=self._get_z(),
-                    gid=properties.handle,
+                    gid=properties.output_id,
                 )
             )
 
@@ -150,7 +150,7 @@ class MatplotlibBackend(Backend):
                 color=color,
                 zorder=z,
                 capstyle="butt",
-                gid=properties.handle,
+                gid=properties.output_id,
             )
         )
 
@@ -166,7 +166,7 @@ class MatplotlibBackend(Backend):
                 fill=False,
                 color=properties.color,
                 zorder=self._get_z(),
-                gid=properties.handle,
+                gid=properties.output_id,
                 hatch=getattr(properties, "hatch_type", None),
             )
         except ValueError as e:
@@ -186,7 +186,7 @@ class MatplotlibBackend(Backend):
                 linewidth=linewidth,
                 fill=True,
                 zorder=self._get_z(),
-                gid=properties.handle,
+                gid=properties.output_id,
             )
         except ValueError as e:
             logger.info(f"ignored matplotlib error in draw_filled_paths(): {str(e)}")
@@ -199,7 +199,7 @@ class MatplotlibBackend(Backend):
             color=properties.color,
             linewidth=0,
             zorder=self._get_z(),
-            gid=properties.handle,
+            gid=properties.output_id,
         )
 
     def clear(self):

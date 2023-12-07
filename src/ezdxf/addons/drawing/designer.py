@@ -173,6 +173,7 @@ class Designer2d(Designer):
             properties.layer,
             properties.pen,
             self._current_entity_handle,
+            properties.output_id,
         )
 
     def set_draw_entities_callback(self, callback: DrawEntitiesCallback) -> None:
