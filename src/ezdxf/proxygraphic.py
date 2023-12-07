@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2022, Manfred Moitzi
+# Copyright (c) 2020-2023, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
 from typing import (
@@ -13,7 +13,6 @@ from typing import (
 import sys
 import struct
 import math
-import os
 from enum import IntEnum
 from itertools import repeat
 from ezdxf.lldxf import const
@@ -366,8 +365,14 @@ class ProxyGraphic:
     def attribute_linetype(self, data: bytes):
         if self._doc:
             index = struct.unpack("<L", data)[0]
-            if index < len(self.linetypes):
-                self.linetype = self.linetypes[index]
+            try:
+                # first two entries ByLayer and ByBlock are not included in CAD applications:
+                self.linetype = self.linetypes[index + 2]
+            except IndexError:
+                if index == 32766:
+                    self.linetype = "BYBLOCK"
+                else:  # index is 32767 or invalid
+                    self.linetype = "BYLAYER"
 
     def attribute_marker(self, data: bytes):
         self.marker_index = struct.unpack("<L", data)[0]
@@ -500,39 +505,41 @@ class ProxyGraphic:
             hatch.dxf.elevation = Vec3(0, 0, elevation)
         return hatch
 
-    def _polyline(self, vertices, *, close=False, normal=Z_AXIS):
+    def _polyline(self, vertices: list[Vec3], *, close=False, normal=Z_AXIS):
         # Polyline without bulge values!
         # Current implementation ignores the normal vector!
+        # Polyline ignores the filled flag, see #906
         attribs = self._build_dxf_attribs()
         count = len(vertices)
         if count == 1 or (count == 2 and vertices[0].isclose(vertices[1])):
             attribs["location"] = vertices[0]
             return self._factory("POINT", dxfattribs=attribs)
-
-        if self.fill and count > 2:
-            polyline = self._filled_polygon(vertices, attribs)
-        else:
+        if not is_2d_polyline(vertices):
             attribs["flags"] = const.POLYLINE_3D_POLYLINE
-            polyline = cast("Polyline", self._factory("POLYLINE", dxfattribs=attribs))
-            polyline.append_vertices(vertices)
-            if close:
-                polyline.close()
-            polyline.new_seqend()
+        polyline = cast("Polyline", self._factory("POLYLINE", dxfattribs=attribs))
+        polyline.append_vertices(vertices)
+        if close:
+            polyline.close()
+        polyline.new_seqend()
         return polyline
 
     def polyline_with_normals(self, data: bytes):
         # Polyline without bulge values!
+        # Polyline ignores the filled flag, see #906
         vertices, normal = self._load_vertices(data, load_normal=True)
         return self._polyline(vertices, normal=normal)
 
     def polyline(self, data: bytes):
         # Polyline without bulge values!
+        # Polyline ignores the filled flag, see #906
         vertices, normal = self._load_vertices(data, load_normal=False)
         return self._polyline(vertices)
 
     def polygon(self, data: bytes):
         # Polyline without bulge values!
         vertices, normal = self._load_vertices(data, load_normal=False)
+        if self.fill:
+            return self._filled_polygon(vertices, self._build_dxf_attribs())
         return self._polyline(vertices, close=True)
 
     def lwpolyline(self, data: bytes):
@@ -557,6 +564,9 @@ class ProxyGraphic:
         if flag & 512:  # todo: is this correct? not documented by the ODA DWG ref.
             is_closed = True
         num_points = bs.read_bit_long()
+        if num_points <= 0:
+            return None  # ignored in method unsafe_virtual_entities()
+
         if flag & 16:
             num_bulges = bs.read_bit_long()
 
@@ -796,7 +806,8 @@ class ProxyGraphic:
                 self.textstyles[font] = style
         return style
 
-    def _load_vertices(self, data: bytes, load_normal=False):
+    @staticmethod
+    def _load_vertices(data: bytes, load_normal=False) -> tuple[list[Vec3], bool]:
         normal = Z_AXIS
         bs = ByteStream(data)
         count = bs.read_long()
@@ -923,3 +934,10 @@ def _get_elevation(vertices) -> float:
     if vertices:
         return vertices[0].z
     return 0.0
+
+
+def is_2d_polyline(vertices: list[Vec3]) -> bool:
+    if len(vertices) < 1:
+        return True
+    z = vertices[0].z
+    return all(math.isclose(z, v.z) for v in vertices)

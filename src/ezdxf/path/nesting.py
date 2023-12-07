@@ -7,11 +7,11 @@ Terminology
 -----------
 
 exterior
-    creates a filled area, has counter-clockwise (ccw) winding in matplotlib
+    creates a filled area, has counter-clockwise (ccw) winding
     exterior := Path
 
 hole
-    creates an unfilled area, has clockwise winding (cw) in matplotlib,
+    creates an unfilled area, has clockwise winding (cw),
     hole := Polygon
 
 polygon
@@ -21,16 +21,15 @@ polygon
     polygon with 2 separated holes: [path, [path], [path]]
     polygon with 2 nested holes: [path, [path, [path]]]
 
-    polygon := [exterior, hole*]
+    polygon := [exterior, *hole]
 
 The result is a list of polygons:
 
 1 polygon returns: [[ext-path]]
 2 separated polygons returns: [[ext-path], [ext-path, [hole-path]]]
 
-A hole is just another polygon, for a correct visualisation in
-matplotlib the winding of the nested paths have to follow the alternating
-order ccw-cw-ccw-cw... :
+A hole is just another polygon, some render backends may require a distinct winding
+order for nested paths like: ccw-cw-ccw-cw...
 
 [Exterior-ccw,
     [Hole-Exterior-cw,
@@ -48,42 +47,13 @@ by using proxy objects:
 Bounding Box Proxy
 ------------------
 
-Use the bounding box, this is very fast but not accurate, but could handle
-most of the real world scenarios, in the assumption that most HATCHES are
-created from non-overlapping boundary paths.
+This implementation uses the bounding box of the path as proxy object, this is very fast
+but not accurate, but can handle most of the real world scenarios, in the assumption
+that most HATCHES are created from non-overlapping boundary paths.
 Overlap detection and resolving is not possible.
 
-Bounding Box Construction:
-- Fast: use bounding box from control vertices
-- Accurate: use bounding box from flattened curve
-
-Inside Check:
-- Fast: center point of the bounding box
-- Slow: use all corner points of the bounding box
-
-
-Convex Hull Proxy
------------------
-
-Use the convex hull of the path, this is more accurate but also
-much slower. Overlap detection and resolving is not possible.
-
-Convex Hull construction:
-- Fast: use convex hull from control vertices
-- Accurate: use convex hull from flattened curve
-
-Inside Check:
-- Fast: center point of convex hull
-- Slow: use all points of the convex hull
-
-
-Flattened Curve
----------------
-
-Use the flattened curve vertices, this is the most accurate solution and also
-the slowest. Overlap detection and resolving is possible: exterior is the
-union of two overlapping paths, hole is the intersection of this two paths,
-the hole vertices have to be subtracted from the exterior vertices.
+The input paths have to implement the SupportsBoundingBox protocol, which requires
+only a method bbox() that returns a BoundingBox2d instance for the path.
 
 Sort by Area
 ------------
@@ -92,37 +62,48 @@ It is not possible for a path to contain another path with a larger area.
 
 """
 from __future__ import annotations
-from typing import Tuple, Optional, List, Iterable
+from typing import (
+    Tuple,
+    Optional,
+    List,
+    Iterable,
+    Sequence,
+    Iterator,
+    TypeVar,
+)
 from typing_extensions import TypeAlias
 from collections import namedtuple
-from .path import AbstractPath
-from ezdxf.math import BoundingBox2d
+from ezdxf.math import AbstractBoundingBox
+from ezdxf.protocols import SupportsBoundingBox
+
 
 __all__ = [
-    "fast_bbox_detection",
+    "make_polygon_structure",
     "winding_deconstruction",
     "group_paths",
     "flatten_polygons",
 ]
 
-Exterior: TypeAlias = AbstractPath
-Polygon: TypeAlias = Tuple[Exterior, Optional[List["Polygon"]]]
+
+T = TypeVar("T", bound=SupportsBoundingBox)
+
+Polygon: TypeAlias = Tuple[T, Optional[List["Polygon"]]]
 BoxStruct = namedtuple("BoxStruct", "bbox, path")
 
 
-def fast_bbox_detection(paths: Iterable[AbstractPath]) -> list[Polygon]:
-    """Create a nested polygon structure from iterable `paths`, using 2D
+def make_polygon_structure(paths: Iterable[T]) -> list[Polygon]:
+    """Returns a recursive polygon structure from iterable `paths`, uses 2D
     bounding boxes as fast detection objects.
 
     """
 
     # Implements fast bounding box construction and fast inside check.
     def area(item: BoxStruct) -> float:
-        width, height = item.bbox.size
-        return width * height
+        size = item.bbox.size
+        return size.x * size.y
 
     def separate(
-        exterior: BoundingBox2d, candidates: list[BoxStruct]
+        exterior: AbstractBoundingBox, candidates: list[BoxStruct]
     ) -> tuple[list[BoxStruct], list[BoxStruct]]:
         holes: list[BoxStruct] = []
         outside: list[BoxStruct] = []
@@ -136,7 +117,7 @@ def fast_bbox_detection(paths: Iterable[AbstractPath]) -> list[Polygon]:
     def polygon_structure(outside: list[BoxStruct]) -> list[list]:
         polygons = []
         while outside:
-            exterior = outside.pop()  # path with largest area
+            exterior = outside.pop()  # path with the largest area
             # Get holes inside of exterior and returns the remaining paths
             # outside of exterior:
             holes, outside = separate(exterior.bbox, outside)
@@ -154,19 +135,18 @@ def fast_bbox_detection(paths: Iterable[AbstractPath]) -> list[Polygon]:
             for polygon in polygons
         ]
 
-    boxed_paths = [
-        # Fast bounding box construction:
-        BoxStruct(BoundingBox2d(path.control_vertices()), path)
-        for path in paths
-        if len(path)
-    ]
+    boxed_paths = []
+    for path in paths:
+        bbox = path.bbox()
+        if bbox.has_data:
+            boxed_paths.append(BoxStruct(bbox, path))
     boxed_paths.sort(key=area)
     return as_nested_paths(polygon_structure(boxed_paths))
 
 
 def winding_deconstruction(
     polygons: list[Polygon],
-) -> tuple[list[AbstractPath], list[AbstractPath]]:
+) -> tuple[list[T], list[T]]:
     """Flatten the nested polygon structure in a tuple of two lists,
     the first list contains the paths which should be counter-clockwise oriented
     and the second list contains the paths which should be clockwise oriented.
@@ -177,29 +157,29 @@ def winding_deconstruction(
 
     def deconstruct(polygons_, level):
         for polygon in polygons_:
-            if isinstance(polygon, AbstractPath):
+            if isinstance(polygon, Sequence):
+                deconstruct(polygon, level + 1)
+            else:
                 # level 0 is the list of polygons
                 # level 1 = ccw, 2 = cw, 3 = ccw, 4 = cw, ...
-                (ccw_paths if (level % 2) else cw_paths).append(polygon)  # type:ignore
-            else:
-                deconstruct(polygon, level + 1)
+                (ccw_paths if (level % 2) else cw_paths).append(polygon)
 
-    cw_paths: list[AbstractPath] = []
-    ccw_paths: list[AbstractPath] = []
+    cw_paths: list[T] = []
+    ccw_paths: list[T] = []
     deconstruct(polygons, 0)
     return ccw_paths, cw_paths
 
 
-def flatten_polygons(polygons: Polygon) -> Iterable[AbstractPath]:
+def flatten_polygons(polygons: Polygon) -> Iterator[T]:
     """Yield a flat representation of the given nested polygons."""
-    for polygon in polygons:  # type: ignore
-        if isinstance(polygon, AbstractPath):
-            yield polygon
-        else:
+    for polygon in polygons:
+        if isinstance(polygon, Sequence):
             yield from flatten_polygons(polygon)  # type: ignore
+        else:
+            yield polygon  # T
 
 
-def group_paths(paths: Iterable[AbstractPath]) -> list[list[AbstractPath]]:
+def group_paths(paths: Iterable[T]) -> list[list[T]]:
     """Group separated paths and their inner holes as flat lists."""
-    polygons = fast_bbox_detection(paths)  # type: ignore
+    polygons = make_polygon_structure(paths)
     return [list(flatten_polygons(polygon)) for polygon in polygons]

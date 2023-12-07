@@ -1,26 +1,25 @@
-#  Copyright (c) 2021, Manfred Moitzi
+#  Copyright (c) 2021-2023, Manfred Moitzi
 #  License: MIT License
 
 import pytest
-import sys
 
 pytest.importorskip("PySide6")
 
-from ezdxf.addons.xqt import QPainterPath, QPointF
 from ezdxf import path
 from ezdxf.math import quadratic_to_cubic_bezier, Bezier3P
+from ezdxf import npshapes
 
 
-class TestToQPainterPath:
+class TestNumpyPath2dToQPainterPath:
     def test_no_paths(self):
         with pytest.raises(ValueError):
-            path.to_qpainter_path([])
+            npshapes.to_qpainter_path([])
 
     def test_line_to(self):
         p = path.Path()
         p.line_to((4, 5, 6))
         p.line_to((7, 8, 6))
-        qpath = path.to_qpainter_path([p])
+        qpath = npshapes.to_qpainter_path([npshapes.NumpyPath2d(p)])
         assert qpath.elementCount() == 3
 
         m = qpath.elementAt(0)
@@ -39,7 +38,7 @@ class TestToQPainterPath:
         bez3 = Bezier3P([(0, 0), (2, 1), (4, 0)])
         p = path.Path()
         p.curve3_to(bez3.control_points[2], bez3.control_points[1])
-        qpath = path.to_qpainter_path([p])
+        qpath = npshapes.to_qpainter_path([npshapes.NumpyPath2d(p)])
         # Qt converts quadratic bezier curves unto cubic bezier curves
         assert qpath.elementCount() == 4
         bez4 = quadratic_to_cubic_bezier(bez3)
@@ -58,7 +57,7 @@ class TestToQPainterPath:
         bez4 = [(4, 0, 2), (1, 1, 7), (3, 1, 5)]
         p = path.Path()
         p.curve4_to(*bez4)
-        qpath = path.to_qpainter_path([p])
+        qpath = npshapes.to_qpainter_path([npshapes.NumpyPath2d(p)])
         assert qpath.elementCount() == 4
         q1 = qpath.elementAt(1)
         assert q1.isCurveTo()  # start of cure
@@ -75,7 +74,9 @@ class TestToQPainterPath:
         p1.line_to((4, 5, 6))
         p2 = path.Path()
         p2.line_to((7, 8, 6))
-        qpath = path.to_qpainter_path([p1, p2])
+        qpath = npshapes.to_qpainter_path(
+            [npshapes.NumpyPath2d(p1), npshapes.NumpyPath2d(p2)]
+        )
         assert qpath.elementCount() == 4
         assert qpath.elementAt(0).isMoveTo() is True
         assert qpath.elementAt(1).isLineTo() is True
@@ -87,12 +88,13 @@ class TestToQPainterPath:
         p.line_to((4, 5, 6))
         p.move_to((0, 0, 0))
         p.line_to((7, 8, 6))
-        qpath = path.to_qpainter_path([p])
+        qpath = npshapes.to_qpainter_path([npshapes.NumpyPath2d(p)])
         assert qpath.elementCount() == 4
         assert qpath.elementAt(0).isMoveTo() is True
         assert qpath.elementAt(1).isLineTo() is True
         assert qpath.elementAt(2).isMoveTo() is True
         assert qpath.elementAt(3).isLineTo() is True
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

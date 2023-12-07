@@ -86,6 +86,23 @@ to recognize new installed fonts by :func:`build_system_font_cache`. The cache i
 in the users home directory "~/.cache/ezdxf" or the directory specified by the
 environment variable "XDG_CACHE_HOME".
 
+Rebuilding the Font Cache
+-------------------------
+
+When you add new fonts to your system or add a font directory to the support directories 
+in the config file you have to rebuild the font-cache of `ezdxf` to
+recognize these new fonts:
+
+.. code-block:: Python
+
+    import ezdxf
+    from ezdxf.fonts import fonts
+
+    fonts.build_system_font_cache()
+
+or call the `ezdxf` launcher to do that::
+
+    ezdxf --fonts
 
 Functions
 ---------

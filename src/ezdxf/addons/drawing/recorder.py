@@ -1,15 +1,22 @@
 #  Copyright (c) 2023, Manfred Moitzi
 #  License: MIT License
 from __future__ import annotations
-from typing import Iterable, Any, Iterator, Callable, Optional, NamedTuple
+from typing import (
+    Iterable,
+    Any,
+    Iterator,
+    Sequence,
+    Callable,
+    Optional,
+    NamedTuple,
+)
 from typing_extensions import Self, TypeAlias
 import copy
 import enum
 import dataclasses
 
-from ezdxf.math import AnyVec, BoundingBox2d, Matrix44
-from ezdxf.path import Path, Path2d
-from ezdxf import npshapes
+from ezdxf.math import BoundingBox2d, Matrix44, Vec2, UVec
+from ezdxf.npshapes import NumpyPath2d, NumpyPoints2d, EmptyShapeError
 from ezdxf.tools import take2
 
 from .backend import BackendInterface
@@ -27,7 +34,8 @@ class RecordType(enum.Enum):
         PATH:
         FILLED_PATHS:
     """
-    POINTS = enum.auto()
+
+    POINTS = enum.auto()  # n=1 point; n=2 line; n>2 filled polygon
     SOLID_LINES = enum.auto()
     PATH = enum.auto()
     FILLED_PATHS = enum.auto()
@@ -39,6 +47,18 @@ class DataRecord:
     property_hash: int
     handle: str  # top-level entity handle
     data: Any
+
+    def bbox(self) -> BoundingBox2d:
+        bbox = BoundingBox2d()
+        try:
+            if self.type == RecordType.FILLED_PATHS:
+                for path in self.data:
+                    bbox.extend(path.extents())
+            else:
+                bbox.extend(self.data.extents())
+        except EmptyShapeError:
+            pass
+        return bbox
 
 
 class Recorder(BackendInterface):
@@ -84,43 +104,41 @@ class Recorder(BackendInterface):
         )
         self.properties[prop_hash] = properties
 
-    def draw_point(self, pos: AnyVec, properties: BackendProperties) -> None:
-        self.store(RecordType.POINTS, properties, npshapes.NumpyPoints2d((pos,)))
+    def draw_point(self, pos: Vec2, properties: BackendProperties) -> None:
+        self.store(RecordType.POINTS, properties, NumpyPoints2d((pos,)))
 
-    def draw_line(
-        self, start: AnyVec, end: AnyVec, properties: BackendProperties
-    ) -> None:
-        self.store(RecordType.POINTS, properties, npshapes.NumpyPoints2d((start, end)))
+    def draw_line(self, start: Vec2, end: Vec2, properties: BackendProperties) -> None:
+        self.store(RecordType.POINTS, properties, NumpyPoints2d((start, end)))
 
     def draw_solid_lines(
-        self, lines: Iterable[tuple[AnyVec, AnyVec]], properties: BackendProperties
+        self, lines: Iterable[tuple[Vec2, Vec2]], properties: BackendProperties
     ) -> None:
-        def flatten() -> Iterator[AnyVec]:
+        def flatten() -> Iterator[Vec2]:
             for s, e in lines:
                 yield s
                 yield e
 
-        self.store(
-            RecordType.SOLID_LINES, properties, npshapes.NumpyPoints2d(flatten())
-        )
+        self.store(RecordType.SOLID_LINES, properties, NumpyPoints2d(flatten()))
 
-    def draw_path(self, path: Path | Path2d, properties: BackendProperties) -> None:
-        self.store(RecordType.PATH, properties, npshapes.NumpyPath2d(path))
+    def draw_path(self, path: NumpyPath2d, properties: BackendProperties) -> None:
+        assert isinstance(path, NumpyPath2d)
+        self.store(RecordType.PATH, properties, path)
 
     def draw_filled_polygon(
-        self, points: Iterable[AnyVec], properties: BackendProperties
+        self, points: NumpyPoints2d, properties: BackendProperties
     ) -> None:
-        self.store(RecordType.POINTS, properties, npshapes.NumpyPoints2d(points))
+        assert isinstance(points, NumpyPoints2d)
+        self.store(RecordType.POINTS, properties, points)
 
     def draw_filled_paths(
-        self,
-        paths: Iterable[Path | Path2d],
-        holes: Iterable[Path | Path2d],
-        properties: BackendProperties,
+        self, paths: Iterable[NumpyPath2d], properties: BackendProperties
     ) -> None:
-        _paths = tuple(npshapes.NumpyPath2d(p) for p in paths)
-        _holes = tuple(npshapes.NumpyPath2d(p) for p in holes)
-        self.store(RecordType.FILLED_PATHS, properties, (_paths, _holes))
+        paths = tuple(paths)
+        if len(paths) == 0:
+            return
+
+        assert isinstance(paths[0], NumpyPath2d)
+        self.store(RecordType.FILLED_PATHS, properties, paths)
 
     def enter_entity(self, entity, properties) -> None:
         pass
@@ -217,21 +235,22 @@ class Player:
                     continue
                 properties = state.properties
             if record_type == RecordType.POINTS:
+                if len(data) == 0:
+                    continue
+                if len(data) > 2:
+                    backend.draw_filled_polygon(data, properties)
+                    continue
                 vertices = data.vertices()
                 if len(vertices) == 1:
                     backend.draw_point(vertices[0], properties)
-                elif len(vertices) == 2:
-                    backend.draw_line(vertices[0], vertices[1], properties)
                 else:
-                    backend.draw_filled_polygon(vertices, properties)
+                    backend.draw_line(vertices[0], vertices[1], properties)
             elif record_type == RecordType.SOLID_LINES:
                 backend.draw_solid_lines(take2(data.vertices()), properties)
             elif record_type == RecordType.PATH:
-                backend.draw_path(data.to_path2d(), properties)
+                backend.draw_path(data, properties)
             elif record_type == RecordType.FILLED_PATHS:
-                paths = [p.to_path2d() for p in data[0]]
-                holes = [p.to_path2d() for p in data[1]]
-                backend.draw_filled_paths(paths, holes, properties)
+                backend.draw_filled_paths(data, properties)
         backend.finalize()
 
     def transform(self, m: Matrix44) -> None:
@@ -240,9 +259,7 @@ class Player:
         """
         for record in self.records:
             if record.type == RecordType.FILLED_PATHS:
-                for p in record.data[0]:
-                    p.transform_inplace(m)
-                for p in record.data[1]:
+                for p in record.data:
                     p.transform_inplace(m)
             else:
                 record.data.transform_inplace(m)
@@ -258,14 +275,114 @@ class Player:
         return self._bbox
 
     def update_bbox(self) -> None:
-        points: list[AnyVec] = []
+        bbox = BoundingBox2d()
         for record in self.records:
-            try:
-                if record.type == RecordType.FILLED_PATHS:
-                    for path in record.data[0]:  # only add paths, ignore holes
-                        points.extend(path.extents())
-                else:
-                    points.extend(record.data.extents())
-            except npshapes.EmptyShapeError:
+            bbox.extend(record.bbox())
+        self._bbox = bbox
+
+    def crop_rect(self, p1: UVec, p2: UVec, distance: float) -> None:
+        """Crop recorded shapes inplace by a rectangle defined by two points.
+
+        The argument `distance` defines the approximation precision for paths which have
+        to be approximated as polylines for cropping but only paths which are really get
+        cropped are approximated, paths that are fully inside the crop box will not be
+        approximated.
+
+        Args:
+            p1: first corner of the clipping rectangle
+            p2: second corner of the clipping rectangle
+            distance: maximum distance from the center of the curve to the
+                center of the line segment between two approximation points to
+                determine if a segment should be subdivided.
+
+        """
+        crop_rect = BoundingBox2d([Vec2(p1), Vec2(p2)])
+        self.records = crop_records_rect(self.records, crop_rect, distance)
+        self._bbox = BoundingBox2d()  # determine new bounding box on demand
+
+
+def crop_records_rect(
+    records: list[DataRecord], crop_rect: BoundingBox2d, distance: float
+) -> list[DataRecord]:
+    """Crop recorded shapes inplace by a rectangle."""
+    from .clipper import ClippingRect
+
+    def sort_paths(np_paths: Sequence[NumpyPath2d]):
+        _inside: list[NumpyPath2d] = []
+        _crop: list[NumpyPath2d] = []
+
+        for np_path in np_paths:
+            bbox = BoundingBox2d(np_path.extents())
+            if not crop_rect.has_intersection(bbox):
+                # path is complete outside the cropping rectangle
                 pass
-        self._bbox = BoundingBox2d(points)
+            elif crop_rect.inside(bbox.extmin) and crop_rect.inside(bbox.extmax):
+                # path is complete inside the cropping rectangle
+                _inside.append(np_path)
+            else:
+                _crop.append(np_path)
+
+        return _crop, _inside
+
+    def crop_paths(
+        np_paths: Sequence[NumpyPath2d],
+    ) -> list[NumpyPath2d]:
+        return list(clipper.clip_filled_paths(np_paths, distance))
+
+    # an undefined crop box crops nothing:
+    if not crop_rect.has_data:
+        return records
+    cropped_records: list[DataRecord] = []
+    size = crop_rect.size
+    # a crop box size of zero in any dimension crops everything:
+    if size.x < 1e-12 or size.y < 1e-12:
+        return cropped_records
+
+    clipper = ClippingRect()
+    clipper.push(NumpyPath2d.from_vertices(crop_rect.rect_vertices()), None)
+    for record in records:
+        record_box = record.bbox()
+        if not crop_rect.has_intersection(record_box):
+            # record is complete outside the cropping rectangle
+            continue
+        if crop_rect.inside(record_box.extmin) and crop_rect.inside(record_box.extmax):
+            # record is complete inside the cropping rectangle
+            cropped_records.append(record)
+            continue
+
+        if record.type == RecordType.FILLED_PATHS:
+            paths_to_crop, inside = sort_paths(record.data)
+            cropped_paths = crop_paths(paths_to_crop) + inside
+            if cropped_paths:
+                record.data = tuple(cropped_paths)
+                cropped_records.append(record)
+        elif record.type == RecordType.PATH:
+            # could be split into multiple parts
+            for p in clipper.clip_paths([record.data], distance):  # type: ignore
+                cropped_records.append(
+                    DataRecord(
+                        record.type,
+                        record.property_hash,
+                        record.handle,
+                        p,
+                    )
+                )
+        elif record.type == RecordType.POINTS:
+            count = len(record.data)
+            if count == 1:
+                pass
+            elif count == 2:
+                s, e = record.data.vertices()
+                record.data = NumpyPoints2d(clipper.clip_line(s, e))
+            else:  # filled polygon
+                record.data = clipper.clip_polygon(record.data)
+            cropped_records.append(record)
+        elif record.type == RecordType.SOLID_LINES:
+            points: list[Vec2] = []  # type: ignore
+            for s, e in take2(record.data.vertices()):
+                points.append(clipper.clip_line(s, e))  # type: ignore
+            record.data = NumpyPoints2d(points)
+            cropped_records.append(record)
+        else:
+            raise ValueError("invalid record type")
+    return cropped_records

@@ -7,12 +7,12 @@ import abc
 import math
 
 from ezdxf.addons.xqt import QtCore as qc, QtGui as qg, QtWidgets as qw
-from ezdxf.addons.drawing.backend import Backend
+from ezdxf.addons.drawing.backend import Backend, BkPath2d, BkPoints2d
 from ezdxf.addons.drawing.config import Configuration
 from ezdxf.addons.drawing.type_hints import Color
 from ezdxf.addons.drawing.properties import BackendProperties
-from ezdxf.math import Vec3, Matrix44
-from ezdxf.path import Path, to_qpainter_path
+from ezdxf.math import Vec2, Matrix44
+from ezdxf.npshapes import to_qpainter_path
 
 
 class _Point(qw.QAbstractGraphicsShapeItem):
@@ -112,13 +112,13 @@ class _PyQtBackend(Backend):
     def set_background(self, color: Color):
         self._scene.setBackgroundBrush(qg.QBrush(self._get_color(color)))
 
-    def draw_point(self, pos: Vec3, properties: BackendProperties) -> None:
+    def draw_point(self, pos: Vec2, properties: BackendProperties) -> None:
         """Draw a real dimensionless point."""
         brush = self._get_fill_brush(properties.color)
         item = _Point(pos.x, pos.y, brush)
         self._add_item(item, properties.handle)
 
-    def draw_line(self, start: Vec3, end: Vec3, properties: BackendProperties) -> None:
+    def draw_line(self, start: Vec2, end: Vec2, properties: BackendProperties) -> None:
         # PyQt draws a long line for a zero-length line:
         if start.isclose(end):
             self.draw_point(start, properties)
@@ -129,7 +129,7 @@ class _PyQtBackend(Backend):
 
     def draw_solid_lines(
         self,
-        lines: Iterable[tuple[Vec3, Vec3]],
+        lines: Iterable[tuple[Vec2, Vec2]],
         properties: BackendProperties,
     ):
         """Fast method to draw a bunch of solid lines with the same properties."""
@@ -143,44 +143,28 @@ class _PyQtBackend(Backend):
                 item.setPen(pen)
                 add_line(item, properties.handle)
 
-    def draw_path(self, path: Path, properties: BackendProperties) -> None:
+    def draw_path(self, path: BkPath2d, properties: BackendProperties) -> None:
         item = qw.QGraphicsPathItem(to_qpainter_path([path]))
         item.setPen(self._get_pen(properties))
         item.setBrush(self._no_fill)
         self._add_item(item, properties.handle)
 
     def draw_filled_paths(
-        self,
-        paths: Iterable[Path],
-        holes: Iterable[Path],
-        properties: BackendProperties,
+        self, paths: Iterable[BkPath2d], properties: BackendProperties
     ) -> None:
-        oriented_paths: list[Path] = []
-        for path in paths:
-            try:
-                path = path.counter_clockwise()
-            except ValueError:  # cannot detect path orientation
-                continue
-            oriented_paths.append(path)
-        for path in holes:
-            try:
-                path = path.clockwise()
-            except ValueError:  # cannot detect path orientation
-                continue
-            oriented_paths.append(path)
-        if len(oriented_paths) == 0:
-            return
-        item = _CosmeticPath(to_qpainter_path(oriented_paths))
+        # Default fill rule is OddEvenFill! Detecting the path orientation is not
+        # necessary!
+        item = _CosmeticPath(to_qpainter_path(paths))
         item.setPen(self._get_pen(properties))
         item.setBrush(self._get_fill_brush(properties.color))
         self._add_item(item, properties.handle)
 
     def draw_filled_polygon(
-        self, points: Iterable[Vec3], properties: BackendProperties
+        self, points: BkPoints2d, properties: BackendProperties
     ) -> None:
         brush = self._get_fill_brush(properties.color)
         polygon = qg.QPolygonF()
-        for p in points:
+        for p in points.vertices():
             polygon.append(qc.QPointF(p.x, p.y))
         item = _CosmeticPolygon(polygon)
         item.setPen(self._no_line)
@@ -211,6 +195,7 @@ class PyQtBackend(_PyQtBackend):
         scene: Optional[qw.QGraphicsScene] = None,
     ):
         super().__init__(scene or qw.QGraphicsScene())
+
     # This implementation keeps all virtual entities alive by attaching references
     # to entities to the graphic scene items.
 

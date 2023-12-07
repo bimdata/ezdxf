@@ -1,10 +1,11 @@
-# Copyright (c) 2019-2022 Manfred Moitzi
+# Copyright (c) 2019-2023 Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
+from typing_extensions import Self
 import copy
 from ezdxf.lldxf import validator
-from ezdxf.math import NULLVEC, Vec3, Z_AXIS, OCS
+from ezdxf.math import NULLVEC, Vec3, Z_AXIS, OCS, Matrix44
 from ezdxf.lldxf.attributes import (
     DXFAttr,
     DXFAttributes,
@@ -34,6 +35,7 @@ from .mtext import (
     acdb_mtext,
 )
 from .factory import register_entity
+from .copy import default_copy
 
 if TYPE_CHECKING:
     from ezdxf.lldxf.tagwriter import AbstractTagWriter
@@ -71,8 +73,13 @@ __all__ = ["AttDef", "Attrib", "copy_attrib_as_text", "BaseAttrib"]
 # from the 2nd AcDbText subclass of the TEXT entity is stored in the
 # AcDbAttribute subclass:
 attrib_fields = {
+    # "version": DXFAttr(280, default=0, dxfversion=const.DXF2010),
+    # The "version" tag has the same group code as the lock_position tag!!!!!
     # Version number: 0 = 2010
-    "version": DXFAttr(280, default=0, dxfversion=const.DXF2010),
+    # This tag is not really used (at least by BricsCAD) but there exists DXF files
+    # which do use this tag: "dxftest\attrib\attrib_with_mtext_R2018.dxf"
+    # ezdxf stores the last group code 280 as "lock_position" attribute and does
+    # not export a version tag for any DXF version.
     # Tag string (cannot contain spaces):
     "tag": DXFAttr(
         2,
@@ -100,7 +107,7 @@ attrib_fields = {
     "lock_position": DXFAttr(
         280,
         default=0,
-        dxfversion=const.DXF2010,
+        dxfversion=const.DXF2007,  # tested with BricsCAD 2023/TrueView 2023
         optional=True,
         validator=validator.is_integer_bool,
         fixer=RETURN_DEFAULT,
@@ -211,7 +218,7 @@ class BaseAttrib(Text):
         self._xrecord: Optional[Tags] = None
         self._embedded_mtext: Optional[EmbeddedMText] = None
 
-    def copy_data(self, entity: DXFEntity) -> None:
+    def copy_data(self, entity: DXFEntity, copy_strategy=default_copy) -> None:
         """Copy entity data, xrecord data and embedded MTEXT are not stored
         in the entity database.
         """
@@ -377,6 +384,16 @@ class BaseAttrib(Text):
             self._embedded_mtext.map_resources(clone._embedded_mtext, mapping)
         # todo: map handles in embedded XRECORD if a real world example shows up
 
+    def transform(self, m: Matrix44) -> Self:
+        if self._embedded_mtext is None:
+            super().transform(m)
+        else:
+            mtext = self._embedded_mtext.virtual_mtext_entity()
+            mtext.transform(m)
+            self.set_mtext(mtext, graphic_properties=False)
+            self.post_transform(m)
+        return self
+
 
 def _update_content_from_mtext(text: Text, mtext: MText) -> None:
     content = mtext.plain_text(split=True, fast=True)
@@ -449,7 +466,7 @@ class AttDef(BaseAttrib):
         self.dxf.export_dxf_attribs(
             tagwriter,
             [
-                "version",
+                # write version tag (280, 0) here, if required in the future
                 "prompt",
                 "tag",
                 "flags",
@@ -523,7 +540,7 @@ class Attrib(BaseAttrib):
         self.dxf.export_dxf_attribs(
             tagwriter,
             [
-                "version",
+                # write version tag (280, 0) here, if required in the future
                 "tag",
                 "flags",
                 "field_length",

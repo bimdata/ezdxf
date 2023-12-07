@@ -1,12 +1,6 @@
 #  Copyright (c) 2023, Manfred Moitzi
 #  License: MIT License
-"""
-Resource management module for transferring DXF resources between documents.
-
----------------------------------------------------------
-WARNING: THIS MODULE IS IN PLANNING STATE, DO NOT USE IT!
----------------------------------------------------------
-
+""" Resource management module for transferring DXF resources between documents.
 """
 from __future__ import annotations
 from typing import Optional, Sequence, Callable, Iterable
@@ -43,6 +37,7 @@ from ezdxf.entities import (
     DXFLayout,
     VisualStyle,
 )
+from ezdxf.entities.copy import CopyStrategy, CopySettings
 from ezdxf.math import UVec, Vec3
 
 __all__ = [
@@ -104,15 +99,25 @@ class InternalError(XrefError):
 
 
 class ConflictPolicy(enum.Enum):
-    # What to do when a name conflict of existing and loaded resources occur:
-    # keep existing resource <name> and ignore loaded resource
+    """These conflict policies define how to handle resource name conflicts.
+
+    .. versionadded:: 1.1
+
+    Attributes:
+        KEEP: Keeps the existing resource name of the target document and ignore the
+            resource from the source document.
+        XREF_PREFIX: This policy handles the resource import like CAD applications by
+            **always** renaming the loaded resources to `<xref>$0$<name>`, where `xref`
+            is the name of source document, the `$0$` part is a number to create a
+            unique resource name and `<name>` is the name of the resource itself.
+        NUM_PREFIX: This policy renames the loaded resources to `$0$<name>` only if the
+            resource `<name>` already exists. The `$0$` prefix is a number to create a
+            unique resource name and `<name>` is the name of the resource itself.
+
+    """
+
     KEEP = enum.auto()
-
-    # ALWAYS rename imported resources to <xref>$0$<name>
-    # This is the default behavior of BricsCAD when binding an external reference.
     XREF_PREFIX = enum.auto()
-
-    # rename loaded resource to $0$<name> if the loaded resource <name> already exist
     NUM_PREFIX = enum.auto()
 
 
@@ -206,9 +211,9 @@ def define(doc: Drawing, block_name: str, filename: str, overlay=False) -> None:
 
     XREF attachment types:
 
-    - attached: the XREF that’s inserted into this drawing is also present in a
+    - attached: the XREF that's inserted into this drawing is also present in a
       document to which this document is inserted as an XREF.
-    - overlay: the XREF that’s inserted into this document is **not** present in a
+    - overlay: the XREF that's inserted into this document is **not** present in a
       document to which this document is inserted as an XREF.
 
     Args:
@@ -253,7 +258,7 @@ def attach(
 ) -> Insert:
     """Attach the file `filename` to the host document as external reference (XREF) and
     creates a default block reference for the XREF in the modelspace of the document.
-    The function raises a :class:`ValueError` exception if the block definition
+    The function raises an :class:`XrefDefinitionError` exception if the block definition
     already exist, but an XREF can be inserted multiple times by adding additional block
     references::
 
@@ -306,6 +311,8 @@ def find_xref(xref_filename: str, search_paths: Sequence[pathlib.Path]) -> pathl
     Args:
         xref_filename: filename of the XREF, absolute or relative path
         search_paths: search paths where to look for the XREF file
+
+    .. versionadded:: 1.1
 
     """
     filepath = pathlib.Path(xref_filename)
@@ -419,6 +426,10 @@ def detach(
 
         doc.entitydb.purge()
 
+    The function does not create any block references. These references should already
+    exist and do not need to be changed since references to blocks and XREFs are the
+    same.
+
     Args:
         block: block definition to detach
         xref_filename: name of the external referenced file
@@ -503,6 +514,8 @@ def load_modelspace(
         filter_fn: optional function to filter entities from the source modelspace
         conflict_policy: how to resolve name conflicts
 
+    .. versionadded:: 1.1
+
     """
     loader = Loader(sdoc, tdoc, conflict_policy=conflict_policy)
     loader.load_modelspace(filter_fn=filter_fn)
@@ -524,6 +537,8 @@ def load_paperspace(
         tdoc: target document
         filter_fn: optional function to filter entities from the source paperspace layout
         conflict_policy: how to resolve name conflicts
+
+    .. versionadded:: 1.1
 
     """
     if psp.doc is tdoc:
@@ -628,7 +643,10 @@ class LoadEntities(LoadingCommand):
         target_layout = self.target_layout
         for entity in self.entities:
             clone = transfer.get_entity_copy(entity)
-            if clone and is_graphic_entity(clone):
+            if clone is None:
+                transfer.debug(f"xref:cannot copy {str(entity)}")
+                continue
+            if is_graphic_entity(clone):
                 target_layout.add_entity(clone)  # type: ignore
             else:
                 transfer.debug(
@@ -722,8 +740,14 @@ class LoadResources(LoadingCommand):
 
 
 class Loader:
-    """Load entities and resources from the source DXF document `sdoc` into a
+    """Load entities and resources from the source DXF document `sdoc` into the
     target DXF document.
+
+    Args:
+        sdoc: source DXF document
+        tdoc: target DXF document
+        conflict_policy: :class:`ConflictPolicy`
+
     """
 
     def __init__(
@@ -751,8 +775,14 @@ class Loader:
     ) -> None:
         """Loads the content of the modelspace of the source document into a layout of
         the target document, the modelspace of the target document is the default target
-        layout.  The target layout can be any layout: modelspace, paperspace layout or
-        block layout.
+        layout. The filter function `filter_fn` is used to skip source entities, the
+        function should return ``False`` for entities to ignore and ``True`` otherwise.
+
+        Args:
+            target_layout: target layout can be any layout: modelspace, paperspace
+                layout or block layout.
+            filter_fn: function to filter source entities
+
         """
         if target_layout is None:
             target_layout = self.tdoc.modelspace()
@@ -775,9 +805,17 @@ class Loader:
     ) -> None:
         """Loads a paperspace layout as a new paperspace layout into the target document.
         If a paperspace layout with same name already exists the layout will be renamed
-        to  "<layout name> (2)" or "<layout name> (3)" and so on. The content of the
-        modelspace which may be displayed through a VIEWPORT entity will **not** be
-        loaded!
+        to  "<layout name> (2)" or "<layout name> (3)" and so on.  The filter function
+        `filter_fn` is used to skip source entities, the function should return ``False``
+        for entities to ignore and ``True`` otherwise.
+
+        The content of the modelspace which may be displayed through a VIEWPORT entity
+        will **not** be loaded!
+
+        Args:
+            psp: the source paperspace layout
+            filter_fn: function to filter source entities
+
         """
         if not isinstance(psp, Paperspace):
             raise const.DXFTypeError(f"invalid paperspace layout type: {type(psp)}")
@@ -794,9 +832,18 @@ class Loader:
         filter_fn: Optional[FilterFunction] = None,
     ) -> None:
         """Loads the content of a paperspace layout into an existing layout of the target
-        document. The target layout can be any layout: modelspace, paperspace layout
-        or block layout.  The content of the modelspace which may be displayed through a
+        document.  The filter function `filter_fn` is used to skip source entities, the
+        function should return ``False`` for entities to ignore and ``True`` otherwise.
+
+        The content of the modelspace which may be displayed through a
         VIEWPORT entity will **not** be loaded!
+
+        Args:
+            psp: the source paperspace layout
+            target_layout: target layout can be any layout: modelspace, paperspace
+                layout or block layout.
+            filter_fn: function to filter source entities
+
         """
         if not isinstance(psp, Paperspace):
             raise LayoutError(f"invalid paperspace layout type: {type(psp)}")
@@ -823,6 +870,10 @@ class Loader:
         """Loads a block layout (block definition) as a new block layout into the target
         document. If a block layout with the same name exists the conflict policy will
         be applied.  This method cannot load modelspace or paperspace layouts.
+
+        Args:
+            block_layout: the source block layout
+
         """
         if not isinstance(block_layout, BlockLayout):
             raise LayoutError(f"invalid block layout type: {type(block_layout)}")
@@ -838,9 +889,14 @@ class Loader:
         target_layout: BaseLayout,
     ) -> None:
         """Loads the content of a block layout (block definition) into an existing layout
-        of the target document. The target layout can be any layout: modelspace,
-        paperspace layout or block layout.  This method cannot load the content of
+        of the target document.  This method cannot load the content of
         modelspace or paperspace layouts.
+
+        Args:
+            block_layout: the source block layout
+            target_layout: target layout can be any layout: modelspace, paperspace
+                layout or block layout.
+
         """
         if not isinstance(block_layout, BlockLayout):
             raise LayoutError(f"invalid block layout type: {type(block_layout)}")
@@ -906,6 +962,9 @@ class Loader:
         self.add_command(LoadResources(entities))
 
     def execute(self, xref_prefix: str = "") -> None:
+        """Execute all loading commands. The `xref_prefix` string is used as XREF name
+        when the conflict policy :attr:`ConflictPolicy.XREF_PREFIX` is applied.
+        """
         registry = _Registry(self.sdoc, self.tdoc)
         debug = ezdxf.options.debug
 
@@ -917,9 +976,6 @@ class Loader:
 
         cpm = CopyMachine(self.tdoc)
 
-        if debug:
-            _log_debug_messages(cpm.debug_messages)
-
         cpm.copy_blocks(registry.source_blocks)
         transfer = _Transfer(
             registry=registry,
@@ -927,6 +983,7 @@ class Loader:
             objects=cpm.objects,
             handle_mapping=cpm.handle_mapping,
             conflict_policy=self.conflict_policy,
+            copy_errors=cpm.copy_errors,
         )
         if xref_prefix:
             transfer.xref_prefix = str(xref_prefix)
@@ -1065,11 +1122,13 @@ class _Transfer:
         handle_mapping: dict[str, str],
         *,
         conflict_policy=ConflictPolicy.KEEP,
+        copy_errors: set[str],
     ) -> None:
         self.registry = registry
         # entry NO_BLOCK (layout key "0") contains table entries
         self.copied_blocks = copies
         self.copied_objects = objects
+        self.copy_errors = copy_errors
         self.conflict_policy = conflict_policy
         self.xref_prefix = get_xref_name(registry.source_doc)
         self.layer_mapping: dict[str, str] = {}
@@ -1120,6 +1179,8 @@ class _Transfer:
         clone = self.get_entity_copy(entity)
         if clone:
             entity.map_resources(clone, self)
+        elif entity.dxf.handle in self.copy_errors:
+            pass
         else:
             raise InternalError(f"copy of {entity} not found")
 
@@ -1520,6 +1581,8 @@ class _Transfer:
     def finalize(self) -> None:
         # remove replaced entities:
         self.registry.target_doc.entitydb.purge()
+        for msg in self.debug_messages:
+            logger.log(logging.INFO, msg)
 
 
 def get_xref_name(doc: Drawing) -> str:
@@ -1556,13 +1619,11 @@ class CopyMachine:
         self.copies: dict[str, dict[str, DXFEntity]] = {}
         self.classes: list[DXFClass] = []
         self.objects: dict[str, DXFEntity] = {}
+        self.copy_errors: set[str] = set()
+        self.copy_strategy = CopyStrategy(CopySettings(set_source_of_copy=False))
 
         # mapping from the source entity handle to the handle of the copied entity
         self.handle_mapping: dict[str, str] = {}
-        self.debug_messages: list[str] = []
-
-    def debug(self, msg: str) -> None:
-        self.debug_messages.append(msg)
 
     def copy_blocks(self, blocks: dict[str, dict[str, DXFEntity]]) -> None:
         for handle, block in blocks.items():
@@ -1584,7 +1645,7 @@ class CopyMachine:
             handle_mapping[handle] = clone.dxf.handle
             # Get handle mapping for in-object copies: DICTIONARY
             if hasattr(entity, "get_handle_mapping"):
-                self.handle_mapping.update(entity.get_handle_mapping(clone))
+                self.handle_mapping.update(entity.get_handle_mapping(clone))  # type: ignore
 
             if is_dxf_object(clone):
                 self.objects[handle] = clone
@@ -1594,10 +1655,10 @@ class CopyMachine:
 
     def copy_entity(self, entity: DXFEntity) -> Optional[DXFEntity]:
         try:
-            return entity.copy_external()
+            return entity.copy(copy_strategy=self.copy_strategy)
         except const.DXFError:
-            self.debug(f"cannot copy entity {str(entity)}")
+            self.copy_errors.add(entity.dxf.handle)
         return None
 
     def copy_dxf_class(self, cls: DXFClass) -> None:
-        self.classes.append(cls.copy())
+        self.classes.append(cls.copy(copy_strategy=self.copy_strategy))

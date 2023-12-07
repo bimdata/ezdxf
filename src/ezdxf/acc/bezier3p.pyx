@@ -1,6 +1,6 @@
 # cython: language_level=3
 # distutils: language = c++
-# Copyright (c) 2021-2022 Manfred Moitzi
+# Copyright (c) 2021-2023 Manfred Moitzi
 # License: MIT License
 from typing import List, Tuple, TYPE_CHECKING, Sequence
 from .vector cimport Vec3, isclose, v3_dist, v3_from_cpp_vec3, v3_add
@@ -13,12 +13,11 @@ if TYPE_CHECKING:
 
 __all__ = ['Bezier3P']
 
-DEF ABS_TOL = 1e-12
-DEF REL_TOL = 1e-9
-DEF M_PI = 3.141592653589793
-DEF M_TAU = M_PI * 2.0
-DEF DEG2RAD = M_PI / 180.0
-DEF RECURSION_LIMIT = 1000
+cdef extern from "constants.h":
+    const double ABS_TOL
+    const double REL_TOL
+
+cdef double RECURSION_LIMIT = 1000
 
 # noinspection PyUnresolvedReferences
 cdef class Bezier3P:

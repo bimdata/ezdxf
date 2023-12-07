@@ -225,7 +225,10 @@ def global_bspline_interpolation(
                 knot_generation_method,
             )
         elif len(_tangents) == len(_fit_points):
-            (control_points, knots,) = global_bspline_interpolation_first_derivatives(
+            (
+                control_points,
+                knots,
+            ) = global_bspline_interpolation_first_derivatives(
                 _fit_points, _tangents, degree, t_vector
             )
         else:
@@ -412,7 +415,7 @@ def knots_from_parametrization(
         raise DXFValueError("Invalid n/p combination, more fit points required.")
 
     t = [float(v) for v in t]
-    if t[0] != 0.0 or t[-1] != 1.0:
+    if t[0] != 0.0 or not math.isclose(t[-1], 1.0):
         raise ValueError("Parametrization vector t has to be normalized.")
 
     if method == "average":
@@ -442,7 +445,7 @@ def averaged_knots_unconstrained(n: int, p: int, t: Sequence[float]) -> list[flo
 
     """
     assert t[0] == 0.0
-    assert t[-1] == 1.0
+    assert math.isclose(t[-1], 1.0)
 
     knots = [0.0] * (p + 1)
     knots.extend(sum(t[j : j + p]) / p for j in range(1, n - p + 1))
@@ -463,7 +466,7 @@ def averaged_knots_constrained(n: int, p: int, t: Sequence[float]) -> list[float
 
     """
     assert t[0] == 0.0
-    assert t[-1] == 1.0
+    assert math.isclose(t[-1], 1.0)
 
     knots = [0.0] * (p + 1)
     knots.extend(sum(t[j : j + p - 1]) / p for j in range(n - p))
@@ -482,7 +485,7 @@ def natural_knots_unconstrained(n: int, p: int, t: Sequence[float]) -> list[floa
 
     """
     assert t[0] == 0.0
-    assert t[-1] == 1.0
+    assert math.isclose(t[-1], 1.0)
 
     knots = [0.0] * (p + 1)
     knots.extend(t[2 : n - p + 2])
@@ -501,7 +504,7 @@ def natural_knots_constrained(n: int, p: int, t: Sequence[float]) -> list[float]
 
     """
     assert t[0] == 0.0
-    assert t[-1] == 1.0
+    assert math.isclose(t[-1], 1.0)
 
     knots = [0.0] * (p + 1)
     knots.extend(t[1 : n - p + 1])
@@ -521,7 +524,7 @@ def double_knots(n: int, p: int, t: Sequence[float]) -> list[float]:
 
     """
     assert t[0] == 0.0
-    assert t[-1] == 1.0
+    assert math.isclose(t[-1], 1.0)
 
     u = [0.0] * (p + 1)
     prev_t = 0.0
@@ -884,7 +887,9 @@ class BSpline:
         count = len(self._control_points)
         order = int(order)
         if order > count:
-            raise DXFValueError(f"Invalid need more control points for order {order}")
+            raise DXFValueError(
+                f"got {count} control points, need {order} or more for order of {order}"
+            )
 
         if knots is None:
             knots = open_uniform_knot_vector(count, order, normalize=True)

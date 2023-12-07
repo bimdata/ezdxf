@@ -65,6 +65,18 @@ FEATURE_COLLECTION = {
     "features": [FEATURE_1, FEATURE_2],
 }
 
+FEATURE_PROPERTIES = {
+    "type": "Feature",
+    "properties": {"layer": "GeoJSON"},
+    "geometry": LINE_STRING,
+}
+
+FEATURE_PROPERTIES_GC = {
+    "type": "Feature",
+    "properties": {"layer": "GeoJSON"},
+    "geometry": GEOMETRY_COLLECTION,
+}
+
 
 @pytest.mark.parametrize(
     "points",
@@ -244,9 +256,23 @@ def test_parse_feature():
     assert feature["geometry"] == LINE_STRING
 
 
+def test_feature_with_geometry_collection():
+    feature = geo.parse(FEATURE_PROPERTIES_GC)
+    geometry_collection = feature["geometry"]
+    assert geometry_collection["type"] == "GeometryCollection"
+    geometries = geometry_collection["geometries"]
+    assert isinstance(geometries, list)
+
+
 def test_parse_feature_collection():
     feature_collection = geo.parse(FEATURE_COLLECTION)
     assert len(feature_collection["features"]) == 2
+
+
+def test_iter_feature_with_geometry_collection():
+    gp = geo.GeoProxy(FEATURE_PROPERTIES_GC)
+    entities = list(gp)
+    assert len(entities) == 3
 
 
 @pytest.mark.parametrize(
@@ -283,9 +309,7 @@ def test_line_string_to_dxf_entity():
 
 @pytest.mark.parametrize("dxftype, polygon", [("HATCH", 1), ("MPOLYGON", 4)])
 def test_polygon_without_holes_to_dxf_polygon(dxftype, polygon):
-    entity = cast(
-        DXFPolygon, list(geo.dxf_entities(POLYGON_0, polygon=polygon))[0]
-    )
+    entity = cast(DXFPolygon, list(geo.dxf_entities(POLYGON_0, polygon=polygon))[0])
     assert entity.dxftype() == dxftype
     assert len(entity.paths) == 1
     p = entity.paths[0]
@@ -295,9 +319,7 @@ def test_polygon_without_holes_to_dxf_polygon(dxftype, polygon):
 
 @pytest.mark.parametrize("dxftype, polygon", [("HATCH", 1), ("MPOLYGON", 4)])
 def test_polygon_with_holes_to_dxf_polygon(dxftype, polygon):
-    entity = cast(
-        DXFPolygon, list(geo.dxf_entities(POLYGON_2, polygon=polygon))[0]
-    )
+    entity = cast(DXFPolygon, list(geo.dxf_entities(POLYGON_2, polygon=polygon))[0])
     assert entity.dxftype() == dxftype
     assert len(entity.paths) == 3
     p = entity.paths[1]
@@ -333,6 +355,23 @@ def test_feature_collection_to_dxf_entities():
     collection = list(geo.dxf_entities(FEATURE_COLLECTION))
     assert len(collection) == 2
     assert collection[0].dxftype() == "LWPOLYLINE"
+
+
+def test_dxf_entities_post_process_properties():
+    entities = list(
+        geo.dxf_entities(FEATURE_PROPERTIES, post_process=geo.assign_layers)
+    )
+    polyline = entities[0]
+    assert polyline.dxf.layer == "GeoJSON"
+
+
+def test_dxf_entities_from_geometry_collection_post_process_properties():
+    entities = list(
+        geo.dxf_entities(FEATURE_PROPERTIES_GC, post_process=geo.assign_layers)
+    )
+    assert len(entities) == 3
+    for e in entities:
+        assert e.dxf.layer == "GeoJSON"
 
 
 @pytest.mark.parametrize(

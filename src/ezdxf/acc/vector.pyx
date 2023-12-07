@@ -1,13 +1,19 @@
 # cython: language_level=3
+# cython: c_api_binop_methods=True
 # distutils: language = c++
-# Copyright (c) 2020, Manfred Moitzi
+# Copyright (c) 2020-2023, Manfred Moitzi
 # License: MIT License
 from typing import Iterable, List, Sequence, TYPE_CHECKING, Tuple
 from libc.math cimport fabs, sin, cos, M_PI, hypot, atan2, acos, sqrt, fmod
 import random
 
-DEF ABS_TOL = 1e-12
-DEF REL_TOL = 1e-9
+cdef extern from "constants.h":
+    const double ABS_TOL
+    const double REL_TOL
+    const double M_TAU
+
+cdef double RAD2DEG = 180.0 / M_PI
+cdef double DEG2RAD = M_PI / 180.0
 
 if TYPE_CHECKING:
     from ezdxf.math import AnyVec, UVec
@@ -19,9 +25,6 @@ cdef bint isclose(double a, double b, double rel_tol, double abs_tol):
            diff <= fabs(rel_tol * a) or \
            diff <= abs_tol
 
-cdef double RAD2DEG = 180.0 / M_PI
-cdef double DEG2RAD = M_PI / 180.0
-cdef double M_TAU = M_PI * 2.0
 
 cdef double normalize_rad_angle(double a):
     # Emulate the Python behavior of (a % math.tau)
@@ -183,7 +186,7 @@ cdef class Vec2:
     def normalize(self, double length = 1.) -> Vec2:
         return v2_normalize(self, length)
 
-    def project(self, other: "AnyVec") -> Vec2:
+    def project(self, other: AnyVec) -> Vec2:
         cdef Vec2 o = Vec2(other)
         return v2_project(self, o)
 
@@ -198,7 +201,7 @@ cdef class Vec2:
     def __bool__(self) -> bool:
         return self.x != 0 or self.y != 0
 
-    def isclose(self, other: "AnyVec", *, double rel_tol=REL_TOL,
+    def isclose(self, other: UVec, *, double rel_tol=REL_TOL,
                 double abs_tol = ABS_TOL) -> bool:
         cdef Vec2 o = Vec2(other)
         return isclose(self.x, o.x, rel_tol, abs_tol) and \
@@ -216,7 +219,7 @@ cdef class Vec2:
         else:
             return self.x < o.x
 
-    def __add__(self, other: "AnyVec") -> Vec2:
+    def __add__(self, other: AnyVec) -> Vec2:
         if not isinstance(other, Vec2):
             other = Vec2(other)
         return v2_add(self, <Vec2> other)
@@ -225,7 +228,7 @@ cdef class Vec2:
 
     __iadd__ = __add__  # immutable
 
-    def __sub__(self, other: "AnyVec") -> Vec2:
+    def __sub__(self, other: AnyVec) -> Vec2:
         if not isinstance(other, Vec2):
             other = Vec2(other)
         return v2_sub(self, <Vec2> other)
@@ -255,23 +258,23 @@ cdef class Vec2:
 
     # __rtruediv__ not supported -> TypeError
 
-    def dot(self, other: "AnyVec") -> float:
+    def dot(self, other: AnyVec) -> float:
         cdef Vec2 o = Vec2(other)
         return v2_dot(self, o)
 
-    def det(self, other: "AnyVec") -> float:
+    def det(self, other: AnyVec) -> float:
         cdef Vec2 o = Vec2(other)
         return v2_det(self, o)
 
-    def distance(self, other: "AnyVec") -> float:
+    def distance(self, other: AnyVec) -> float:
         cdef Vec2 o = Vec2(other)
         return v2_dist(self, o)
 
-    def angle_between(self, other: "AnyVec") -> float:
+    def angle_between(self, other: AnyVec) -> float:
         cdef Vec2 o = Vec2(other)
         return v2_angle_between(self, o)
 
-    def rotate(self, double angle: float) -> Vec2:
+    def rotate(self, double angle) -> Vec2:
         cdef double self_angle = atan2(self.y, self.x)
         cdef double magnitude = hypot(self.x, self.y)
         return v2_from_angle(self_angle + angle, magnitude)
