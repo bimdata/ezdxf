@@ -605,7 +605,7 @@ class UniversalFrontend:
                     lines.append((s, e))
         self.designer.draw_solid_lines(lines, properties)
 
-      def draw_hatch_entity(
+    def draw_hatch_entity(
         self,
         entity: DXFGraphic,
         properties: Properties,
