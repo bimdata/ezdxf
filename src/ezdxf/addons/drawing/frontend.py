@@ -101,7 +101,7 @@ def make_holes_in_polygons(external_paths, holes):
     :param holes: (list) holes from hatch entity
     """
 
-    for hole in holes:
+    for hole in reversed(holes):
         for external_path_idx, external_path in enumerate(external_paths):
             if is_point_in_polygon_2d(
                 hole.control_vertices()[0].vec2,
@@ -161,6 +161,29 @@ def closest_node(input_node, nodes):
             out_idx = node_idx
 
     return out_idx
+
+
+def check_external_paths(external_paths, holes):
+    """
+    Check that external paths are not completely included in other paths
+    If this is the case, they will be considered as holes
+
+    :param external_paths: (list) external paths from Hatch entity
+    :param holes: (list) holes from hatch entity
+    """
+
+    forgotten_holes = set()
+    if len(external_paths) > 1:
+        for ext_path in external_paths:
+            for ext_path_2 in external_paths:
+                if ext_path_2 != ext_path:
+                    if ext_path.bbox().all_inside(ext_path_2.bbox()):
+                        forgotten_holes.add(ext_path)
+
+    if forgotten_holes:
+        for hole_path in forgotten_holes:
+            external_paths.remove(hole_path)
+            holes.append(hole_path)
 
 
 # --------------- END - BIMDATA fix - remove holes from Hatch entitiy ---------------
@@ -656,6 +679,7 @@ class UniversalFrontend:
 
         if show_only_outline:
             if holes:
+                check_external_paths(external_paths, holes)
                 external_paths, holes = make_holes_in_polygons(external_paths, holes)
 
             for p in itertools.chain(ignore_text_boxes(external_paths), holes):
