@@ -846,6 +846,10 @@ class UniversalFrontend:
                 except ProxyGraphicError as e:
                     print(str(e))
                     print(POST_ISSUE_MSG)
+                except ZeroDivisionError:
+                    # Bimdata - Bugfix 219
+                    self.skip_entity(entity, "ZeroDivisionError")
+
             else:
                 raise TypeError(entity.dxftype())
         except ezdxf.lldxf.const.DXFTypeError:
