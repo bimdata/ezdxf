@@ -1023,13 +1023,13 @@ class UniversalFrontend:
                 )
                 self.pipeline.pop_clipping_shape()
 
-        if isinstance(entity, Insert):
-            self.ctx.push_state(properties)
-            if entity.mcount > 1:
-                for virtual_insert in entity.multi_insert():
-                    draw_insert(virtual_insert)
-            else:
-                raise TypeError(entity.dxftype())
+            if isinstance(entity, Insert):
+                self.ctx.push_state(properties)
+                if entity.mcount > 1:
+                    for virtual_insert in entity.multi_insert():
+                        draw_insert(virtual_insert)
+                else:
+                    raise TypeError(entity.dxftype())
         except ezdxf.lldxf.const.DXFTypeError:
             pass
 
