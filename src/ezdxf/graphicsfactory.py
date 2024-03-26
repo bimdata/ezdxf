@@ -958,7 +958,8 @@ class CreatorInterface:
         dxfattribs=None,
     ) -> Spline:
         """Add a :class:`~ezdxf.entities.Spline` entity passing through the
-        given fit points.
+        given fit points.  This method creates the same control points as CAD 
+        applications.
 
         Args:
             fit_points: iterable of fit points as (x, y[, z]) in :ref:`WCS`
@@ -1037,7 +1038,7 @@ class CreatorInterface:
         The ACIS data has to be set as :term:`SAT` or :term:`SAB`.
 
         """
-        return self._add_acis_entity("BODY", dxfattribs)  # type: ignore
+        return self._add_acis_entity("BODY", dxfattribs)
 
     def add_region(self, dxfattribs=None) -> Region:
         """Add a :class:`~ezdxf.entities.Region` entity.
@@ -1119,7 +1120,7 @@ class CreatorInterface:
             raise DXFVersionError(f"{name} requires DXF R2000 or later")
         dxfattribs = dict(dxfattribs or {})
         if self.dxfversion >= DXF2013:
-            dxfattribs.setdefault("flags", 1)  # type: ignore
+            dxfattribs.setdefault("flags", 1)
             dxfattribs.setdefault("uid", guid())
         return self.new_entity(name, dxfattribs)  # type: ignore
 
@@ -2553,7 +2554,7 @@ class CreatorInterface:
 
         dxfattribs = dict(dxfattribs or {})
         dxfattribs["dimstyle"] = self._safe_dimstyle(dimstyle)
-        dxfattribs.setdefault("annotation_type", 3)  # type: ignore
+        dxfattribs.setdefault("annotation_type", 3)
         leader = cast("Leader", self.new_entity("LEADER", dxfattribs))
         leader.set_vertices(vertices)
         if override:

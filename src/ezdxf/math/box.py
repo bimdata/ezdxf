@@ -143,7 +143,9 @@ class ConstructionBox:
     def __repr__(self) -> str:
         """Returns string representation of box as
         ``ConstructionBox(center, width, height, angle)``"""
-        return f"ConstructionBox({self.center}, {self.width}, {self.height}, {self.angle})"
+        return (
+            f"ConstructionBox({self.center}, {self.width}, {self.height}, {self.angle})"
+        )
 
     def translate(self, dx: float, dy: float) -> None:
         """Move box about `dx` in x-axis and about `dy` in y-axis.
@@ -219,14 +221,10 @@ class ConstructionBox:
 
         t1, t2, t3, t4 = other.corners
         test_diag = ConstructionLine(t1, t3)
-        if test_diag.has_intersection(diag1) or test_diag.has_intersection(
-            diag2
-        ):
+        if test_diag.has_intersection(diag1) or test_diag.has_intersection(diag2):
             return True
         test_diag = ConstructionLine(t2, t4)
-        if test_diag.has_intersection(diag1) or test_diag.has_intersection(
-            diag2
-        ):
+        if test_diag.has_intersection(diag1) or test_diag.has_intersection(diag2):
             return True
 
         return False

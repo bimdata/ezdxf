@@ -16,6 +16,7 @@ from .font_manager import (
     FontNotFoundError,
     UnsupportedFont,
 )
+from .font_synonyms import FONT_SYNONYMS
 from .font_measurements import FontMeasurements
 from .glyphs import GlyphPath, Glyphs
 
@@ -268,6 +269,9 @@ def load():
     of `ezdxf`.
     """
     _load_font_manager()
+    # Add font name synonyms, see discussion #1002
+    # Find macOS fonts on Windows/Linux and vice versa.
+    font_manager.add_synonyms(FONT_SYNONYMS, reverse=True)
 
 
 def _get_font_manager_path():
@@ -552,7 +556,11 @@ class TrueTypeFont(_CachedFont):
         except KeyError:
             pass
         try:
-            cache = TTFontRenderer(font_manager.get_ttf_font(ttf))
+            tt_font = font_manager.get_ttf_font(ttf)
+            try:  # see issue #990
+                cache = TTFontRenderer(tt_font)
+            except Exception:
+                raise UnsupportedFont
         except UnsupportedFont:
             fallback_font_name = font_manager.fallback_font_name()
             logger.info(f"replacing unsupported font '{ttf}' by '{fallback_font_name}'")
@@ -734,4 +742,4 @@ def get_entity_font_face(entity: DXFEntity, doc: Optional[Drawing] = None) -> Fo
     return font_face
 
 
-_load_font_manager()
+load()

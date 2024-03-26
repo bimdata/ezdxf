@@ -1,9 +1,8 @@
 # cython: language_level=3
 # cython: c_api_binop_methods=True
-# distutils: language = c++
-# Copyright (c) 2020-2023, Manfred Moitzi
+# Copyright (c) 2020-2024, Manfred Moitzi
 # License: MIT License
-from typing import Iterable, List, Sequence, TYPE_CHECKING, Tuple
+from typing import Iterable, List, Sequence, TYPE_CHECKING, Tuple, Iterator
 from libc.math cimport fabs, sin, cos, M_PI, hypot, atan2, acos, sqrt, fmod
 import random
 
@@ -113,7 +112,7 @@ cdef class Vec2:
         return tuple(Vec2.generate(items))
 
     @staticmethod
-    def generate(items: Iterable[UVec]) -> Iterable[Vec2]:
+    def generate(items: Iterable[UVec]) -> Iterator[Vec2]:
         return (Vec2(item) for item in items)
 
     @staticmethod
@@ -153,7 +152,7 @@ cdef class Vec2:
         else:
             raise IndexError(f'invalid index {index}')
 
-    def __iter__(self) -> Iterable[float]:
+    def __iter__(self) -> Iterator[float]:
         yield self.x
         yield self.y
 
@@ -294,8 +293,6 @@ cdef class Vec2:
             res.y += tmp.y
         return res
 
-    cdef CppVec3 to_cpp_vec3(self):
-        return CppVec3(self.x, self.y, 0.0)
 
 cdef Vec2 v2_add(Vec2 a, Vec2 b):
     res = Vec2()
@@ -370,11 +367,6 @@ cdef bint v2_isclose(Vec2 a, Vec2 b, double rel_tol, double abs_tol):
     return isclose(a.x, b.x, rel_tol, abs_tol) and \
            isclose(a.y, b.y, rel_tol, abs_tol)
 
-cdef Vec2 v2_from_cpp_vec3(CppVec3 c):
-    cdef Vec2 v = Vec2()
-    v.x = c.x
-    v.y = c.y
-    return v
 
 cdef class Vec3:
     """ Immutable 3D vector.
@@ -456,7 +448,7 @@ cdef class Vec3:
         res.z = self.z if z is None else z
         return res
 
-    def round(self, ndigits: int = None) -> Vec3:
+    def round(self, ndigits: int | None = None) -> Vec3:
         return Vec3(
             round(self.x, ndigits),
             round(self.y, ndigits),
@@ -472,7 +464,7 @@ cdef class Vec3:
         return tuple(Vec3.generate(items))
 
     @staticmethod
-    def generate(items: Iterable[UVec]) -> Iterable[Vec3]:
+    def generate(items: Iterable[UVec]) -> Iterator[Vec3]:
         return (Vec3(item) for item in items)
 
     @staticmethod
@@ -522,7 +514,7 @@ cdef class Vec3:
         else:
             raise IndexError(f'invalid index {index}')
 
-    def __iter__(self) -> Iterable[float]:
+    def __iter__(self) -> Iterator[float]:
         yield self.x
         yield self.y
         yield self.z
@@ -705,8 +697,6 @@ cdef class Vec3:
     def rotate_deg(self, double angle) -> Vec3:
         return self.rotate(angle * DEG2RAD)
 
-    cdef CppVec3 to_cpp_vec3(self):
-        return CppVec3(self.x, self.y, self.z)
 
 X_AXIS = Vec3(1, 0, 0)
 Y_AXIS = Vec3(0, 1, 0)
@@ -727,12 +717,14 @@ cdef Vec3 v3_sub(Vec3 a, Vec3 b):
     res.z = a.z - b.z
     return res
 
+
 cdef Vec3 v3_mul(Vec3 a, double factor):
     res = Vec3()
     res.x = a.x * factor
     res.y = a.y * factor
     res.z = a.z * factor
     return res
+
 
 cdef Vec3 v3_reverse(Vec3 a):
     cdef Vec3 res = Vec3()
@@ -741,8 +733,10 @@ cdef Vec3 v3_reverse(Vec3 a):
     res.z = -a.z
     return res
 
+
 cdef double v3_dot(Vec3 a, Vec3 b):
     return a.x * b.x + a.y * b.y + a.z * b.z
+
 
 cdef Vec3 v3_cross(Vec3 a, Vec3 b):
     res = Vec3()
@@ -751,11 +745,14 @@ cdef Vec3 v3_cross(Vec3 a, Vec3 b):
     res.z = a.x * b.y - a.y * b.x
     return res
 
+
 cdef inline double v3_magnitude_sqr(Vec3 a):
     return a.x * a.x + a.y * a.y + a.z * a.z
 
+
 cdef inline double v3_magnitude(Vec3 a):
     return sqrt(v3_magnitude_sqr(a))
+
 
 cdef double v3_dist(Vec3 a, Vec3 b):
     cdef double dx = a.x - b.x
@@ -763,11 +760,13 @@ cdef double v3_dist(Vec3 a, Vec3 b):
     cdef double dz = a.z - b.z
     return sqrt(dx * dx + dy * dy + dz * dz)
 
+
 cdef Vec3 v3_from_angle(double angle, double length):
     cdef Vec3 res = Vec3()
     res.x = cos(angle) * length
     res.y = sin(angle) * length
     return res
+
 
 cdef double v3_angle_between(Vec3 a, Vec3 b) except -1000:
     cdef double cos_theta = v3_dot(v3_normalize(a, 1.0), v3_normalize(b, 1.0))
@@ -778,12 +777,14 @@ cdef double v3_angle_between(Vec3 a, Vec3 b) except -1000:
         cos_theta = 1.0
     return acos(cos_theta)
 
+
 cdef double v3_angle_about(Vec3 a, Vec3 base, Vec3 target):
     cdef Vec3 x_axis = v3_normalize(v3_sub(base, v3_project(a, base)), 1.0)
     cdef Vec3 y_axis = v3_normalize(v3_cross(a, x_axis), 1.0)
     cdef double target_projected_x = v3_dot(x_axis, target)
     cdef double target_projected_y = v3_dot(y_axis, target)
     return normalize_rad_angle(atan2(target_projected_y, target_projected_x))
+
 
 cdef Vec3 v3_normalize(Vec3 a, double length):
     cdef double factor = length / v3_magnitude(a)
@@ -793,12 +794,14 @@ cdef Vec3 v3_normalize(Vec3 a, double length):
     res.z = a.z * factor
     return res
 
+
 cdef Vec3 v3_lerp(Vec3 a, Vec3 b, double factor):
     cdef Vec3 res = Vec3()
     res.x = a.x + (b.x - a.x) * factor
     res.y = a.y + (b.y - a.y) * factor
     res.z = a.z + (b.z - a.z) * factor
     return res
+
 
 cdef Vec3 v3_ortho(Vec3 a, bint ccw):
     cdef Vec3 res = Vec3()
@@ -811,26 +814,23 @@ cdef Vec3 v3_ortho(Vec3 a, bint ccw):
         res.y = -a.x
     return res
 
+
 cdef Vec3 v3_project(Vec3 a, Vec3 b):
     cdef Vec3 uv = v3_normalize(a, 1.0)
     return v3_mul(uv, v3_dot(uv, b))
+
 
 cdef bint v3_isclose(Vec3 a, Vec3 b, double rel_tol, double abs_tol):
     return isclose(a.x, b.x, rel_tol, abs_tol) and \
            isclose(a.y, b.y, rel_tol, abs_tol) and \
            isclose(a.z, b.z, rel_tol, abs_tol)
 
-cdef Vec3 v3_from_cpp_vec3(CppVec3 c):
-    cdef Vec3 v = Vec3()
-    v.x = c.x
-    v.y = c.y
-    v.z = c.z
-    return v
 
 def distance(p1: UVec, p2: UVec) -> float:
     cdef Vec3 a = Vec3(p1)
     cdef Vec3 b = Vec3(p2)
     return v3_dist(a, b)
+
 
 def lerp(p1: UVec, p2: UVec, double factor = 0.5) -> Vec3:
     cdef Vec3 a = Vec3(p1)

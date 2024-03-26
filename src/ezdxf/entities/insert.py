@@ -528,7 +528,7 @@ class Insert(LinkedEntities):
             insert -= m.transform_direction(block_layout.block.dxf.base_point)  # type: ignore
 
         # set translation
-        m.set_row(3, insert.xyz)  # type: ignore
+        m.set_row(3, insert.xyz)
         return m
 
     def ucs(self):
@@ -626,6 +626,10 @@ class Insert(LinkedEntities):
         entities check if multi insert processing is required, that's the case
         if the property :attr:`Insert.mcount` > 1, use the :meth:`Insert.multi_insert`
         method to resolve the MINSERT entity into multiple INSERT entities.
+
+        This method does not apply the clipping path created by the XCLIP command. 
+        The method returns all entities and ignores the clipping path polygon and no 
+        entity is clipped.
 
         The `skipped_entity_callback()` will be called for all entities which are not
         processed, signature:

@@ -1,7 +1,7 @@
-# Copyright (c) 2015-2022, Manfred Moitzi
+# Copyright (c) 2015-2024, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
-from typing import Any, Iterable
+from typing import Iterable, TypeVar, Iterator, Any
 from uuid import uuid4
 import functools
 import html
@@ -13,12 +13,12 @@ escape = functools.partial(html.escape, quote=True)
 
 def float2transparency(value: float) -> int:
     """
-    Returns DXF transparency value as integer in the range from ``0`` to ``255``, where ``0`` is 100% transparent
-    and ``255`` is opaque.
+    Returns DXF transparency value as integer in the range from ``0`` to ``255``, where
+    ``0`` is 100% transparent and ``255`` is opaque.
 
     Args:
-        value: transparency value as float in the range from ``0`` to ``1``, where ``0`` is opaque
-               and ``1`` is 100% transparency.
+        value: transparency value as float in the range from ``0`` to ``1``, where ``0``
+           is opaque and ``1`` is 100% transparency.
 
     """
     return int((1.0 - float(value)) * 255) | 0x02000000
@@ -26,11 +26,12 @@ def float2transparency(value: float) -> int:
 
 def transparency2float(value: int) -> float:
     """
-    Returns transparency value as float from ``0`` to ``1``, ``0`` for no transparency (opaque) and ``1``
-    for 100% transparency.
+    Returns transparency value as float from ``0`` to ``1``, ``0`` for no transparency
+    (opaque) and ``1`` for 100% transparency.
 
     Args:
-        value: DXF integer transparency value, ``0`` for 100% transparency and ``255`` for opaque
+        value: DXF integer transparency value, ``0`` for 100% transparency and ``255``
+            for opaque
 
     """
     # 255 -> 0.
@@ -65,19 +66,46 @@ def guid() -> str:
     return "{" + str(uuid4()).upper() + "}"
 
 
-def take2(iterable: Iterable) -> Iterable[tuple[Any, Any]]:
-    """Iterate `iterable` as 2-tuples.
+T = TypeVar("T")
 
-    :code:`[1, 2, 3, 4, ...] -> (1, 2), (3, 4), ...`
+
+def take2(iterable: Iterable[T]) -> Iterator[tuple[T, T]]:
+    """Iterate `iterable` as non-overlapping pairs.
+
+    :code:`take2('ABCDEFGH') -> AB CD EF GH`
 
     """
-    store = None
+    sentinel = object()
+    store: Any = sentinel
     for item in iterable:
-        if store is None:
+        if store is sentinel:
             store = item
         else:
             yield store, item
-            store = None
+            store = sentinel
+
+
+def pairwise(iterable: Iterable[T], close=False) -> Iterator[tuple[T, T]]:
+    """Iterate `iterable` as consecutive overlapping pairs.
+    This is similar to ``itertools.pairwise()`` in Python 3.10 but with `close` option.
+
+    :code:`polygon_segments('ABCDEFG') -> AB BC CD DE EF FG`
+    :code:`polygon_segments('ABCDEFG', True) -> AB BC CD DE EF FG GA`
+
+    """
+    sentinel = object()
+    first: Any = sentinel
+    store: Any = sentinel
+    item: Any = sentinel
+    for item in iterable:
+        if store is sentinel:
+            store = item
+            first = item
+        else:
+            yield store, item
+            store = item
+    if close and first is not sentinel and item is not first:
+        yield item, first
 
 
 def suppress_zeros(s: str, leading: bool = False, trailing: bool = True):
