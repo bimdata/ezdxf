@@ -448,31 +448,6 @@ def extents3d(vertices: Iterable[UVec]) -> tuple[Vec3, Vec3]:
         raise ValueError("no vertices given")
 
 
-<<<<<<< HEAD
-def extends2d(vertices: Iterable[UVec]) -> tuple[Vec2, Vec2]:
-    minx, miny = None, None
-    maxx, maxy = None, None
-    for v in vertices:
-        v = Vec2(v)
-        x, y = v.x, v.y  # type: ignore
-        if minx is None:
-            minx = x
-            maxx = x
-            miny = y
-            maxy = y
-        else:
-            if x < minx:
-                minx = x
-            elif x > maxx:
-                maxx = x
-            if y < miny:
-                miny = y
-            elif y > maxy:
-                maxy = y
-    if minx is None:
-        raise ValueError("no vertices given")
-    return Vec2(minx, miny), Vec2(maxx, maxy)
-=======
 def extents2d(vertices: Iterable[UVec]) -> tuple[Vec2, Vec2]:
     """Returns the extents of the bounding box as tuple (extmin, extmax)."""
     vertices = np.array([(x, y) for x, y, *_ in vertices], dtype=np.float64)
@@ -480,4 +455,3 @@ def extents2d(vertices: Iterable[UVec]) -> tuple[Vec2, Vec2]:
         return Vec2(vertices.min(0)), Vec2(vertices.max(0))
     else:
         raise ValueError("no vertices given")
->>>>>>> 396ff06e6b251e15cca42e3e103b91ef3235b751
