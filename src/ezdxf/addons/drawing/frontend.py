@@ -103,6 +103,7 @@ POST_ISSUE_MSG = (
 )
 logger = logging.getLogger("ezdxf")
 
+
 # --------------- BIMDATA fix - remove holes from Hatch entitiy ---------------
 def make_holes_in_polygons(external_paths, holes):
     """
@@ -209,7 +210,7 @@ class UniversalFrontend:
         # RenderContext contains all information to resolve resources for a
         # specific DXF document.
         self.ctx = ctx
-        
+
         # the render pipeline is the connection between frontend and backend
         self.pipeline = pipeline
         pipeline.set_draw_entities_callback(self.draw_entities_callback)
@@ -306,8 +307,8 @@ class UniversalFrontend:
 
         .. versionchanged:: 1.3.0
 
-            This method is the first function in the stack of new property override 
-            functions.  It is possible to push additional override functions onto this 
+            This method is the first function in the stack of new property override
+            functions.  It is possible to push additional override functions onto this
             stack, see also :meth:`push_property_override_function`.
 
         """
@@ -320,7 +321,7 @@ class UniversalFrontend:
         function, because the DXF entities are not copies - except for virtual entities.
 
         The override functions are called after resolving the DXF attributes of an entity
-        and before the :meth:`Frontend.draw_entity` method in the order from first to 
+        and before the :meth:`Frontend.draw_entity` method in the order from first to
         last.
 
         .. versionadded:: 1.3.0
@@ -389,7 +390,6 @@ class UniversalFrontend:
         if finalize:
             self.pipeline.finalize()
 
-
     def set_background(self, color: Color) -> None:
         policy = self.config.background_policy
         override = True
@@ -410,7 +410,6 @@ class UniversalFrontend:
         if override:
             self.ctx.current_layout_properties.set_colors(color)
         self.pipeline.set_background(color)
-
 
     def draw_entities(
         self,
@@ -477,7 +476,6 @@ class UniversalFrontend:
 
         self.pipeline.exit_entity(entity)
 
-
     def draw_line_entity(self, entity: DXFGraphic, properties: Properties) -> None:
         d, dxftype = entity.dxf, entity.dxftype()
         if dxftype == "LINE":
@@ -486,7 +484,6 @@ class UniversalFrontend:
                 self.pipeline.draw_line(d.start, d.end, properties)
             else:
                 self.skip_entity(entity, "invalid line's coordinates")
-
 
         elif dxftype in ("XLINE", "RAY"):
             start = d.start
@@ -578,7 +575,6 @@ class UniversalFrontend:
             return
         self.pipeline.draw_path(path, properties)
 
-
     def draw_point_entity(self, entity: DXFGraphic, properties: Properties) -> None:
         point = cast(Point, entity)
         pdmode = self.config.pdmode
@@ -633,7 +629,6 @@ class UniversalFrontend:
                     if visible:
                         self.pipeline.draw_line(a, b, properties)
 
-
         elif isinstance(entity, Solid):
             # set solid fill type for SOLID and TRACE
             properties.filling = Filling()
@@ -679,73 +674,71 @@ class UniversalFrontend:
                     lines.append((s, e))
         self.pipeline.draw_solid_lines(lines, properties)
 
-
     def draw_hatch_entity(
-            self,
-            entity: DXFGraphic,
-            properties: Properties,
-            *,
-            loops: Optional[list[Path]] = None,
-        ) -> None:
-            if properties.filling is None:
-                return
-            filling = properties.filling
-            show_only_outline = False
-            hatch_policy = self.config.hatch_policy
-            if hatch_policy == HatchPolicy.NORMAL:
-                pass
-            elif hatch_policy == HatchPolicy.IGNORE:
-                return
-            elif hatch_policy == HatchPolicy.SHOW_SOLID:
-                filling = Filling()  # solid filling
-            elif hatch_policy == HatchPolicy.SHOW_OUTLINE:
-                filling = Filling()  # solid filling
-                show_only_outline = True
+        self,
+        entity: DXFGraphic,
+        properties: Properties,
+        *,
+        loops: Optional[list[Path]] = None,
+    ) -> None:
+        if properties.filling is None:
+            return
+        filling = properties.filling
+        show_only_outline = False
+        hatch_policy = self.config.hatch_policy
+        if hatch_policy == HatchPolicy.NORMAL:
+            pass
+        elif hatch_policy == HatchPolicy.IGNORE:
+            return
+        elif hatch_policy == HatchPolicy.SHOW_SOLID:
+            filling = Filling()  # solid filling
+        elif hatch_policy == HatchPolicy.SHOW_OUTLINE:
+            filling = Filling()  # solid filling
+            show_only_outline = True
 
-            polygon = cast(DXFPolygon, entity)
-            if filling.type == Filling.PATTERN:
-                if loops is None:
-                    loops = hatching.hatch_boundary_paths(polygon, filter_text_boxes=True)
-                self.draw_hatch_pattern(polygon, loops, properties)
-                return
+        polygon = cast(DXFPolygon, entity)
+        if filling.type == Filling.PATTERN:
+            if loops is None:
+                loops = hatching.hatch_boundary_paths(polygon, filter_text_boxes=True)
+            self.draw_hatch_pattern(polygon, loops, properties)
+            return
 
-            # draw SOLID filling
-            ocs = polygon.ocs()
-            # all OCS coordinates have the same z-axis stored as vector (0, 0, z),
-            # default (0, 0, 0)
-            elevation = entity.dxf.elevation.z
+        # draw SOLID filling
+        ocs = polygon.ocs()
+        # all OCS coordinates have the same z-axis stored as vector (0, 0, z),
+        # default (0, 0, 0)
+        elevation = entity.dxf.elevation.z
 
-            external_paths: list[Path]
-            holes: list[Path]
+        external_paths: list[Path]
+        holes: list[Path]
 
-            if loops is not None:  # only MPOLYGON
-                external_paths, holes = winding_deconstruction(  # type: ignore
-                    make_polygon_structure(loops)
-                )
-            else:  # only HATCH
-                paths = polygon.paths.rendering_paths(polygon.dxf.hatch_style)
-                polygons: list = make_polygon_structure(
-                    closed_loops(paths, ocs, elevation)  # type: ignore
-                )
-                external_paths, holes = winding_deconstruction(polygons)  # type: ignore
+        if loops is not None:  # only MPOLYGON
+            external_paths, holes = winding_deconstruction(  # type: ignore
+                make_polygon_structure(loops)
+            )
+        else:  # only HATCH
+            paths = polygon.paths.rendering_paths(polygon.dxf.hatch_style)
+            polygons: list = make_polygon_structure(
+                closed_loops(paths, ocs, elevation)  # type: ignore
+            )
+            external_paths, holes = winding_deconstruction(polygons)  # type: ignore
 
-            if show_only_outline:
-                if holes:
-                    external_paths, holes = make_holes_in_polygons(external_paths, holes)
+        if show_only_outline:
+            if holes:
+                external_paths, holes = make_holes_in_polygons(external_paths, holes)
 
-                for p in itertools.chain(ignore_text_boxes(external_paths), holes):
-                    self.pipeline.draw_path(p, properties)
-                return
+            for p in itertools.chain(ignore_text_boxes(external_paths), holes):
+                self.pipeline.draw_path(p, properties)
+            return
 
-            if external_paths:
-                self.pipeline.draw_filled_paths(
-                    ignore_text_boxes(external_paths), holes, properties
-                )
-            elif holes:
-                # The first path is considered the exterior path, everything else are
-                # holes.
-                self.pipeline.draw_filled_paths([holes[0]], holes[1:], properties)
-
+        if external_paths:
+            self.pipeline.draw_filled_paths(
+                ignore_text_boxes(external_paths), holes, properties
+            )
+        elif holes:
+            # The first path is considered the exterior path, everything else are
+            # holes.
+            self.pipeline.draw_filled_paths([holes[0]], holes[1:], properties)
 
     def draw_mpolygon_entity(self, entity: DXFGraphic, properties: Properties):
         def resolve_fill_color() -> str:
@@ -781,7 +774,6 @@ class UniversalFrontend:
         # draw boundary paths as lines
         for loop in loops:
             self.pipeline.draw_path(loop, properties)
-
 
     def draw_wipeout_entity(self, entity: DXFGraphic, properties: Properties) -> None:
         wipeout = cast(Wipeout, entity)
@@ -1167,10 +1159,11 @@ def _draw_entities(
                 frontend.skip_entity(entity, "Cannot parse DXF entity")
                 continue
 
-        try : 
+        try:
             properties = ctx.resolve_all(entity)
             frontend.exec_property_override(entity, properties)
         except ZeroDivisionError:
+            frontend.skip_entity(entity, "ZeroDivisionError")
 
         if properties.is_visible:
             frontend.draw_entity(entity, properties)
