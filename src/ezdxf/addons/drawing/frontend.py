@@ -93,6 +93,13 @@ from .type_hints import Color
 if TYPE_CHECKING:
     from .pipeline import AbstractPipeline
 
+# For BIMData use
+import numpy as np
+from ezdxf.math import is_point_in_polygon_2d
+from ezdxf.path import winding_deconstruction
+from ezdxf.path import make_polygon_structure
+import itertools
+
 __all__ = ["Frontend", "UniversalFrontend"]
 
 TEntityFunc: TypeAlias = Callable[[DXFGraphic, Properties], None]
@@ -1007,7 +1014,6 @@ class UniversalFrontend:
                 )
             )
 
-        try:
             if is_clipping_active and clip.get_xclip_frame_policy():
                 self.pipeline.draw_path(
                     path=from_vertices(boundary_path.inner_polygon(), close=True),
@@ -1015,19 +1021,26 @@ class UniversalFrontend:
                 )
                 self.pipeline.pop_clipping_shape()
 
-            if isinstance(entity, Insert):
-                self.ctx.push_state(properties)
-                if entity.mcount > 1:
-                    for virtual_insert in entity.multi_insert():
-                        draw_insert(virtual_insert)
-                else:
-                    raise TypeError(entity.dxftype())
-        except ezdxf.lldxf.const.DXFTypeError:
-            pass
-
-        except ZeroDivisionError:
-            # Bimdata - Bugfix 219
-            self.skip_entity(entity, "ZeroDivisionError")
+        if isinstance(entity, Insert):
+            self.ctx.push_state(properties)
+            if entity.mcount > 1:
+                for virtual_insert in entity.multi_insert():
+                    draw_insert(virtual_insert)
+            else:
+                draw_insert(entity)
+            self.ctx.pop_state()
+        elif isinstance(entity, SupportsVirtualEntities):
+            # draw_entities() includes the visibility check:
+            try:
+                self.draw_entities(virtual_entities(entity))
+            except ProxyGraphicError as e:
+                print(str(e))
+                print(POST_ISSUE_MSG)
+            except ZeroDivisionError:
+                # Bimdata - Bugfix 219
+                self.skip_entity(entity, "ZeroDivisionError")
+        else:
+            raise TypeError(entity.dxftype())
 
     def draw_proxy_graphic(self, data: bytes | None, doc) -> None:
         if not data:
