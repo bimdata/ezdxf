@@ -680,71 +680,71 @@ class UniversalFrontend:
         self.pipeline.draw_solid_lines(lines, properties)
 
 
-def draw_hatch_entity(
-        self,
-        entity: DXFGraphic,
-        properties: Properties,
-        *,
-        loops: Optional[list[Path]] = None,
-    ) -> None:
-        if properties.filling is None:
-            return
-        filling = properties.filling
-        show_only_outline = False
-        hatch_policy = self.config.hatch_policy
-        if hatch_policy == HatchPolicy.NORMAL:
-            pass
-        elif hatch_policy == HatchPolicy.IGNORE:
-            return
-        elif hatch_policy == HatchPolicy.SHOW_SOLID:
-            filling = Filling()  # solid filling
-        elif hatch_policy == HatchPolicy.SHOW_OUTLINE:
-            filling = Filling()  # solid filling
-            show_only_outline = True
+    def draw_hatch_entity(
+            self,
+            entity: DXFGraphic,
+            properties: Properties,
+            *,
+            loops: Optional[list[Path]] = None,
+        ) -> None:
+            if properties.filling is None:
+                return
+            filling = properties.filling
+            show_only_outline = False
+            hatch_policy = self.config.hatch_policy
+            if hatch_policy == HatchPolicy.NORMAL:
+                pass
+            elif hatch_policy == HatchPolicy.IGNORE:
+                return
+            elif hatch_policy == HatchPolicy.SHOW_SOLID:
+                filling = Filling()  # solid filling
+            elif hatch_policy == HatchPolicy.SHOW_OUTLINE:
+                filling = Filling()  # solid filling
+                show_only_outline = True
 
-        polygon = cast(DXFPolygon, entity)
-        if filling.type == Filling.PATTERN:
-            if loops is None:
-                loops = hatching.hatch_boundary_paths(polygon, filter_text_boxes=True)
-            self.draw_hatch_pattern(polygon, loops, properties)
-            return
+            polygon = cast(DXFPolygon, entity)
+            if filling.type == Filling.PATTERN:
+                if loops is None:
+                    loops = hatching.hatch_boundary_paths(polygon, filter_text_boxes=True)
+                self.draw_hatch_pattern(polygon, loops, properties)
+                return
 
-        # draw SOLID filling
-        ocs = polygon.ocs()
-        # all OCS coordinates have the same z-axis stored as vector (0, 0, z),
-        # default (0, 0, 0)
-        elevation = entity.dxf.elevation.z
+            # draw SOLID filling
+            ocs = polygon.ocs()
+            # all OCS coordinates have the same z-axis stored as vector (0, 0, z),
+            # default (0, 0, 0)
+            elevation = entity.dxf.elevation.z
 
-        external_paths: list[Path]
-        holes: list[Path]
+            external_paths: list[Path]
+            holes: list[Path]
 
-        if loops is not None:  # only MPOLYGON
-            external_paths, holes = winding_deconstruction(  # type: ignore
-                make_polygon_structure(loops)
-            )
-        else:  # only HATCH
-            paths = polygon.paths.rendering_paths(polygon.dxf.hatch_style)
-            polygons: list = make_polygon_structure(
-                closed_loops(paths, ocs, elevation)  # type: ignore
-            )
-            external_paths, holes = winding_deconstruction(polygons)  # type: ignore
+            if loops is not None:  # only MPOLYGON
+                external_paths, holes = winding_deconstruction(  # type: ignore
+                    make_polygon_structure(loops)
+                )
+            else:  # only HATCH
+                paths = polygon.paths.rendering_paths(polygon.dxf.hatch_style)
+                polygons: list = make_polygon_structure(
+                    closed_loops(paths, ocs, elevation)  # type: ignore
+                )
+                external_paths, holes = winding_deconstruction(polygons)  # type: ignore
 
-        if show_only_outline:
-            if holes:
-                external_paths, holes = make_holes_in_polygons(external_paths, holes)
+            if show_only_outline:
+                if holes:
+                    external_paths, holes = make_holes_in_polygons(external_paths, holes)
 
-            for p in itertools.chain(ignore_text_boxes(external_paths), holes):
-                self.pipeline.draw_path(p, properties)
-            return
+                for p in itertools.chain(ignore_text_boxes(external_paths), holes):
+                    self.pipeline.draw_path(p, properties)
+                return
 
-        if external_paths:
-            self.pipeline.draw_filled_paths(
-                ignore_text_boxes(external_paths), holes, properties
-            )
-        elif holes:
-            # The first path is considered the exterior path, everything else are
-            # holes.
-            self.pipeline.draw_filled_paths([holes[0]], holes[1:], properties)
+            if external_paths:
+                self.pipeline.draw_filled_paths(
+                    ignore_text_boxes(external_paths), holes, properties
+                )
+            elif holes:
+                # The first path is considered the exterior path, everything else are
+                # holes.
+                self.pipeline.draw_filled_paths([holes[0]], holes[1:], properties)
 
 
     def draw_mpolygon_entity(self, entity: DXFGraphic, properties: Properties):
