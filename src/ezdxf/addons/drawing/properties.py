@@ -404,9 +404,10 @@ class RenderContext:
             self.pdsize = doc.header.get("$PDSIZE", 1.0)
             self.pdmode = doc.header.get("$PDMODE", 0)
             if doc.filename is not None:
-                self.document_dir = pathlib.Path(
-                    doc.filename.replace("\\", os.path.sep)
-                ).parent.resolve()
+                # self.document_dir = pathlib.Path(
+                #     doc.filename.replace("\\", os.path.sep)
+                # ).parent.resolve()
+                self.document_dir = pathlib.Path(doc.filename).parent.resolve()
             self._setup_text_styles(doc)
 
             try:
