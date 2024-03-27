@@ -3,11 +3,11 @@
 .eggs
 .idea
 .vscode
+.coverage
 DXFResearch
 build
 dist
 venv
-src/ezdxf.egg-info
 docs/build
 tools/plotstyles
 tools/ltype/
@@ -18,7 +18,7 @@ tox.ini
 tox-all.ini
 /profiling/logs/
 /wheels/*.whl
-/src/mypy-reports/
+
 /examples_hpgl2_private
 /fonts/shapefiles
 /fonts/*.json

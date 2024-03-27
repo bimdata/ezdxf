@@ -11,13 +11,13 @@
 		- R2018
 	- [[MIT-License]]
 	  id:: 654fc96e-5aa7-49f9-b70e-45c3f2867976
-	- requires Python 3.8 or newer
+	- requires Python 3.9 or newer
 	  id:: 65509c8d-91b9-4461-886f-6d771ce566ea
 	- works with [[CPython]] and [[PyPy]]
 	- OS independent
 	- go to [[ABOUT]] for more information
 -
-- Source Code Repositiory
+- Source Code Repository
   id:: 654fc81e-e026-46ab-ac63-e6c32c90711c
 	- <https://github.com/mozman/ezdxf>
 	  id:: 654fc842-3cb5-4081-a70c-0d83fa56b953

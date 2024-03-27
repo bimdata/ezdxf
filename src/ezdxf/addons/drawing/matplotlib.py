@@ -1,321 +1,549 @@
-# Copyright (c) 2020-2023, Matthew Broadway
-# License: MIT License
+#  Copyright (c) 2023, Manfred Moitzi
+#  License: MIT License
 from __future__ import annotations
-from typing import Iterable, Optional, Union
-import math
-import logging
-from os import PathLike
+from typing import Iterable, Sequence, no_type_check
+import copy
+import numpy as np
 
-import matplotlib.pyplot as plt
-from matplotlib.collections import LineCollection
-from matplotlib.lines import Line2D
-from matplotlib.patches import PathPatch
-from matplotlib.path import Path
+from ezdxf import colors
+from ezdxf.math import Vec2, BoundingBox2d, Matrix44
+from ezdxf.path import Command
 
-from ezdxf.npshapes import to_matplotlib_path
-from ezdxf.addons.drawing.backend import Backend, BkPath2d, BkPoints2d
-from ezdxf.addons.drawing.properties import BackendProperties, LayoutProperties
-from ezdxf.addons.drawing.type_hints import FilterFunc
-from ezdxf.addons.drawing.type_hints import Color
-from ezdxf.math import Vec2
-from ezdxf.layouts import Layout
-from .config import Configuration
-
-logger = logging.getLogger("ezdxf")
-# matplotlib docs: https://matplotlib.org/index.html
-
-# line style:
-# https://matplotlib.org/api/_as_gen/matplotlib.lines.Line2D.html#matplotlib.lines.Line2D.set_linestyle
-# https://matplotlib.org/gallery/lines_bars_and_markers/linestyles.html
-
-# line width:
-# https://matplotlib.org/api/_as_gen/matplotlib.lines.Line2D.html#matplotlib.lines.Line2D.set_linewidth
-# points unit (pt), 1pt = 1/72 inch, 1pt = 0.3527mm
-POINTS = 1.0 / 0.3527  # mm -> points
-CURVE4x3 = (Path.CURVE4, Path.CURVE4, Path.CURVE4)
-SCATTER_POINT_SIZE = 0.1
+from .type_hints import Color
+from .backend import BackendInterface, BkPath2d, BkPoints2d, ImageData
+from .config import Configuration, LineweightPolicy
+from .properties import BackendProperties
+from . import layout, recorder
 
 
-def setup_axes(ax: plt.Axes):
-    # like set_axis_off, except that the face_color can still be set
-    ax.xaxis.set_visible(False)
-    ax.yaxis.set_visible(False)
-    for s in ax.spines.values():
-        s.set_visible(False)
+__all__ = ["PlotterBackend"]
 
-    ax.autoscale(False)
-    ax.set_aspect("equal", "datalim")
+SEMICOLON = ord(";")
+PRELUDE = b"%0B;IN;BP;"
+EPILOG = b"PU;PA0,0;"
+FLATTEN_MAX = 10  # plot units
+MM_TO_PLU = 40  # 40 plu = 1mm
+DEFAULT_PEN = 0
+WHITE = colors.RGB(255, 255, 255)
+BLACK = colors.RGB(0, 0, 0)
+MAX_FLATTEN = 10
+
+# comparing Command.<attrib> to ints is very slow
+CMD_MOVE_TO = int(Command.MOVE_TO)
+CMD_LINE_TO = int(Command.LINE_TO)
+CMD_CURVE3_TO = int(Command.CURVE3_TO)
+CMD_CURVE4_TO = int(Command.CURVE4_TO)
 
 
-class MatplotlibBackend(Backend):
-    """Backend which uses the :mod:`Matplotlib` package for image export.
+class PlotterBackend(recorder.Recorder):
+    """The :class:`PlotterBackend` creates HPGL/2 plot files for output on raster
+    plotters. This backend does not need any additional packages.  This backend support
+    content cropping at page margins.
 
-    Args:
-        ax: drawing canvas as :class:`matplotlib.pyplot.Axes` object
-        adjust_figure: automatically adjust the size of the parent
-            :class:`matplotlib.pyplot.Figure` to display all content
+    The plot files are tested by the plot file viewer `ViewCompanion Standard`_
+    but not on real hardware - please use with care and give feedback.
+
+    .. _ViewCompanion Standard: http://www.softwarecompanions.com/
+
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def get_bytes(
+        self,
+        page: layout.Page,
+        *,
+        settings: layout.Settings = layout.Settings(),
+        render_box: BoundingBox2d | None = None,
+        curves=True,
+        decimal_places: int = 1,
+        base=64,
+    ) -> bytes:
+        """Returns the HPGL/2 data as bytes.
+
+        Args:
+            page: page definition, see :class:`~ezdxf.addons.drawing.layout.Page`
+            settings: layout settings, see :class:`~ezdxf.addons.drawing.layout.Settings`
+            render_box: set explicit region to render, default is content bounding box
+            curves: use Bèzier curves for HPGL/2 output
+            decimal_places: HPGL/2 output precision, less decimal places creates smaller
+                files but for the price of imprecise curves (text)
+            base: base for polyline encoding, 32 for 7 bit encoding or 64 for 8 bit encoding
+
+        """
+        top_origin = False
+        settings = copy.copy(settings)
+        # This player changes the original recordings!
+        player = self.player()
+        if render_box is None:
+            render_box = player.bbox()
+
+        # the page origin (0, 0) is in the bottom-left corner.
+        output_layout = layout.Layout(render_box, flip_y=False)
+        page = output_layout.get_final_page(page, settings)
+        if page.width == 0 or page.height == 0:
+            return b""  # empty page
+        # DXF coordinates are mapped to integer coordinates (plu) in the first
+        # quadrant: 40 plu = 1mm
+        settings.output_coordinate_space = (
+            max(page.width_in_mm, page.height_in_mm) * MM_TO_PLU
+        )
+        # transform content to the output coordinates space:
+        m = output_layout.get_placement_matrix(
+            page, settings=settings, top_origin=top_origin
+        )
+        player.transform(m)
+        if settings.crop_at_margins:
+            p1, p2 = page.get_margin_rect(top_origin=top_origin)  # in mm
+            # scale factor to map page coordinates to output space coordinates:
+            output_scale = settings.page_output_scale_factor(page)
+            max_sagitta = 0.1 * MM_TO_PLU  # curve approximation 0.1 mm
+            # crop content inplace by the margin rect:
+            player.crop_rect(p1 * output_scale, p2 * output_scale, max_sagitta)
+        backend = _RenderBackend(
+            page,
+            settings=settings,
+            curves=curves,
+            decimal_places=decimal_places,
+            base=base,
+        )
+        player.replay(backend)
+        return backend.get_bytes()
+
+    def compatible(
+        self, page: layout.Page, settings: layout.Settings = layout.Settings()
+    ) -> bytes:
+        """Returns the HPGL/2 data as 7-bit encoded bytes curves as approximated
+        polylines and coordinates are rounded to integer values.
+        Has often the smallest file size and should be compatible to all output devices
+        but has a low quality text rendering.
+        """
+        return self.get_bytes(
+            page, settings=settings, curves=False, decimal_places=0, base=32
+        )
+
+    def low_quality(
+        self, page: layout.Page, settings: layout.Settings = layout.Settings()
+    ) -> bytes:
+        """Returns the HPGL/2 data as 8-bit encoded bytes, curves as Bézier
+        curves and coordinates are rounded to integer values.
+        Has a smaller file size than normal quality and the output device must support
+        8-bit encoding and Bèzier curves.
+        """
+        return self.get_bytes(
+            page, settings=settings, curves=True, decimal_places=0, base=64
+        )
+
+    def normal_quality(
+        self, page: layout.Page, settings: layout.Settings = layout.Settings()
+    ) -> bytes:
+        """Returns the HPGL/2 data as 8-bit encoded bytes, curves as Bézier
+        curves and coordinates are floats rounded to one decimal place.
+        Has a smaller file size than high quality and the output device must support
+        8-bit encoding, Bèzier curves and fractional coordinates.
+        """
+        return self.get_bytes(
+            page, settings=settings, curves=True, decimal_places=1, base=64
+        )
+
+    def high_quality(
+        self, page: layout.Page, settings: layout.Settings = layout.Settings()
+    ) -> bytes:
+        """Returns the HPGL/2 data as 8-bit encoded bytes and all curves as Bézier
+        curves and coordinates are floats rounded to two decimal places.
+        Has the largest file size and the output device must support 8-bit encoding,
+        Bèzier curves and fractional coordinates.
+        """
+        return self.get_bytes(
+            page, settings=settings, curves=True, decimal_places=2, base=64
+        )
+
+
+class PenTable:
+    def __init__(self, max_pens: int = 64) -> None:
+        self.pens: dict[int, colors.RGB] = dict()
+        self.max_pens = int(max_pens)
+
+    def __contains__(self, index: int) -> bool:
+        return index in self.pens
+
+    def __getitem__(self, index: int) -> colors.RGB:
+        return self.pens[index]
+
+    def add_pen(self, index: int, color: colors.RGB):
+        self.pens[index] = color
+
+    def to_bytes(self) -> bytes:
+        command: list[bytes] = [f"NP{self.max_pens-1};".encode()]
+        pens: list[tuple[int, colors.RGB]] = [
+            (index, rgb) for index, rgb in self.pens.items()
+        ]
+        pens.sort()
+        for index, rgb in pens:
+            command.append(make_pc(index, rgb))
+        return b"".join(command)
+
+
+def make_pc(pen: int, rgb: colors.RGB) -> bytes:
+    # pen color
+    return f"PC{pen},{rgb.r},{rgb.g},{rgb.b};".encode()
+
+
+class _RenderBackend(BackendInterface):
+    """Creates the HPGL/2 output.
+
+    This backend requires some preliminary work, record the frontend output via the
+    Recorder backend to accomplish the following requirements:
+
+    - Move content in the first quadrant of the coordinate system.
+    - The output coordinates are integer values, scale the content appropriately:
+        - 1 plot unit (plu) = 0.025mm
+        - 40 plu = 1mm
+        - 1016 plu = 1 inch
+        - 3.39 plu = 1 dot @300 dpi
+    - Replay the recorded output on this backend.
+
     """
 
     def __init__(
         self,
-        ax: plt.Axes,
+        page: layout.Page,
         *,
-        adjust_figure: bool = True,
-    ):
-        super().__init__()
-        setup_axes(ax)
-        self.ax = ax
-        self._adjust_figure = adjust_figure
-        self._current_z = 0
+        settings: layout.Settings,
+        curves=True,
+        decimal_places: int = 2,
+        base: int = 64,
+    ) -> None:
+        self.settings = settings
+        self.curves = curves
+        self.factional_bits = round(decimal_places * 3.33)
+        self.decimal_places: int | None = (
+            int(decimal_places) if decimal_places else None
+        )
+        self.base = base
+        self.header: list[bytes] = []
+        self.data: list[bytes] = []
+        self.pen_table = PenTable(max_pens=256)
+        self.current_pen: int = 0
+        self.current_pen_width: float = 0.0
+        self.setup(page)
 
-    def configure(self, config: Configuration) -> None:
-        if config.min_lineweight is None:
-            # If not set by user, use ~1 pixel
-            figure = self.ax.get_figure()
-            if figure:
-                config = config.with_changes(min_lineweight=72.0 / figure.dpi)
-        super().configure(config)
-        # LinePolicy.ACCURATE is handled by the frontend since v0.18.1
+        self._stroke_width_cache: dict[float, float] = dict()
+        # StrokeWidthPolicy.absolute:
+        # pen width in mm as resolved by the frontend
+        self.min_lineweight = 0.05  # in mm, set by configure()
+        self.lineweight_scaling = 1.0  # set by configure()
+        self.lineweight_policy = LineweightPolicy.ABSOLUTE  # set by configure()
+        # fixed lineweight for all strokes in ABSOLUTE mode:
+        # set Configuration.min_lineweight to the desired lineweight in 1/300 inch!
+        # set Configuration.lineweight_scaling to 0
 
-    def _get_z(self) -> int:
-        z = self._current_z
-        self._current_z += 1
-        return z
-
-    def set_background(self, color: Color):
-        self.ax.set_facecolor(color)
-
-    def draw_point(self, pos: Vec2, properties: BackendProperties):
-        """Draw a real dimensionless point."""
-        color = properties.color
-        # self.ax.scatter(
-        #     [pos.x],
-        #     [pos.y],
-        #     s=SCATTER_POINT_SIZE,
-        #     c=color,
-        #     zorder=self._get_z(),
-        # )
-
-    def get_lineweight(self, properties: BackendProperties) -> float:
-        """Set lineweight_scaling=0 to use a constant minimal lineweight."""
-        assert self.config.min_lineweight is not None
-        return max(
-            properties.lineweight * self.config.lineweight_scaling,
-            self.config.min_lineweight,
+        # LineweightPolicy.RELATIVE:
+        # max_stroke_width is determined as a certain percentage of max(width, height)
+        max_size = max(page.width_in_mm, page.height_in_mm)
+        self.max_stroke_width: float = round(max_size * settings.max_stroke_width, 2)
+        # min_stroke_width is determined as a certain percentage of max_stroke_width
+        self.min_stroke_width: float = round(
+            self.max_stroke_width * settings.min_stroke_width, 2
+        )
+        # LineweightPolicy.RELATIVE_FIXED:
+        # all strokes have a fixed stroke-width as a certain percentage of max_stroke_width
+        self.fixed_stroke_width: float = round(
+            self.max_stroke_width * settings.fixed_stroke_width, 2
         )
 
-    def draw_line(self, start: Vec2, end: Vec2, properties: BackendProperties):
-        """Draws a single solid line, line type rendering is done by the
-        frontend since v0.18.1
-        """
-        if start.isclose(end):
-            # matplotlib draws nothing for a zero-length line:
-            self.draw_point(start, properties)
+    def setup(self, page: layout.Page) -> None:
+        cmd = f"PS{page.width_in_mm*MM_TO_PLU:.0f},{page.height_in_mm*MM_TO_PLU:.0f};"
+        self.header.append(cmd.encode())
+        self.header.append(b"FT1;PA;")  # solid fill; plot absolute;
+
+    def get_bytes(self) -> bytes:
+        header: list[bytes] = list(self.header)
+        header.append(self.pen_table.to_bytes())
+        return compile_hpgl2(header, self.data)
+
+    def switch_current_pen(self, pen_number: int, rgb: colors.RGB) -> int:
+        if pen_number in self.pen_table:
+            pen_color = self.pen_table[pen_number]
+            if rgb != pen_color:
+                self.data.append(make_pc(DEFAULT_PEN, rgb))
+                pen_number = DEFAULT_PEN
         else:
-            self.ax.add_line(
-                Line2D(
-                    (start.x, end.x),
-                    (start.y, end.y),
-                    linewidth=self.get_lineweight(properties),
-                    color=properties.color,
-                    zorder=self._get_z(),
-                    gid=properties.output_id,
-                )
+            self.pen_table.add_pen(pen_number, rgb)
+        return pen_number
+
+    def set_pen(self, pen_number: int) -> None:
+        if self.current_pen == pen_number:
+            return
+        self.data.append(f"SP{pen_number};".encode())
+        self.current_pen = pen_number
+
+    def set_pen_width(self, width: float) -> None:
+        if self.current_pen_width == width:
+            return
+        self.data.append(f"PW{width:g};".encode())  # pen width in mm
+        self.current_pen_width = width
+
+    def enter_polygon_mode(self, start_point: Vec2) -> None:
+        x = round(start_point.x, self.decimal_places)
+        y = round(start_point.y, self.decimal_places)
+        self.data.append(f"PA;PU{x},{y};PM;".encode())
+
+    def close_current_polygon(self) -> None:
+        self.data.append(b"PM1;")
+
+    def fill_polygon(self) -> None:
+        self.data.append(b"PM2;FP;")  # even/odd fill method
+
+    def set_properties(self, properties: BackendProperties) -> None:
+        pen_number = properties.pen
+        pen_color, opacity = self.resolve_pen_color(properties.color)
+        pen_width = self.resolve_pen_width(properties.lineweight)
+        pen_number = self.switch_current_pen(pen_number, pen_color)
+        self.set_pen(pen_number)
+        self.set_pen_width(pen_width)
+
+    def add_polyline_encoded(
+        self, vertices: Iterable[Vec2], properties: BackendProperties
+    ):
+        self.set_properties(properties)
+        self.data.append(polyline_encoder(vertices, self.factional_bits, self.base))
+
+    def add_path(self, path: BkPath2d, properties: BackendProperties):
+        if self.curves and path.has_curves:
+            self.set_properties(properties)
+            self.data.append(path_encoder(path, self.decimal_places))
+        else:
+            points = list(path.flattening(MAX_FLATTEN, segments=4))
+            self.add_polyline_encoded(points, properties)
+
+    @staticmethod
+    def resolve_pen_color(color: Color) -> tuple[colors.RGB, float]:
+        rgb = colors.RGB.from_hex(color)
+        if rgb == WHITE:
+            rgb = BLACK
+        return rgb, alpha_to_opacity(color[7:9])
+
+    def resolve_pen_width(self, width: float) -> float:
+        try:
+            return self._stroke_width_cache[width]
+        except KeyError:
+            pass
+            stroke_width = self.fixed_stroke_width
+        policy = self.lineweight_policy
+        if policy == LineweightPolicy.ABSOLUTE:
+            if self.lineweight_scaling:
+                width = max(self.min_lineweight, width) * self.lineweight_scaling
+            else:
+                width = self.min_lineweight
+            stroke_width = round(width, 2)  # in mm
+        elif policy == LineweightPolicy.RELATIVE:
+            stroke_width = round(
+                map_lineweight_to_stroke_width(
+                    width, self.min_stroke_width, self.max_stroke_width
+                ),
+                2,
             )
+        self._stroke_width_cache[width] = stroke_width
+        return stroke_width
+
+    def set_background(self, color: Color) -> None:
+        # background is always a white paper
+        pass
+
+    def draw_point(self, pos: Vec2, properties: BackendProperties) -> None:
+        self.add_polyline_encoded([pos], properties)
+
+    def draw_line(self, start: Vec2, end: Vec2, properties: BackendProperties) -> None:
+        self.add_polyline_encoded([start, end], properties)
 
     def draw_solid_lines(
-        self,
-        lines: Iterable[tuple[Vec2, Vec2]],
-        properties: BackendProperties,
-    ):
-        """Fast method to draw a bunch of solid lines with the same properties."""
-        color = properties.color
-        lineweight = self.get_lineweight(properties)
-        _lines = []
-        point_x = []
-        point_y = []
-        z = self._get_z()
-        for s, e in lines:
-            if s.isclose(e):
-                point_x.append(s.x)
-                point_y.append(s.y)
-            else:
-                _lines.append(((s.x, s.y), (e.x, e.y)))
+        self, lines: Iterable[tuple[Vec2, Vec2]], properties: BackendProperties
+    ) -> None:
+        lines = list(lines)
+        if len(lines) == 0:
+            return
+        for line in lines:
+            self.add_polyline_encoded(line, properties)
 
-        # self.ax.scatter(point_x, point_y, s=SCATTER_POINT_SIZE, c=color, zorder=z)
-        self.ax.add_collection(
-            LineCollection(
-                _lines,
-                linewidths=lineweight,
-                color=color,
-                zorder=z,
-                capstyle="butt",
-                gid=properties.output_id,
-            )
-        )
-
-    def draw_path(self, path: BkPath2d, properties: BackendProperties):
-        """Draw a solid line path, line type rendering is done by the
-        frontend since v0.18.1
-        """
-        try:
-            mpl_path = to_matplotlib_path([path])
-            patch = PathPatch(
-                mpl_path,
-                linewidth=self.get_lineweight(properties),
-                fill=False,
-                color=properties.color,
-                zorder=self._get_z(),
-                gid=properties.output_id,
-                hatch=getattr(properties, "hatch_type", None),
-            )
-        except ValueError as e:
-            logger.info(f"ignored matplotlib error: {str(e)}")
-        else:
-            self.ax.add_patch(patch)
+    def draw_path(self, path: BkPath2d, properties: BackendProperties) -> None:
+        for sub_path in path.sub_paths():
+            if len(sub_path) == 0:
+                continue
+            self.add_path(sub_path, properties)
 
     def draw_filled_paths(
         self, paths: Iterable[BkPath2d], properties: BackendProperties
-    ):
-        linewidth = 0
+    ) -> None:
+        paths = list(paths)
+        if len(paths) == 0:
+            return
+        self.enter_polygon_mode(paths[0].start)
+        for p in paths:
+            for sub_path in p.sub_paths():
+                if len(sub_path) == 0:
+                    continue
+                self.add_path(sub_path, properties)
+                self.close_current_polygon()
+        self.fill_polygon()
 
+    def draw_filled_polygon(
+        self, points: BkPoints2d, properties: BackendProperties
+    ) -> None:
+        points2d: list[Vec2] = points.vertices()
+        if points2d:
+            self.enter_polygon_mode(points2d[0])
+            self.add_polyline_encoded(points2d, properties)
+            self.fill_polygon()
+
+    def draw_image(self, image_data: ImageData, properties: BackendProperties) -> None:
+        pass  # TODO: not implemented
+
+    def configure(self, config: Configuration) -> None:
+        self.lineweight_policy = config.lineweight_policy
+        if config.min_lineweight:
+            # config.min_lineweight in 1/300 inch!
+            min_lineweight_mm = config.min_lineweight * 25.4 / 300
+            self.min_lineweight = max(0.05, min_lineweight_mm)
+        self.lineweight_scaling = config.lineweight_scaling
+
+    def clear(self) -> None:
+        pass
+
+    def finalize(self) -> None:
+        pass
+
+    def enter_entity(self, entity, properties) -> None:
+        pass
+
+    def exit_entity(self, entity) -> None:
+        pass
+
+
+def alpha_to_opacity(alpha: str) -> float:
+    # stroke-opacity: 0.0 = transparent; 1.0 = opaque
+    # alpha: "00" = transparent; "ff" = opaque
+    if len(alpha):
         try:
-            patch = PathPatch(
-                to_matplotlib_path(paths, detect_holes=True),
-                color=properties.color,
-                linewidth=linewidth,
-                fill=True,
-                zorder=self._get_z(),
-                gid=properties.output_id,
-            )
-        except ValueError as e:
-            logger.info(f"ignored matplotlib error in draw_filled_paths(): {str(e)}")
-        else:
-            self.ax.add_patch(patch)
-
-    def draw_filled_polygon(self, points: BkPoints2d, properties: BackendProperties):
-        self.ax.fill(
-            *zip(*((p.x, p.y) for p in points.vertices())),
-            color=properties.color,
-            linewidth=0,
-            zorder=self._get_z(),
-            gid=properties.output_id,
-        )
-
-    def clear(self):
-        self.ax.clear()
-
-    def finalize(self):
-        super().finalize()
-        self.ax.autoscale(True)
-        if self._adjust_figure:
-            minx, maxx = self.ax.get_xlim()
-            miny, maxy = self.ax.get_ylim()
-            data_width, data_height = maxx - minx, maxy - miny
-            if not math.isclose(data_width, 0):
-                width, height = plt.figaspect(data_height / data_width)
-                self.ax.get_figure().set_size_inches(width, height, forward=True)
-
-
-def _get_aspect_ratio(ax: plt.Axes) -> float:
-    minx, maxx = ax.get_xlim()
-    miny, maxy = ax.get_ylim()
-    data_width, data_height = maxx - minx, maxy - miny
-    if abs(data_height) > 1e-9:
-        return data_width / data_height
+            return int(alpha, 16) / 255
+        except ValueError:
+            pass
     return 1.0
 
 
-def _get_width_height(ratio: float, width: float, height: float) -> tuple[float, float]:
-    if width == 0.0 and height == 0.0:
-        raise ValueError("invalid (width, height) values")
-    if width == 0.0:
-        width = height * ratio
-    elif height == 0.0:
-        height = width / ratio
-    return width, height
+def map_lineweight_to_stroke_width(
+    lineweight: float,
+    min_stroke_width: float,
+    max_stroke_width: float,
+    min_lineweight=0.05,  # defined by DXF
+    max_lineweight=2.11,  # defined by DXF
+) -> float:
+    lineweight = max(min(lineweight, max_lineweight), min_lineweight) - min_lineweight
+    factor = (max_stroke_width - min_stroke_width) / (max_lineweight - min_lineweight)
+    return round(min_stroke_width + round(lineweight * factor), 2)
 
 
-def qsave(
-    layout: Layout,
-    filename: Union[str, PathLike],
-    *,
-    bg: Optional[Color] = None,
-    fg: Optional[Color] = None,
-    dpi: int = 300,
-    backend: str = "agg",
-    config: Optional[Configuration] = None,
-    filter_func: Optional[FilterFunc] = None,
-    size_inches: Optional[tuple[float, float]] = None,
-    margins=True,
-) -> None:
-    """Quick and simplified render export by matplotlib.
+def flatten_path(path: BkPath2d) -> Sequence[Vec2]:
+    points = list(path.flattening(distance=FLATTEN_MAX))
+    return points
 
-    Args:
-        layout: modelspace or paperspace layout to export
-        filename: export filename, file extension determines the format e.g.
-            "image.png" to save in PNG format.
-        bg: override default background color in hex format #RRGGBB or #RRGGBBAA,
-            e.g. use bg="#FFFFFF00" to get a transparent background and a black
-            foreground color (ACI=7), because a white background #FFFFFF gets a
-            black foreground color or vice versa bg="#00000000" for a transparent
-            (black) background and a white foreground color.
-        fg: override default foreground color in hex format #RRGGBB or #RRGGBBAA,
-            requires also `bg` argument. There is no explicit foreground color
-            in DXF defined (also not a background color), but the ACI color 7
-            has already a variable color value, black on a light background and
-            white on a dark background, this argument overrides this (ACI=7)
-            default color value.
-        dpi: image resolution (dots per inches).
-        size_inches: paper size in inch as `(width, height)` tuple, which also
-            defines the size in pixels = (`width` * `dpi`) x (`height` * `dpi`).
-            If `width` or `height` is 0.0 the value is calculated by the aspect
-            ratio of the drawing.
-        backend: the matplotlib rendering backend to use (agg, cairo, svg etc)
-            (see documentation for `matplotlib.use() <https://matplotlib.org/3.1.1/api/matplotlib_configuration_api.html?highlight=matplotlib%20use#matplotlib.use>`_
-            for a complete list of backends)
-        config: drawing parameters
-        filter_func: filter function which takes a DXFGraphic object as input
-            and returns ``True`` if the entity should be drawn or ``False`` if
-            the entity should be ignored
 
-    """
-    from .properties import RenderContext
-    from .frontend import Frontend
-    import matplotlib
+def compile_hpgl2(header: Sequence[bytes], commands: Sequence[bytes]) -> bytes:
+    output = bytearray(PRELUDE)
+    output.extend(b"".join(header))
+    output.extend(b"".join(commands))
+    output.extend(EPILOG)
+    return bytes(output)
 
-    # Set the backend to prevent warnings about GUIs being opened from a thread
-    # other than the main thread.
-    old_backend = matplotlib.get_backend()
-    matplotlib.use(backend)
-    if config is None:
-        config = Configuration()
 
-    try:
-        fig: plt.Figure = plt.figure(dpi=dpi)
-        ax: plt.Axes = fig.add_axes((0, 0, 1, 1))
-        if not margins:
-            ax.margins(0)
-        ctx = RenderContext(layout.doc)
-        layout_properties = LayoutProperties.from_layout(layout)
-        if bg is not None:
-            layout_properties.set_colors(bg, fg)
-        out = MatplotlibBackend(ax)
-        Frontend(ctx, out, config).draw_layout(
-            layout,
-            finalize=True,
-            filter_func=filter_func,
-            layout_properties=layout_properties,
-        )
-        # transparent=True sets the axes color to fully transparent
-        # facecolor sets the figure color
-        # (semi-)transparent axes colors do not produce transparent outputs
-        # but (semi-)transparent figure colors do.
-        if size_inches is not None:
-            ratio = _get_aspect_ratio(ax)
-            w, h = _get_width_height(ratio, size_inches[0], size_inches[1])
-            fig.set_size_inches(w, h, True)
-        fig.savefig(filename, dpi=dpi, facecolor=ax.get_facecolor(), transparent=True)
-        plt.close(fig)
-    finally:
-        matplotlib.use(old_backend)
+def pe_encode(value: float, frac_bits: int = 0, base: int = 64) -> bytes:
+    if frac_bits:
+        value *= 1 << frac_bits
+    x = round(value)
+    if x >= 0:
+        x *= 2
+    else:
+        x = abs(x) * 2 + 1
+
+    chars = bytearray()
+    while x >= base:
+        x, r = divmod(x, base)
+        chars.append(63 + r)
+    if base == 64:
+        chars.append(191 + x)
+    else:
+        chars.append(95 + x)
+    return bytes(chars)
+
+
+def polyline_encoder(vertices: Iterable[Vec2], frac_bits: int, base: int) -> bytes:
+    cmd = b"PE"
+    if base == 32:
+        cmd = b"PE7"
+    if frac_bits:
+        cmd += b">" + pe_encode(frac_bits, 0, base)
+    data = [cmd + b"<="]
+    vertices = list(vertices)
+    # first point as absolute coordinates
+    current = vertices[0]
+    data.append(pe_encode(current.x, frac_bits, base))
+    data.append(pe_encode(current.y, frac_bits, base))
+    for vertex in vertices[1:]:
+        # remaining points as relative coordinates
+        delta = vertex - current
+        data.append(pe_encode(delta.x, frac_bits, base))
+        data.append(pe_encode(delta.y, frac_bits, base))
+        current = vertex
+    data.append(b";")
+    return b"".join(data)
+
+
+@no_type_check
+def path_encoder(path: BkPath2d, decimal_places: int | None) -> bytes:
+    # first point as absolute coordinates
+    current = path.start
+    x = round(current.x, decimal_places)
+    y = round(current.y, decimal_places)
+    data = [f"PU;PA{x:g},{y:g};PD;".encode()]
+    prev_command = Command.MOVE_TO
+    if len(path):
+        commands: list[bytes] = []
+        for cmd in path.commands():
+            delta = cmd.end - current
+            xe = round(delta.x, decimal_places)
+            ye = round(delta.y, decimal_places)
+            if cmd.type == Command.LINE_TO:
+                coords = f"{xe:g},{ye:g};".encode()
+                if prev_command == Command.LINE_TO:
+                    # extend previous PR command
+                    commands[-1] = commands[-1][:-1] + b"," + coords
+                else:
+                    commands.append(b"PR" + coords)
+                prev_command = Command.LINE_TO
+            else:
+                if cmd.type == Command.CURVE3_TO:
+                    control = cmd.ctrl - current
+                    end = cmd.end - current
+                    control_1 = 2.0 * control / 3.0
+                    control_2 = end + 2.0 * (control - end) / 3.0
+                elif cmd.type == Command.CURVE4_TO:
+                    control_1 = cmd.ctrl1 - current
+                    control_2 = cmd.ctrl2 - current
+                else:
+                    raise ValueError("internal error: MOVE_TO command is illegal here")
+                x1 = round(control_1.x, decimal_places)
+                y1 = round(control_1.y, decimal_places)
+                x2 = round(control_2.x, decimal_places)
+                y2 = round(control_2.y, decimal_places)
+                coords = f"{x1:g},{y1:g},{x2:g},{y2:g},{xe:g},{ye:g};".encode()
+                if prev_command == Command.CURVE4_TO:
+                    # extend previous BR command
+                    commands[-1] = commands[-1][:-1] + b"," + coords
+                else:
+                    commands.append(b"BR" + coords)
+                prev_command = Command.CURVE4_TO
+            current = cmd.end
+        data.append(b"".join(commands))
+    data.append(b"PU;")
+    return b"".join(data)

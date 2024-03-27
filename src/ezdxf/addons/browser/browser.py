@@ -25,7 +25,7 @@ import ezdxf
 from ezdxf.lldxf.const import DXFStructureError, DXFValueError
 from ezdxf.lldxf.types import DXFTag, is_pointer_code
 from ezdxf.lldxf.tags import Tags
-from ezdxf.pp.reflinks import get_reference_link
+from ezdxf.addons.browser.reflinks import get_reference_link
 
 from .model import (
     DXFStructureModel,
@@ -276,7 +276,7 @@ class DXFStructureBrowser(QtWidgets.QMainWindow):
             action.setIcon(icon)
         if tip:
             action.setToolTip(tip)
-        action.triggered.connect(slot)  # type: ignore
+        action.triggered.connect(slot)
         return action
 
     def setup_menu(self):
@@ -610,7 +610,7 @@ class DXFStructureBrowser(QtWidgets.QMainWindow):
     def show_entity_found_message(self, entity: Tags, index: int):
         dxftype = entity.dxftype()
         if dxftype == "SECTION":
-            tail = " @ {0} Section".format(entity.get_first_value(2))  # type: ignore
+            tail = " @ {0} Section".format(entity.get_first_value(2))
         else:
             try:
                 handle = entity.get_handle()

@@ -7,7 +7,11 @@ tags:: ideas, xref, import
 	- This change was added to ((6568dc88-ce84-4f46-b490-43768c491a2b))
 	- If this change causes too much trouble, there is an option to implement it as an optional feature.
 	-
+<<<<<<< HEAD
 - ## Special Copy-Mode for [[DICTIONARY]] entites
+=======
+- ## ~~Special Copy-Mode for DICTIONARY entites~~
+>>>>>>> 396ff06e6b251e15cca42e3e103b91ef3235b751
 	- The [[ezdxf.xref]] module cannot import unsupported entities
 	- This is often related to undocumented entities and objects used by [[AutoCAD]] to implement extended features.
 	- These undocumented entities are linked to regular entities by the [[Extension Dictionary]].
@@ -25,5 +29,9 @@ tags:: ideas, xref, import
 			- _IGNORE_UNSUPPORTED_ENTITIES_
 		- passed to the `Loader.execute()` method
 		-
+<<<<<<< HEAD
 - ### This does not conflict with: ((6568c568-6aed-4de2-83f0-7807a04d230b))
+=======
+- ### This does not conflict with: [[Copying Undocumented Entities]]
+>>>>>>> 396ff06e6b251e15cca42e3e103b91ef3235b751
 	- If copying of unsupported entities works the problem is solved and this feature would just be dead code.

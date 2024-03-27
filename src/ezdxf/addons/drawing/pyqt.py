@@ -6,8 +6,10 @@ from typing import Optional, Iterable
 import abc
 import math
 
+import numpy as np
+
 from ezdxf.addons.xqt import QtCore as qc, QtGui as qg, QtWidgets as qw
-from ezdxf.addons.drawing.backend import Backend, BkPath2d, BkPoints2d
+from ezdxf.addons.drawing.backend import Backend, BkPath2d, BkPoints2d, ImageData
 from ezdxf.addons.drawing.config import Configuration
 from ezdxf.addons.drawing.type_hints import Color
 from ezdxf.addons.drawing.properties import BackendProperties
@@ -144,6 +146,8 @@ class _PyQtBackend(Backend):
                 add_line(item, properties.handle)
 
     def draw_path(self, path: BkPath2d, properties: BackendProperties) -> None:
+        if len(path) == 0:
+            return
         item = qw.QGraphicsPathItem(to_qpainter_path([path]))
         item.setPen(self._get_pen(properties))
         item.setBrush(self._no_fill)
@@ -154,7 +158,10 @@ class _PyQtBackend(Backend):
     ) -> None:
         # Default fill rule is OddEvenFill! Detecting the path orientation is not
         # necessary!
-        item = _CosmeticPath(to_qpainter_path(paths))
+        _paths = list(paths)
+        if len(_paths) == 0:
+            return
+        item = _CosmeticPath(to_qpainter_path(_paths))
         item.setPen(self._get_pen(properties))
         item.setBrush(self._get_fill_brush(properties.color))
         self._add_item(item, properties.handle)
@@ -169,6 +176,28 @@ class _PyQtBackend(Backend):
         item = _CosmeticPolygon(polygon)
         item.setPen(self._no_line)
         item.setBrush(brush)
+        self._add_item(item, properties.handle)
+
+    def draw_image(self, image_data: ImageData, properties: BackendProperties) -> None:
+        image = image_data.image
+        transform = image_data.transform
+        height, width, depth = image.shape
+        assert depth == 4
+        bytes_per_row = width * depth
+        image = np.ascontiguousarray(np.flip(image, axis=0))
+        pixmap = qg.QPixmap(
+            qg.QImage(
+                image.data,
+                width,
+                height,
+                bytes_per_row,
+                qg.QImage.Format.Format_RGBA8888,
+            )
+        )
+        item = qw.QGraphicsPixmapItem()
+        item.setPixmap(pixmap)
+        item.setTransformationMode(qc.Qt.TransformationMode.SmoothTransformation)
+        item.setTransform(_matrix_to_qtransform(transform))
         self._add_item(item, properties.handle)
 
     def clear(self) -> None:

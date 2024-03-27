@@ -1,4 +1,4 @@
-# Copyright (c) 2011-2023, Manfred Moitzi
+# Copyright (c) 2011-2024, Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
 from typing import (
@@ -11,6 +11,8 @@ from typing import (
     Callable,
     cast,
     Optional,
+    Sequence,
+    Any
 )
 import abc
 import base64
@@ -43,7 +45,12 @@ from ezdxf.lldxf.const import (
     DXF2013,
 )
 from ezdxf.lldxf import loader
-from ezdxf.lldxf.tagwriter import TagWriter, BinaryTagWriter
+from ezdxf.lldxf.tagwriter import (
+    AbstractTagWriter,
+    TagWriter,
+    BinaryTagWriter,
+    JSONTagWriter,
+)
 from ezdxf.query import EntityQuery
 from ezdxf.render.dimension import DimensionRenderer
 from ezdxf.sections.acdsdata import AcDsDataSection, new_acds_data_section
@@ -283,7 +290,7 @@ class Drawing:
     @property
     def units(self) -> int:
         """Get and set the document/modelspace base units as enum, for more
-        information read this: :ref:`dxf units`.
+        information read this: :ref:`dxf units`. Requires DXF R2000 or newer.
 
         """
         return self.header.get("$INSUNITS", 0)
@@ -291,6 +298,10 @@ class Drawing:
     @units.setter
     def units(self, unit_enum: int) -> None:
         if 0 <= unit_enum < 25:
+            if self.dxfversion < DXF2000:
+                logger.warning(
+                    "Drawing units ($INSUNITS) are not exported for DXF R12."
+                )
             self.header["$INSUNITS"] = unit_enum
         else:
             raise ValueError(f"Invalid units enum: {unit_enum}")
@@ -374,7 +385,7 @@ class Drawing:
         header_entities: list[Tags] = sections.get("HEADER", [])  # type: ignore
         if header_entities:
             # All header tags are the first DXF structure entity
-            self.header = HeaderSection.load(header_entities[0])  # type: ignore
+            self.header = HeaderSection.load(header_entities[0])
         else:
             # Create default header, files without header are by default DXF R12
             self.header = HeaderSection.new(dxfversion=DXF12)
@@ -582,12 +593,7 @@ class Drawing:
         if dxfversion > DXF12:
             self.classes.add_required_classes(dxfversion)
 
-        self._create_appids()
-        self._update_header_vars()
-        self.update_extents()
-        self.update_limits()
-        self._update_metadata()
-
+        self.update_all()
         if fmt.startswith("asc"):
             tagwriter = TagWriter(
                 stream,  # type: ignore
@@ -616,7 +622,7 @@ class Drawing:
         # Create Windows line endings and do base64 encoding:
         return base64.encodebytes(binary_data.replace(b"\n", b"\r\n"))
 
-    def export_sections(self, tagwriter: TagWriter) -> None:
+    def export_sections(self, tagwriter: AbstractTagWriter) -> None:
         """DXF export sections. (internal API)"""
         dxfversion = tagwriter.dxfversion
         self.header.export_dxf(tagwriter)
@@ -633,6 +639,15 @@ class Drawing:
             section.export_dxf(tagwriter)
 
         tagwriter.write_tag2(0, "EOF")
+
+    def update_all(self) -> None:
+        if self.dxfversion > DXF12:
+            self.classes.add_required_classes(self.dxfversion)
+        self._create_appids()
+        self._update_header_vars()
+        self.update_extents()
+        self.update_limits()
+        self._update_metadata()
 
     def update_extents(self):
         msp = self.modelspace()
@@ -1383,7 +1398,7 @@ def info(doc: Drawing, verbose=False, content=False, fmt="ASCII") -> list[str]:
         append_container(doc.viewports, "VPORT")
         append_container(doc.block_records, "BLOCK_RECORD")
         if doc.dxfversion > DXF12:
-            append_container(list(doc.classes), "CLASS", container="section")  # type: ignore
+            append_container(list(doc.classes), "CLASS", container="section")
         data.append(f"Entities in modelspace: {len(doc.modelspace())}")
         if verbose:
             data.extend(count(doc.modelspace()))
@@ -1408,3 +1423,45 @@ def _get_unknown_entities(doc: Drawing) -> list[DXFEntity]:
         if isinstance(entity, (DXFTagStorage, ACADProxyEntity, OLE2Frame)):
             data.append(entity)
     return data
+
+
+def custom_export(doc: Drawing, tagwriter: AbstractTagWriter):
+    """Export a DXF document via a custom tag writer."""
+    dxfversion = doc.dxfversion
+    if dxfversion != DXF12:
+        tagwriter.write_handles = True
+    doc.update_all()
+    doc.export_sections(tagwriter)
+
+
+def export_json_tags(doc: Drawing, compact=True) -> str:
+    """Export a DXF document as JSON formatted tags.
+    
+    The `compact` format is a list of ``[group-code, value]`` pairs where each pair is 
+    a DXF tag. The group-code has to be an integer and the value has to be a string, 
+    integer, float or list of floats for vertices. 
+
+    The `verbose` format (`compact` is ``False``) is a list of ``[group-code, value]`` 
+    pairs where each pair is a 1:1 representation of a DXF tag. The group-code has to be 
+    an integer and the value has to be a string.
+
+    """
+    stream = io.StringIO()
+    json_writer = JSONTagWriter(stream, dxfversion=doc.dxfversion, compact=compact)
+    custom_export(doc, json_writer)
+    return stream.getvalue()
+
+
+def load_json_tags(data: Sequence[Any]) -> Drawing:
+    """Load DXF document from JSON formatted tags.
+    
+    The expected JSON format is a list of [group-code, value] pairs where each pair is 
+    a DXF tag. The `compact` and the `verbose` format is supported. 
+
+    Args:
+        data: JSON data structure as a sequence of [group-code, value] pairs
+
+    """
+    from ezdxf.lldxf.tagger import json_tag_loader
+
+    return Drawing.load(json_tag_loader(data))

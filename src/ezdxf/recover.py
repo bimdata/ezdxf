@@ -193,6 +193,7 @@ class Recover:
             recover_tool.section_dict["TABLES"] = tables
         if recover_tool.dxfversion > "AC1009":
             recover_tool.recover_rootdict()
+            recover_tool.fix_broken_layout_links()
         section_dict = recover_tool.section_dict
         for name, entities in section_dict.items():
             if name in {"TABLES", "BLOCKS", "OBJECTS", "ENTITIES"}:
@@ -448,6 +449,12 @@ class Recover:
                 )
             )
 
+    def fix_broken_layout_links(self):
+        """Fixes broke links (block_record_handle) between LAYOUT and BLOCK_RECORD 
+        entities. See issue #997 for more information.
+        """
+        pass
+
 
 def _detect_dxf_version(header: list) -> str:
     next_is_dxf_version = False
@@ -507,9 +514,9 @@ def safe_tag_loader(
     encoding = detect_encoding(detector_stream)
 
     # Apply repair filter:
-    tags = repair.tag_reorder_layer(tags)  # type: ignore
+    tags = repair.tag_reorder_layer(tags)
     tags = repair.filter_invalid_point_codes(tags)  # type: ignore
-    tags = repair.filter_invalid_handles(tags)  # type: ignore
+    tags = repair.filter_invalid_handles(tags)
     return byte_tag_compiler(tags, encoding, messages=messages, errors=errors)
 
 

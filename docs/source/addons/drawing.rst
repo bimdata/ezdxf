@@ -48,7 +48,7 @@ Common Limitations to all Backends
     - 3D entities are projected into the xy-plane and 3D text is not supported
     - only top view rendering of the modelspace
     - VIEWPORTS are always rendered as top view
-    - no visual style support
+    - no VISUALSTYLE support
 
 - only basic support for:
 
@@ -159,7 +159,6 @@ which is for some backends a requirement to place the DXF content on size limite
 
 .. autoclass:: ezdxf.addons.drawing.recorder.Override
 
-.. autoclass:: ezdxf.addons.drawing.recorder.RecordType
 
 Layout
 ------
@@ -183,6 +182,10 @@ The :class:`Layout` class uses following classes and enums for configuration:
     .. autoproperty:: is_landscape
 
     .. autoproperty:: is_portrait
+
+    .. automethod:: from_dxf_layout
+
+    .. automethod:: get_margin_rect
 
     .. automethod:: to_landscape
 
@@ -336,6 +339,21 @@ Render a paperspace layout into modelspace:
 
     output_doc.saveas("layout1_in_modelspace.dxf")
 
+GeoJSONBackend
+--------------
+
+.. versionadded:: 1.2.1
+
+.. autoclass:: ezdxf.addons.drawing.json.GeoJSONBackend
+
+CustomJSONBackend
+-----------------
+
+.. versionadded:: 1.2.1
+
+.. autoclass:: ezdxf.addons.drawing.json.CustomJSONBackend
+
+
 Configuration
 -------------
 
@@ -365,6 +383,11 @@ HatchPolicy
 -----------
 
 .. autoclass:: ezdxf.addons.drawing.config.HatchPolicy
+
+ImagePolicy
+-----------
+
+.. autoclass:: ezdxf.addons.drawing.config.ImagePolicy
 
 LinePolicy
 ----------
@@ -528,6 +551,10 @@ Frontend
     .. automethod:: skip_entity
 
     .. automethod:: override_properties
+
+    .. automethod:: push_property_override_function
+
+    .. automethod:: pop_property_override_function
 
     .. automethod:: draw_layout
 

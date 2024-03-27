@@ -1,8 +1,9 @@
-# Copyright (c) 2019-2022 Manfred Moitzi
+# Copyright (c) 2019-2024 Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
 from typing import TYPE_CHECKING, Iterable, Optional, Iterator
 import math
+import numpy as np
 
 from ezdxf.lldxf import validator
 from ezdxf.math import (
@@ -11,7 +12,6 @@ from ezdxf.math import (
     NULLVEC,
     Z_AXIS,
     arc_segment_count,
-    linspace,
 )
 from ezdxf.math.transformtools import OCSTransform, NonUniformScalingError
 from ezdxf.lldxf.attributes import (
@@ -66,7 +66,7 @@ acdb_circle = DefSubclass(
 
 acdb_circle_group_codes = group_code_mapping(acdb_circle)
 merged_circle_group_codes = merge_group_code_mappings(
-    acdb_entity_group_codes, acdb_circle_group_codes  # type: ignore
+    acdb_entity_group_codes, acdb_circle_group_codes
 )
 
 
@@ -127,7 +127,7 @@ class Circle(DXFGraphic):
         radius = abs(self.dxf.radius)
         if radius > 0.0:
             count = arc_segment_count(radius, math.tau, sagitta)
-            yield from self.vertices(linspace(0.0, 360.0, count + 1))
+            yield from self.vertices(np.linspace(0.0, 360.0, count + 1))
 
     def transform(self, m: Matrix44) -> Circle:
         """Transform the CIRCLE entity by transformation matrix `m` inplace.
@@ -163,9 +163,7 @@ class Circle(DXFGraphic):
         y-axis and `dz` in z-axis, returns `self` (floating interface).
         """
         ocs = self.ocs()
-        self.dxf.center = ocs.from_wcs(
-            Vec3(dx, dy, dz) + ocs.to_wcs(self.dxf.center)
-        )
+        self.dxf.center = ocs.from_wcs(Vec3(dx, dy, dz) + ocs.to_wcs(self.dxf.center))
         # Avoid Matrix44 instantiation if not required:
         if self.is_post_transform_required:
             self.post_transform(Matrix44.translate(dx, dy, dz))

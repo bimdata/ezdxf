@@ -62,7 +62,7 @@ def load_proxy_graphic(
         for tag in tags.pop_tags(codes=(length_code, data_code))
         if tag.code == data_code
     ]
-    return b"".join(binary_data) if len(binary_data) else None  # type: ignore
+    return b"".join(binary_data) if len(binary_data) else None
 
 
 def export_proxy_graphic(
@@ -256,6 +256,7 @@ class ProxyGraphic:
         self._buffer: bytes = data
         self._index: int = 8
         self.dxfversion = doc.dxfversion if doc else dxfversion
+        self.encoding: str = "cp1252" if self.dxfversion < const.DXF2007 else "utf-8"
         self.color: int = const.BYLAYER
         self.layer: str = "0"
         self.linetype: str = "BYLAYER"
@@ -280,6 +281,7 @@ class ProxyGraphic:
             self.textstyles = {
                 style.dxf.font: style.dxf.name for style in self._doc.styles
             }
+            self.encoding = self._doc.encoding
 
     def info(self) -> Iterable[tuple[int, int, str]]:
         index = self._index
@@ -300,8 +302,6 @@ class ProxyGraphic:
         """Implements the SupportsVirtualEntities protocol."""
         try:
             yield from self.unsafe_virtual_entities()
-        except UnicodeDecodeError:
-            pass
         except Exception as e:
             raise ProxyGraphicError(f"Proxy graphic error: {str(e)}")
 
@@ -447,10 +447,10 @@ class ProxyGraphic:
             # target OCS
             ocs = OCS(normal)
             # convert start angle == UCS x-axis to OCS
-            start_angle = ocs.from_wcs(ucs.to_wcs(X_AXIS)).angle_deg  # type: ignore
+            start_angle = ocs.from_wcs(ucs.to_wcs(X_AXIS)).angle_deg
             # convert end angle to OCS
             end_vec = Vec3.from_angle(sweep_angle)
-            end_angle = ocs.from_wcs(ucs.to_wcs(end_vec)).angle_deg  # type: ignore
+            end_angle = ocs.from_wcs(ucs.to_wcs(end_vec)).angle_deg
             # setup OCS for ARC entity
             attribs["extrusion"] = normal
             # convert WCS center to OCS center
@@ -693,10 +693,19 @@ class ProxyGraphic:
         normal = Vec3(bs.read_vertex())
         text_direction = Vec3(bs.read_vertex())
         height, width_factor, oblique_angle = bs.read_struct("<3d")
+        text = ""
         if unicode:
-            text = bs.read_padded_unicode_string()
+            try:
+                text = bs.read_padded_unicode_string()
+            except UnicodeDecodeError as e:
+                logger.debug(f"ProxyGraphic._text(unicode=True); {str(e)}")
         else:
-            text = bs.read_padded_string()
+            try:
+                text = bs.read_padded_string(self.encoding)
+            except UnicodeDecodeError as e:
+                logger.debug(
+                    f"ProxyGraphic._text(unicode=False); encoding={self.encoding}; {str(e)}"
+                )
         attribs = self._build_dxf_attribs()
         attribs["insert"] = start_point
         attribs["text"] = text
@@ -708,11 +717,17 @@ class ProxyGraphic:
         return self._factory("TEXT", dxfattribs=attribs)
 
     def text2(self, data: bytes):
+        encoding = self.encoding
         bs = ByteStream(data)
         start_point = Vec3(bs.read_vertex())
         normal = Vec3(bs.read_vertex())
         text_direction = Vec3(bs.read_vertex())
-        text = bs.read_padded_string()
+        text = ""
+        try:
+            text = bs.read_padded_string(encoding=encoding)
+        except UnicodeDecodeError as e:
+            logger.debug(f"ProxyGraphic.text2(); text; encoding={encoding}; {str(e)}")
+
         ignore_length_of_string, raw = bs.read_struct("<2l")
         (
             height,
@@ -727,8 +742,16 @@ class ProxyGraphic:
             is_underline,
             is_overline,
         ) = bs.read_struct("<5L")
-        font_filename = bs.read_padded_string()
-        big_font_filename = bs.read_padded_string()
+        font_filename: str = "TXT.SHX"
+        big_font_filename: str = ""
+        try:
+            font_filename = bs.read_padded_string(encoding=encoding)
+            big_font_filename = bs.read_padded_string(encoding=encoding)
+        except UnicodeDecodeError as e:
+            logger.debug(
+                f"ProxyGraphic.text2(); fonts; encoding='{encoding}'; {str(e)}"
+            )
+
         attribs = self._build_dxf_attribs()
         attribs["insert"] = start_point
         attribs["text"] = text
@@ -746,7 +769,12 @@ class ProxyGraphic:
         start_point = Vec3(bs.read_vertex())
         normal = Vec3(bs.read_vertex())
         text_direction = Vec3(bs.read_vertex())
-        text = bs.read_padded_unicode_string()
+        text = ""
+        try:
+            text = bs.read_padded_unicode_string()
+        except UnicodeDecodeError as e:
+            logger.debug(f"ProxyGraphic.unicode_text2(); text; {str(e)}")
+
         ignore_length_of_string, ignore_raw = bs.read_struct("<2l")
         (
             height,
@@ -762,9 +790,17 @@ class ProxyGraphic:
             is_overline,
         ) = bs.read_struct("<5L")
         is_bold, is_italic, charset, pitch = bs.read_struct("<4L")
-        type_face = bs.read_padded_unicode_string()
-        font_filename = bs.read_padded_unicode_string()
-        big_font_filename = bs.read_padded_unicode_string()
+
+        type_face: str = ""
+        font_filename: str = "TXT.SHX"
+        big_font_filename: str = ""
+        try:
+            type_face = bs.read_padded_unicode_string()
+            font_filename = bs.read_padded_unicode_string()
+            big_font_filename = bs.read_padded_unicode_string()
+        except UnicodeDecodeError as e:
+            logger.debug(f"ProxyGraphic.unicode_text2(); fonts; {str(e)}")
+
         attribs = self._build_dxf_attribs()
         attribs["insert"] = start_point
         attribs["text"] = text
@@ -807,7 +843,7 @@ class ProxyGraphic:
         return style
 
     @staticmethod
-    def _load_vertices(data: bytes, load_normal=False) -> tuple[list[Vec3], bool]:
+    def _load_vertices(data: bytes, load_normal=False) -> tuple[list[Vec3], Vec3]:
         normal = Z_AXIS
         bs = ByteStream(data)
         count = bs.read_long()

@@ -26,11 +26,12 @@ Utility Functions
     ellipse_param_span
     has_matrix_2d_stretching
     has_matrix_3d_stretching
-    linspace
     open_uniform_knot_vector
     required_knot_values
     uniform_knot_vector
     xround
+    gps_to_world_mercator
+    world_mercator_to_gps
 
 .. autofunction:: closest_point
 
@@ -41,8 +42,6 @@ Utility Functions
 .. autofunction:: required_knot_values
 
 .. autofunction:: xround
-
-.. autofunction:: linspace
 
 .. autofunction:: area
 
@@ -59,6 +58,10 @@ Utility Functions
 .. autofunction:: has_matrix_2d_stretching
 
 .. autofunction:: has_matrix_3d_stretching
+
+.. autofunction:: gps_to_world_mercator
+
+.. autofunction:: world_mercator_to_gps
 
 .. _bulge_related_functions:
 
@@ -104,6 +107,7 @@ Bulge Related Functions
     distance_point_line_2d
     intersect_polylines_2d
     intersection_line_line_2d
+    is_axes_aligned_rectangle_2d
     is_convex_polygon_2d
     is_point_in_polygon_2d
     is_point_left_of_line
@@ -120,6 +124,8 @@ Bulge Related Functions
 .. autofunction:: intersect_polylines_2d
 
 .. autofunction:: intersection_line_line_2d
+
+.. autofunction:: is_axes_aligned_rectangle_2d
 
 .. autofunction:: is_convex_polygon_2d
 
@@ -1074,7 +1080,6 @@ Curves
     Bezier
     Bezier3P
     Bezier4P
-    BezierSurface
     EulerSpiral
 
 BSpline
@@ -1217,19 +1222,6 @@ ApproxParamT
     .. automethod:: param_t
 
     .. automethod:: distance
-
-BezierSurface
--------------
-
-.. autoclass:: BezierSurface
-
-    .. autoattribute:: nrows
-
-    .. autoattribute:: ncols
-
-    .. automethod:: point
-
-    .. automethod:: approximate
 
 
 EulerSpiral

@@ -1,9 +1,11 @@
-# Copyright (c) 2010-2022 Manfred Moitzi
+# Copyright (c) 2010-2024 Manfred Moitzi
 # License: MIT License
 from __future__ import annotations
 from typing import Sequence, Iterator, Iterable
 import math
-from ezdxf.math import Vec2, linspace, UVec
+import numpy as np
+
+from ezdxf.math import Vec2, UVec
 from .line import ConstructionRay, ConstructionLine
 from .bbox import BoundingBox2d
 
@@ -35,7 +37,7 @@ class ConstructionCircle:
         return f"ConstructionCircle({self.center}, {self.radius})"
 
     @staticmethod
-    def from_3p(p1: UVec, p2: UVec, p3: UVec) -> "ConstructionCircle":
+    def from_3p(p1: UVec, p2: UVec, p3: UVec) -> ConstructionCircle:
         """Creates a circle from three points, all points have to be compatible
         to :class:`Vec2` class.
         """
@@ -50,7 +52,7 @@ class ConstructionCircle:
         return ConstructionCircle(center, center.distance(_p1))
 
     @property
-    def bounding_box(self) -> "BoundingBox2d":
+    def bounding_box(self) -> BoundingBox2d:
         """2D bounding box of circle as  :class:`BoundingBox2d` object."""
         rvec = Vec2((self.radius, self.radius))
         return BoundingBox2d((self.center - rvec, self.center + rvec))
@@ -97,7 +99,7 @@ class ConstructionCircle:
         from .arc import arc_segment_count
 
         count = arc_segment_count(self.radius, math.tau, sagitta)
-        yield from self.vertices(linspace(0.0, math.tau, count + 1))
+        yield from self.vertices(np.linspace(0.0, math.tau, count + 1))
 
     def inside(self, point: UVec) -> bool:
         """Returns ``True`` if `point` is inside circle."""
@@ -227,10 +229,12 @@ class ConstructionCircle:
         if d_min <= d <= d_max:
             angle = (other.center - self.center).angle
             # Circles touches at one point:
-            if math.isclose(d, d_max, abs_tol=abs_tol) or math.isclose(
-                d, d_min, abs_tol=abs_tol
-            ):
+            if math.isclose(d, d_max, abs_tol=abs_tol):
                 return (self.point_at(angle),)
+            if math.isclose(d, d_min, abs_tol=abs_tol):
+                if r1 >= r2:
+                    return (self.point_at(angle),)
+                return (self.point_at(angle + math.pi),)
             else:  # Circles intersect in two points:
                 # Law of Cosines:
                 alpha = math.acos((r2 * r2 - r1 * r1 - d * d) / (-2.0 * r1 * d))

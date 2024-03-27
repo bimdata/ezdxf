@@ -16,7 +16,7 @@ Quick-Info
   existing DXF documents
 - MIT-License
 - the intended audience are programmers
-- requires at least Python 3.8
+- requires at least Python 3.9
 - OS independent
 - tested with CPython and pypy3
 - has type annotations and passes ``mypy --ignore-missing-imports -p ezdxf`` successful
@@ -126,16 +126,14 @@ Contents
    setup
    usage_for_beginners
    concepts/index
-   tutorials/index
+   tasks/index
    xref
-   howto/index
-   faq
+   addons/index
    reference
    launcher
-   render/index
-   addons/index
-   dxfinternals/index
-   develop/index
+   tutorials/index
+   howto/index
+   faq
    glossary
    knowledgegraph
 

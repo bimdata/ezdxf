@@ -428,7 +428,7 @@ class DXFEntity:
         """
         blockref = getattr(self, DYN_SOURCE_BLOCK_REFERENCE_ATTRIBUTE, None)
         if blockref is not None and blockref.is_alive:
-            return blockref  # type: ignore
+            return blockref
         return None
 
     def set_source_block_reference(self, blockref: Insert) -> None:
@@ -664,11 +664,11 @@ class DXFEntity:
         if tagwriter.dxfversion >= const.DXF2000:
             tagwriter.write_tag2(_handle_code, self.dxf.handle)
             if self.appdata:
-                self.appdata.export_dxf(tagwriter)  # type: ignore
+                self.appdata.export_dxf(tagwriter)
             if self.has_extension_dict:
                 self.extension_dict.export_dxf(tagwriter)  # type: ignore
             if self.reactors:
-                self.reactors.export_dxf(tagwriter)  # type: ignore
+                self.reactors.export_dxf(tagwriter)
             tagwriter.write_tag2(const.OWNER_CODE, self.dxf.owner)
         else:  # DXF R12
             if tagwriter.write_handles:
@@ -728,17 +728,25 @@ class DXFEntity:
             raise AttributeError("Entity has no extension dictionary.")
 
     def new_extension_dict(self) -> ExtensionDict:
-        """Create a new :class:`~ezdxf.entities.xdict.ExtensionDict` instance ."""
+        """Create a new :class:`~ezdxf.entities.xdict.ExtensionDict` instance."""
         assert self.doc is not None
         xdict = ExtensionDict.new(self.dxf.handle, self.doc)
         self.extension_dict = xdict
         return xdict
 
     def discard_extension_dict(self) -> None:
-        """Delete :class:`~ezdxf.entities.xdict.ExtensionDict` instance ."""
+        """Delete :class:`~ezdxf.entities.xdict.ExtensionDict` instance."""
         if isinstance(self.extension_dict, ExtensionDict):
             self.extension_dict.destroy()
         self.extension_dict = None
+
+    def discard_empty_extension_dict(self) -> None:
+        """Delete :class:`~ezdxf.entities.xdict.ExtensionDict` instance when empty."""
+        if (
+            isinstance(self.extension_dict, ExtensionDict)
+            and len(self.extension_dict) == 0
+        ):
+            self.discard_extension_dict()
 
     def has_app_data(self, appid: str) -> bool:
         """Returns ``True`` if application defined data for `appid` exist."""
