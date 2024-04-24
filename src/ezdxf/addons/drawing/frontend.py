@@ -134,19 +134,22 @@ def make_holes_in_polygons(external_paths, holes):
     for external_path_idx, path_holes in holes_by_polygons.items():
         external_path = external_paths[external_path_idx]
         for path_hole in path_holes:
-            output_idx = closest_node(
-                path_hole._vertices[0].xyz[:2],
-                [
-                    (vertice.x, vertice.y)
-                    for vertice in external_path.control_vertices()
-                ],
-            )
+            try:
+                output_idx = closest_node(
+                    path_hole._vertices[0].xyz[:2],
+                    [
+                        (vertice.x, vertice.y)
+                        for vertice in external_path.control_vertices()
+                    ],
+                )
 
-            external_path = ezdxf.path.from_vertices(
-                external_path._vertices[: output_idx + 1]
-                + path_hole._vertices
-                + external_path._vertices[output_idx:]
-            )
+                external_path = ezdxf.path.from_vertices(
+                    external_path._vertices[: output_idx + 1]
+                    + path_hole._vertices
+                    + external_path._vertices[output_idx:]
+                )
+            except TypeError:
+                pass
 
     return external_paths, []
 
@@ -177,6 +180,7 @@ def closest_node(input_node, nodes):
     """
 
     dist = 1e100
+    out_idx = None
     for node_idx, node in enumerate(nodes):
         if distance(input_node, node) <= dist:
             dist = distance(input_node, node)
