@@ -81,9 +81,15 @@ def get_gid(entity: Optional[DXFGraphic]) -> str:
     if entity is None:
         return ""
 
+    # BIMDATA suffix for line entities
+    if entity.DXFTYPE in ["LINE", "XLINE", "RAY", "POLYLINE", "LWPOLYLINE"]:
+        line_suffix = "." + entity.dxf.linetype.lower()
+    else:
+        line_suffix = ""
+
     handle = entity.dxf.handle
     if handle is not None:
-        return handle
+        return handle + line_suffix
 
     # BIMDATA suffix for sub-hatch
     try:
@@ -121,7 +127,7 @@ def get_gid(entity: Optional[DXFGraphic]) -> str:
         # virtual entity without a handle or handle is None
         handle = ""
 
-    return handle + suffix + hatch_reference
+    return handle + suffix + hatch_reference + line_suffix
 
 
 def is_dark_color(color: Color, dark: float = 0.2) -> bool:
