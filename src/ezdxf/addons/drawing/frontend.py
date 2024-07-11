@@ -276,7 +276,8 @@ class UniversalFrontend:
             # "MTEXT": self.draw_mtext_entity,
             "MTEXT": self.skip_entities_bimdata,
             "OLE2FRAME": self.draw_ole2frame_entity,
-            "IMAGE": self.draw_image_entity,
+            # "IMAGE": self.draw_image_entity,
+            "IMAGE": self.skip_entities_bimdata,
         }
         for dxftype in ("LINE", "XLINE", "RAY"):
             dispatch_table[dxftype] = self.draw_line_entity
