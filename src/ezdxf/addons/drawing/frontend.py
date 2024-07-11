@@ -1062,7 +1062,10 @@ class UniversalFrontend:
                         boundary_path.inner_polygon(),
                         outer_bounds=boundary_path.outer_bounds(),
                     )
-                self.pipeline.push_clipping_shape(clipping_shape, None)
+                try:
+                    self.pipeline.push_clipping_shape(clipping_shape, None)
+                except AttributeError:
+                    pass  # BIMDATA - 'Designer2d' object has no attribute 'push_clipping_shape'
 
             # draw_entities() includes the visibility check:
             self.draw_entities(
