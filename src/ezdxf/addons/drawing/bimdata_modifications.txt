@@ -97,7 +97,6 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
 
 
 
-
 ██████╗ ██╗██████╗ ███████╗██╗     ██╗███╗   ██╗███████╗
 ██╔══██╗██║██╔══██╗██╔════╝██║     ██║████╗  ██║██╔════╝
 ██████╔╝██║██████╔╝█████╗  ██║     ██║██╔██╗ ██║█████╗  
@@ -111,9 +110,14 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
                                                         
 
 
-
-
-
+ █████╗ ██╗   ██╗████████╗██████╗ ███████╗        ██╗    ███╗   ██╗ ██████╗ ████████╗███████╗███████╗
+██╔══██╗██║   ██║╚══██╔══╝██╔══██╗██╔════╝       ██╔╝    ████╗  ██║██╔═══██╗╚══██╔══╝██╔════╝██╔════╝
+███████║██║   ██║   ██║   ██████╔╝█████╗        ██╔╝     ██╔██╗ ██║██║   ██║   ██║   █████╗  ███████╗
+██╔══██║██║   ██║   ██║   ██╔══██╗██╔══╝       ██╔╝      ██║╚██╗██║██║   ██║   ██║   ██╔══╝  ╚════██║
+██║  ██║╚██████╔╝   ██║   ██║  ██║███████╗    ██╔╝       ██║ ╚████║╚██████╔╝   ██║   ███████╗███████║
+╚═╝  ╚═╝ ╚═════╝    ╚═╝   ╚═╝  ╚═╝╚══════╝    ╚═╝        ╚═╝  ╚═══╝ ╚═════╝    ╚═╝   ╚══════╝╚══════╝
+                                                                                                     
+- On retrouve dans les propriétés des objects (dans le process de addons.drawing) une variable "handle" : serait-il possible de l'utiliser pour être davantage proche du code source de ezdxf ? 
 
 
 
