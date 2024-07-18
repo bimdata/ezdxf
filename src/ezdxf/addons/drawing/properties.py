@@ -77,6 +77,59 @@ logger = logging.getLogger("ezdxf")
 CTB: TypeAlias = acadctb.ColorDependentPlotStyles
 
 
+def get_gid(entity: Optional[DXFGraphic]) -> str:
+    if entity is None:
+        return ""
+
+    # BIMDATA suffix for line entities
+    if entity.DXFTYPE in ["LINE", "XLINE", "RAY", "POLYLINE", "LWPOLYLINE"]:
+        line_suffix = "." + entity.dxf.linetype.lower()
+    else:
+        line_suffix = ""
+
+    handle = entity.dxf.handle
+    if handle is not None:
+        return handle + line_suffix
+
+    # BIMDATA suffix for sub-hatch
+    try:
+        if entity.DXFTYPE == "HATCH":
+            if entity.origin_of_copy.DXFTYPE == "HATCH":
+                hatch_reference = f"@{entity.origin_of_copy.dxf.handle}"
+            else:
+                hatch_reference = ""
+        else:
+            hatch_reference = ""
+    except AttributeError:
+        return ""
+
+    # entity has no handle
+    suffix = ""
+    if entity.has_source_block_reference:
+        if not entity.source_block_reference.is_virtual:
+            suffix += "_" + entity.uuid.hex
+            entity = entity.source_block_reference
+        else:
+            while entity.has_source_block_reference:
+                suffix += "_" + entity.uuid.hex
+                entity = entity.source_block_reference
+
+    assert entity is not None, "this should not happen"
+
+    # handle is None
+    if entity.is_copy:
+        entity = entity.origin_of_copy
+
+    if entity is not None:  # doesn't have to have an origin -> virtual entity
+        handle = entity.dxf.handle
+
+    if handle is None:
+        # virtual entity without a handle or handle is None
+        handle = ""
+
+    return handle + suffix + hatch_reference + line_suffix
+
+
 def is_dark_color(color: Color, dark: float = 0.2) -> bool:
     return RGB.from_hex(color).luminance <= dark
 
@@ -180,6 +233,7 @@ class BackendProperties(NamedTuple):
     layer: str = "0"  # maybe useful to group entities (SVG, PDF)
     pen: int = 1  # equals the ACI (1-255), for pen based backends like plotters
     handle: str = ""  # top level entity handle
+    output_id: str = ""  # Bimdata formated handle
 
     @property
     def rgb(self) -> RGB:
@@ -302,16 +356,16 @@ LayerPropsOverride = Callable[[Sequence[LayerProperties]], None]
 
 
 class RenderContext:
-    """The render context for the given DXF document. The :class:`RenderContext` 
-    resolves the properties of DXF entities from the context they reside in to actual 
+    """The render context for the given DXF document. The :class:`RenderContext`
+    resolves the properties of DXF entities from the context they reside in to actual
     values like RGB colors, transparency, linewidth and so on.
 
-    A given `ctb` file (plot style file) overrides the default properties for all 
+    A given `ctb` file (plot style file) overrides the default properties for all
     layouts, which means the plot style table stored in the layout is always ignored.
 
     Args:
         doc: DXF document
-        ctb: path to a plot style table or a :class:`~ezdxf.addons.acadctb.ColorDependentPlotStyles` 
+        ctb: path to a plot style table or a :class:`~ezdxf.addons.acadctb.ColorDependentPlotStyles`
             instance
         export_mode: Whether to render the document as it would look when
             exported (plotted) by a CAD application to a file such as pdf,
@@ -389,10 +443,10 @@ class RenderContext:
 
     def set_current_layout(self, layout: Layout, ctb: str | CTB = ""):
         """Set the current layout and update layout specific properties.
-        
+
         Args:
             layout: modelspace or a paperspace layout
-            ctb: path to a plot style table or a :class:`~ezdxf.addons.acadctb.ColorDependentPlotStyles` 
+            ctb: path to a plot style table or a :class:`~ezdxf.addons.acadctb.ColorDependentPlotStyles`
                 instance
 
         """
@@ -405,7 +459,9 @@ class RenderContext:
                 # last is the ctb stored in the layout
                 ctb = layout.get_plot_style_filename()
         elif not isinstance(ctb, CTB):
-            raise TypeError(f"expected argument ctb of type str or {CTB.__name__}, got {type(ctb)}")
+            raise TypeError(
+                f"expected argument ctb of type str or {CTB.__name__}, got {type(ctb)}"
+            )
         self.current_layout_properties = LayoutProperties.from_layout(layout)
         self.plot_styles = self._load_plot_style_table(ctb)
         self.layers = dict()
@@ -614,6 +670,7 @@ class RenderContext:
             p.font = self.resolve_font(entity)
         if isinstance(entity, DXFPolygon):
             p.filling = self.resolve_filling(entity)
+        p.output_id = get_gid(entity)
         return p
 
     def resolve_units(self) -> InsertUnits:

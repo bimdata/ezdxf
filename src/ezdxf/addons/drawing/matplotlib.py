@@ -97,6 +97,7 @@ class MatplotlibBackend(Backend):
             s=SCATTER_POINT_SIZE,
             c=color,
             zorder=self._get_z(),
+            gid=properties.output_id,
         )
 
     def get_lineweight(self, properties: BackendProperties) -> float:
@@ -122,6 +123,7 @@ class MatplotlibBackend(Backend):
                     linewidth=self.get_lineweight(properties),
                     color=properties.color,
                     zorder=self._get_z(),
+                    gid=properties.output_id,
                 )
             )
 
@@ -144,7 +146,7 @@ class MatplotlibBackend(Backend):
             else:
                 _lines.append(((s.x, s.y), (e.x, e.y)))
 
-        self.ax.scatter(point_x, point_y, s=SCATTER_POINT_SIZE, c=color, zorder=z)
+        # self.ax.scatter(point_x, point_y, s=SCATTER_POINT_SIZE, c=color, zorder=z)
         self.ax.add_collection(
             LineCollection(
                 _lines,
@@ -152,6 +154,7 @@ class MatplotlibBackend(Backend):
                 color=color,
                 zorder=z,
                 capstyle="butt",
+                gid=properties.output_id,
             )
         )
 
@@ -159,7 +162,7 @@ class MatplotlibBackend(Backend):
         """Draw a solid line path, line type rendering is done by the
         frontend since v0.18.1
         """
-        
+
         mpl_path = to_matplotlib_path([path])
         try:
             patch = PathPatch(
@@ -168,6 +171,8 @@ class MatplotlibBackend(Backend):
                 fill=False,
                 color=properties.color,
                 zorder=self._get_z(),
+                gid=properties.output_id,
+                hatch=getattr(properties, "hatch_type", None),
             )
         except ValueError as e:
             logger.info(f"ignored matplotlib error: {str(e)}")
@@ -186,6 +191,7 @@ class MatplotlibBackend(Backend):
                 linewidth=linewidth,
                 fill=True,
                 zorder=self._get_z(),
+                gid=properties.output_id,
             )
         except ValueError as e:
             logger.info(f"ignored matplotlib error in draw_filled_paths(): {str(e)}")
@@ -198,11 +204,10 @@ class MatplotlibBackend(Backend):
             color=properties.color,
             linewidth=0,
             zorder=self._get_z(),
+            gid=properties.output_id,
         )
 
-    def draw_image(
-        self, image_data: ImageData, properties: BackendProperties
-    ) -> None:
+    def draw_image(self, image_data: ImageData, properties: BackendProperties) -> None:
         height, width, depth = image_data.image.shape
         assert depth == 4
 
@@ -290,6 +295,7 @@ def qsave(
     config: Optional[Configuration] = None,
     filter_func: Optional[FilterFunc] = None,
     size_inches: Optional[tuple[float, float]] = None,
+    margins=True,
 ) -> None:
     """Quick and simplified render export by matplotlib.
 
@@ -336,6 +342,8 @@ def qsave(
     try:
         fig: plt.Figure = plt.figure(dpi=dpi)
         ax: plt.Axes = fig.add_axes((0, 0, 1, 1))
+        if not margins:
+            ax.margins(0)  # BIMDATA add
         ctx = RenderContext(layout.doc)
         layout_properties = LayoutProperties.from_layout(layout)
         if bg is not None:

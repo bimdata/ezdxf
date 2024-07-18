@@ -93,6 +93,14 @@ from .type_hints import Color
 if TYPE_CHECKING:
     from .pipeline import AbstractPipeline
 
+# For BIMData use
+import numpy as np
+from ezdxf.math import is_point_in_polygon_2d
+from ezdxf.path import winding_deconstruction
+from ezdxf.path import make_polygon_structure
+import itertools
+
+
 __all__ = ["Frontend", "UniversalFrontend"]
 
 TEntityFunc: TypeAlias = Callable[[DXFGraphic, Properties], None]
@@ -102,6 +110,87 @@ POST_ISSUE_MSG = (
     "Please post sample DXF file at https://github.com/mozman/ezdxf/issues."
 )
 logger = logging.getLogger("ezdxf")
+
+
+# --------------- BIMDATA fix - remove holes from Hatch entitiy ---------------
+def make_holes_in_polygons(external_paths, holes):
+    """
+    Create polygons without holes by incorporating holes into polygon geometry
+
+    :param external_paths: (list) external paths from Hatch entity
+    :param holes: (list) holes from hatch entity
+    """
+
+    # Distribution of holes by external_path
+    center_holes = [hole.bbox().center for hole in holes]
+    polygons_bbox = [external_poly.bbox() for external_poly in external_paths]
+    holes_by_polygons = {i: [] for i in range(0, len(polygons_bbox))}
+    for hole_idx, center_hole in enumerate(center_holes):
+        for external_path_idx, polygon_bbox in enumerate(polygons_bbox):
+            if polygon_bbox.inside(center_hole):
+                holes_by_polygons[external_path_idx].append(holes[hole_idx])
+                break
+
+    # making incisions from holes to create holes without having any
+    for external_path_idx, path_holes in holes_by_polygons.items():
+        external_path = external_paths[external_path_idx]
+        for path_hole in path_holes:
+            try:
+                output_idx = closest_node(
+                    path_hole._vertices[0].xyz[:2],
+                    [
+                        (vertice.x, vertice.y)
+                        for vertice in external_path.control_vertices()
+                    ],
+                )
+
+                external_path = ezdxf.path.from_vertices(
+                    external_path._vertices[: output_idx + 1]
+                    + path_hole._vertices
+                    + external_path._vertices[output_idx:]
+                )
+            except TypeError:
+                pass
+
+    return external_paths, []
+
+
+def distance(xy_1, xy_2):
+    """
+    calculating the distance between two points
+
+    :param xy_1: (tuple) first point coordinate (xy)
+    :param xy_2: (tuple) second point coordinate (xy)
+
+    :return: (float) distance beetween xy_1 & xy_2
+    """
+
+    pt_1 = np.array((xy_1[0], xy_1[1]))
+    pt_2 = np.array((xy_2[0], xy_2[1]))
+    return np.linalg.norm(pt_1 - pt_2)
+
+
+def closest_node(input_node, nodes):
+    """
+    Finding the nearest point
+
+    :param input_node: (list) xy coordinates to test
+    :param nodes: (tuple) XY point of origin
+
+    :return out_idx: (int) nearest node index
+    """
+
+    dist = 1e100
+    out_idx = None
+    for node_idx, node in enumerate(nodes):
+        if distance(input_node, node) <= dist:
+            dist = distance(input_node, node)
+            out_idx = node_idx
+
+    return out_idx
+
+
+# --------------- END - BIMDATA fix - remove holes from Hatch entitiy ---------------
 
 
 class UniversalFrontend:
@@ -133,7 +222,7 @@ class UniversalFrontend:
         # RenderContext contains all information to resolve resources for a
         # specific DXF document.
         self.ctx = ctx
-        
+
         # the render pipeline is the connection between frontend and backend
         self.pipeline = pipeline
         pipeline.set_draw_entities_callback(self.draw_entities_callback)
@@ -177,20 +266,27 @@ class UniversalFrontend:
     def text_engine(self):
         return self.pipeline.text_engine
 
+    def skip_entities_bimdata(self, entity: DXFGraphic, properties: Properties):
+        self.skip_entity(entity, "BIMData - Disable entity type conversion")
+
     def _build_dispatch_table(self) -> TDispatchTable:
         dispatch_table: TDispatchTable = {
-            "POINT": self.draw_point_entity,
+            # "POINT": self.draw_point_entity,
+            "POINT": self.skip_entities_bimdata,
             "HATCH": self.draw_hatch_entity,
             "MPOLYGON": self.draw_mpolygon_entity,
             "MESH": self.draw_mesh_entity,
             "WIPEOUT": self.draw_wipeout_entity,
-            "MTEXT": self.draw_mtext_entity,
+            # "MTEXT": self.draw_mtext_entity,
+            "MTEXT": self.skip_entities_bimdata,
             "OLE2FRAME": self.draw_ole2frame_entity,
+            # "IMAGE": self.draw_image_entity,
             "IMAGE": self.draw_image_entity,
         }
         for dxftype in ("LINE", "XLINE", "RAY"):
             dispatch_table[dxftype] = self.draw_line_entity
         for dxftype in ("TEXT", "ATTRIB", "ATTDEF"):
+            # dispatch_table[dxftype] = self.draw_text_entity
             dispatch_table[dxftype] = self.draw_text_entity
         for dxftype in ("CIRCLE", "ARC", "ELLIPSE", "SPLINE"):
             dispatch_table[dxftype] = self.draw_curve_entity
@@ -227,8 +323,8 @@ class UniversalFrontend:
 
         .. versionchanged:: 1.3.0
 
-            This method is the first function in the stack of new property override 
-            functions.  It is possible to push additional override functions onto this 
+            This method is the first function in the stack of new property override
+            functions.  It is possible to push additional override functions onto this
             stack, see also :meth:`push_property_override_function`.
 
         """
@@ -241,7 +337,7 @@ class UniversalFrontend:
         function, because the DXF entities are not copies - except for virtual entities.
 
         The override functions are called after resolving the DXF attributes of an entity
-        and before the :meth:`Frontend.draw_entity` method in the order from first to 
+        and before the :meth:`Frontend.draw_entity` method in the order from first to
         last.
 
         .. versionadded:: 1.3.0
@@ -291,6 +387,8 @@ class UniversalFrontend:
             self.ctx.current_layout_properties = layout_properties
         else:
             self.ctx.set_current_layout(layout)
+
+        self.linear_precision = layout.doc.header.get("$LUPREC")  # BIMDATA add
         # set background before drawing entities
         self.set_background(self.ctx.current_layout_properties.background_color)
         self.parent_stack = []
@@ -364,7 +462,10 @@ class UniversalFrontend:
         ):
             self.draw_proxy_graphic(entity.proxy_graphic, entity.doc)
         else:
-            draw_method = self._dispatch.get(entity.dxftype(), None)
+            try:
+                draw_method = self._dispatch.get(entity.dxftype(), None)
+            except TypeError as e:
+                self.skip_entity(entity, e)  # BIMDATA ADD
             if draw_method is not None:
                 draw_method(entity, properties)
             # Composite entities (INSERT, DIMENSION, ...) have to implement the
@@ -393,7 +494,11 @@ class UniversalFrontend:
     def draw_line_entity(self, entity: DXFGraphic, properties: Properties) -> None:
         d, dxftype = entity.dxf, entity.dxftype()
         if dxftype == "LINE":
-            self.pipeline.draw_line(d.start, d.end, properties)
+            line_prec = self.linear_precision if self.linear_precision else 10
+            if d.start.round(line_prec) != d.end.round(line_prec):
+                self.pipeline.draw_line(d.start, d.end, properties)
+            else:
+                self.skip_entity(entity, "invalid line's coordinates")
 
         elif dxftype in ("XLINE", "RAY"):
             start = d.start
@@ -469,8 +574,16 @@ class UniversalFrontend:
     def draw_curve_entity(self, entity: DXFGraphic, properties: Properties) -> None:
         try:
             path = make_path(entity)
-        except AttributeError:  # API usage error
+            # BugFix #175 : ignore conversion if arc havn't curve
+            if entity.dxftype() == "ARC":
+                if not path.has_curves:
+                    return
+        except AttributeError:  # API usage TypeError
             raise TypeError(f"Unsupported DXF type {entity.dxftype()}")
+        except ZeroDivisionError as e:
+            # BIMDATA - Curve geometries can be broken
+            self.skip_entity(entity, e)
+            return
         self.pipeline.draw_path(path, properties)
 
     def draw_point_entity(self, entity: DXFGraphic, properties: Properties) -> None:
@@ -917,6 +1030,8 @@ class UniversalFrontend:
             except ProxyGraphicError as e:
                 print(str(e))
                 print(POST_ISSUE_MSG)
+            except ZeroDivisionError:  # Bimdata - Bugfix 219
+                self.skip_entity(entity, "ZeroDivisionError")
         else:
             raise TypeError(entity.dxftype())
 
@@ -1018,8 +1133,12 @@ def _draw_entities(
             else:
                 frontend.skip_entity(entity, "Cannot parse DXF entity")
                 continue
-        properties = ctx.resolve_all(entity)
-        frontend.exec_property_override(entity, properties)
+        try:
+            properties = ctx.resolve_all(entity)
+            frontend.exec_property_override(entity, properties)
+        except ZeroDivisionError:  # BIMData Add
+            frontend.skip_entity(entity, "ZeroDivisionError")
+
         if properties.is_visible:
             frontend.draw_entity(entity, properties)
         else:
