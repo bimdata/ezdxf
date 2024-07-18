@@ -287,7 +287,7 @@ class UniversalFrontend:
             dispatch_table[dxftype] = self.draw_line_entity
         for dxftype in ("TEXT", "ATTRIB", "ATTDEF"):
             # dispatch_table[dxftype] = self.draw_text_entity
-            dispatch_table[dxftype] = self.draw_text_entity
+            dispatch_table[dxftype] = self.skip_entities_bimdata
         for dxftype in ("CIRCLE", "ARC", "ELLIPSE", "SPLINE"):
             dispatch_table[dxftype] = self.draw_curve_entity
         for dxftype in ("3DFACE", "SOLID", "TRACE"):
