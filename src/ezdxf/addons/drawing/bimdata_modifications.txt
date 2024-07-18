@@ -1,0 +1,106 @@
+
+Fichier regroupant les différences entre la branch Master de ezdxf et notre fork 
+
+ ██████╗██╗     ██╗██████╗ ██████╗ ███████╗██████╗ 
+██╔════╝██║     ██║██╔══██╗██╔══██╗██╔════╝██╔══██╗
+██║     ██║     ██║██████╔╝██████╔╝█████╗  ██████╔╝
+██║     ██║     ██║██╔═══╝ ██╔═══╝ ██╔══╝  ██╔══██╗
+╚██████╗███████╗██║██║     ██║     ███████╗██║  ██║
+ ╚═════╝╚══════╝╚═╝╚═╝     ╚═╝     ╚══════╝╚═╝  ╚═╝
+                                                   
+- src/ezdxf/addons/drawing/clipper.py :
+    Fichier ayant été supprimer de master : nous avons conserver les méthodes de ce dernier pour pouvoir identifier les trous dans les polygons : nous ne sommes pas capable aujourd'hui de gérer ces géométries dans notre viewer
+
+
+
+███████╗██████╗  ██████╗ ███╗   ██╗████████╗███████╗███╗   ██╗██████╗ 
+██╔════╝██╔══██╗██╔═══██╗████╗  ██║╚══██╔══╝██╔════╝████╗  ██║██╔══██╗
+█████╗  ██████╔╝██║   ██║██╔██╗ ██║   ██║   █████╗  ██╔██╗ ██║██║  ██║
+██╔══╝  ██╔══██╗██║   ██║██║╚██╗██║   ██║   ██╔══╝  ██║╚██╗██║██║  ██║
+██║     ██║  ██║╚██████╔╝██║ ╚████║   ██║   ███████╗██║ ╚████║██████╔╝
+╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚═╝  ╚═══╝╚═════╝ 
+
+- scr/ezdxf/addons/drawing/frontend.py :
+
+    - import de librairies supplémentaires : ces dernière sont précédées du commentaire "# For BIMData use"
+
+    - Rajout de plusieurs méthodes pour gerer le cas des géométries a trous. Dans la mesure ou nous nes sommes pas capable d'afficheir ces géométries correctement sur la plateforme, un correctif (discutable) est présent. 
+        - L'ensemble des méthodes utilisées sont précéder du commentaire  "--------------- BIMDATA fix - remove holes from Hatch entitiy ---------------""
+
+    - Ajout de la méthode UniversalFrontend.skip_entities_bimdata()
+
+    - Modification la méthode UniversalFrontend._build_dispatch_table() :
+        - remplacement de la valeur de POINT par self.skip_entities_bimdata
+        - remplacement de la valeur de MTEXT par self.skip_entities_bimdata
+        - remplacement de la valeur de IMAGE par self.skip_entities_bimdata
+        - remplacement de la méthode utilisé pour les ("TEXT", "ATTRIB", "ATTDEF") par self.skip_entities_bimdata
+
+    - Modification de la methode UniversalFrontend.draw_layout() :
+        - Rajout d'une ligne pour récupérer la linear_precision despuis le header du fichier DWG
+
+    - Gestion d'exeption dans la méthode UniversalFrontend.draw_entity() :
+        - skip la conversion de l'entité en cours si une exeption de type TypeError est levée
+
+    - Gestion d'exeption dans la méthode UniversalFrontend.draw_line_entity():
+        - Récupération / calcul de la variable line_prec
+        - skip la conversion si les coordonnées de la ligne sont trop petite
+
+    - Gestion d'erreur dans UniversalFrontend.draw_curve_entity():
+        - cf bugfix_175 : https://bimdata.backlog.com/view/BUFIXMANAGMENT-175
+        - Gestion des exeption de type ZeroDivisionError
+
+    - Gestion d'erreur dans la méthode UniversalFrontend.draw_composite_entity()
+        - cf bugfix 219 : https://bimdata.backlog.com/view/BUFIXMANAGMENT-219
+
+    - Gestion d'erreur dans la méthode _draw_entities():
+        - gestion des exeptions de type ZeroDivisionError
+
+
+███╗   ███╗ █████╗ ████████╗██████╗ ██╗      ██████╗ ████████╗██╗     ██╗██████╗ 
+████╗ ████║██╔══██╗╚══██╔══╝██╔══██╗██║     ██╔═══██╗╚══██╔══╝██║     ██║██╔══██╗
+██╔████╔██║███████║   ██║   ██████╔╝██║     ██║   ██║   ██║   ██║     ██║██████╔╝
+██║╚██╔╝██║██╔══██║   ██║   ██╔═══╝ ██║     ██║   ██║   ██║   ██║     ██║██╔══██╗
+██║ ╚═╝ ██║██║  ██║   ██║   ██║     ███████╗╚██████╔╝   ██║   ███████╗██║██████╔╝
+╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝     ╚══════╝ ╚═════╝    ╚═╝   ╚══════╝╚═╝╚═════╝ 
+                                                                                 
+- src/ezdxf/addons/drawing/frontend.py :
+
+    - Rajout de l'output_id dans la méthode MatplotlibBackend.draw_point() 
+    - Rajout de l'output_id dans la méthode MatplotlibBackend.draw_line()
+    - Modification de la méthode MatplotlibBackend.draw_solid_lines():
+        - Mise en commentaire de la ligne self.ax.scatter(point_x, point_y, s=SCATTER_POINT_SIZE, c=color, zorder=z)
+        - Rajout de l'output_id
+    - Modification de la méthode MatplotlibBackend.draw_path():
+        - Rajout de l'output_id
+        - Rajout du hatch_type 
+    - Rajout de l'output_id dans la méthode MatplotlibBackend.draw_filled_paths()
+    - Rajout de l'output_id dans la méthode MatplotlibBackend.draw_filled_polygon()
+
+    - Modification de la méthode qsave :
+        - Rajout de l'input margin=True dans la méthode qsave()
+        - Rajout de la gestion des marge si non définie dans l'input
+
+
+██████╗ ██████╗  ██████╗ ██████╗ ███████╗██████╗ ████████╗██╗███████╗███████╗
+██╔══██╗██╔══██╗██╔═══██╗██╔══██╗██╔════╝██╔══██╗╚══██╔══╝██║██╔════╝██╔════╝
+██████╔╝██████╔╝██║   ██║██████╔╝█████╗  ██████╔╝   ██║   ██║█████╗  ███████╗
+██╔═══╝ ██╔══██╗██║   ██║██╔═══╝ ██╔══╝  ██╔══██╗   ██║   ██║██╔══╝  ╚════██║
+██║     ██║  ██║╚██████╔╝██║     ███████╗██║  ██║   ██║   ██║███████╗███████║
+╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═╝   ╚═╝   ╚═╝╚══════╝╚══════╝
+                                                                             
+
+- src/ezdxf/addons/drawing/properties.py :
+    
+    - ajout de la méthode get_gid, permettant de récupérer la handle d'un element DWG pour le reporter sur sa conversion SVG
+    - Ajout de la variable output_id dans la classe BackendProperties()
+    - Ajout de la variable output_id dans la méthode RenderContext.resolve_all()
+
+
+
+
+
+
+
+
+
+
