@@ -1,16 +1,4 @@
-
 Fichier regroupant les différences entre la branch Master de ezdxf et notre fork 
-
- ██████╗██╗     ██╗██████╗ ██████╗ ███████╗██████╗ 
-██╔════╝██║     ██║██╔══██╗██╔══██╗██╔════╝██╔══██╗
-██║     ██║     ██║██████╔╝██████╔╝█████╗  ██████╔╝
-██║     ██║     ██║██╔═══╝ ██╔═══╝ ██╔══╝  ██╔══██╗
-╚██████╗███████╗██║██║     ██║     ███████╗██║  ██║
- ╚═════╝╚══════╝╚═╝╚═╝     ╚═╝     ╚══════╝╚═╝  ╚═╝
-                                                   
-- src/ezdxf/addons/drawing/clipper.py :
-    Fichier ayant été supprimer de master : nous avons conserver les méthodes de ce dernier pour pouvoir identifier les trous dans les polygons : nous ne sommes pas capable aujourd'hui de gérer ces géométries dans notre viewer
-
 
 
 ███████╗██████╗  ██████╗ ███╗   ██╗████████╗███████╗███╗   ██╗██████╗ 
@@ -23,9 +11,6 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
 - scr/ezdxf/addons/drawing/frontend.py :
 
     - import de librairies supplémentaires : ces dernière sont précédées du commentaire "# For BIMData use"
-
-    - Rajout de plusieurs méthodes pour gerer le cas des géométries a trous. Dans la mesure ou nous nes sommes pas capable d'afficheir ces géométries correctement sur la plateforme, un correctif (discutable) est présent. 
-        - L'ensemble des méthodes utilisées sont précéder du commentaire  "--------------- BIMDATA fix - remove holes from Hatch entitiy ---------------""
 
     - Ajout de la méthode UniversalFrontend.skip_entities_bimdata()
 
