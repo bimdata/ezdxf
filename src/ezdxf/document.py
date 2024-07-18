@@ -12,7 +12,7 @@ from typing import (
     cast,
     Optional,
     Sequence,
-    Any
+    Any,
 )
 import abc
 import base64
@@ -64,6 +64,7 @@ from ezdxf.tools import guid
 from ezdxf.tools.codepage import tocodepage, toencoding
 from ezdxf.tools.juliandate import juliandate
 from ezdxf.tools.text import safe_string, MAX_STR_LEN
+from ezdxf import messenger, msgtypes
 
 
 logger = logging.getLogger("ezdxf")
@@ -110,6 +111,7 @@ def _validate_handle_seed(seed: str) -> str:
 class Drawing:
     def __init__(self, dxfversion=DXF2013) -> None:
         self.entitydb = EntityDB()
+        self.messenger = messenger.Messenger(self)
         target_dxfversion = dxfversion.upper()
         self._dxfversion: str = const.acad_release_to_dxf_version.get(
             target_dxfversion, target_dxfversion
@@ -222,7 +224,7 @@ class Drawing:
         self._create_required_dimstyles()
 
     def _set_required_layer_attributes(self):
-        for layer in self.layers:  # type: Layer
+        for layer in self.layers:
             layer.set_required_attributes()
 
     def _create_required_vports(self):
@@ -585,6 +587,11 @@ class Drawing:
             fmt: "asc" for ASCII DXF (default) or "bin" for binary DXF
 
         """
+        # These changes may alter the document content (create new entities, blocks ...)
+        # and have to be done before the export and the update of internal structures
+        # can be done.
+        self.commit_pending_changes()
+
         dxfversion = self.dxfversion
         if dxfversion == DXF12:
             handles = bool(self.header.get("$HANDLING", 0))
@@ -639,6 +646,9 @@ class Drawing:
             section.export_dxf(tagwriter)
 
         tagwriter.write_tag2(0, "EOF")
+
+    def commit_pending_changes(self) -> None:
+        self.messenger.broadcast(msgtypes.COMMIT_PENDING_CHANGES)
 
     def update_all(self) -> None:
         if self.dxfversion > DXF12:
@@ -1436,13 +1446,13 @@ def custom_export(doc: Drawing, tagwriter: AbstractTagWriter):
 
 def export_json_tags(doc: Drawing, compact=True) -> str:
     """Export a DXF document as JSON formatted tags.
-    
-    The `compact` format is a list of ``[group-code, value]`` pairs where each pair is 
-    a DXF tag. The group-code has to be an integer and the value has to be a string, 
-    integer, float or list of floats for vertices. 
 
-    The `verbose` format (`compact` is ``False``) is a list of ``[group-code, value]`` 
-    pairs where each pair is a 1:1 representation of a DXF tag. The group-code has to be 
+    The `compact` format is a list of ``[group-code, value]`` pairs where each pair is
+    a DXF tag. The group-code has to be an integer and the value has to be a string,
+    integer, float or list of floats for vertices.
+
+    The `verbose` format (`compact` is ``False``) is a list of ``[group-code, value]``
+    pairs where each pair is a 1:1 representation of a DXF tag. The group-code has to be
     an integer and the value has to be a string.
 
     """
@@ -1454,9 +1464,9 @@ def export_json_tags(doc: Drawing, compact=True) -> str:
 
 def load_json_tags(data: Sequence[Any]) -> Drawing:
     """Load DXF document from JSON formatted tags.
-    
-    The expected JSON format is a list of [group-code, value] pairs where each pair is 
-    a DXF tag. The `compact` and the `verbose` format is supported. 
+
+    The expected JSON format is a list of [group-code, value] pairs where each pair is
+    a DXF tag. The `compact` and the `verbose` format is supported.
 
     Args:
         data: JSON data structure as a sequence of [group-code, value] pairs

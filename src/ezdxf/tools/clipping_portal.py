@@ -69,12 +69,12 @@ class ClippingShape(abc.ABC):
     def bbox(self) -> BoundingBox2d: ...
 
     @abc.abstractmethod
-    def is_completley_inside(self, other: BoundingBox2d) -> bool: ...
+    def is_completely_inside(self, other: BoundingBox2d) -> bool: ...
 
     # returning False means: I don't know!
 
     @abc.abstractmethod
-    def is_completley_outside(self, other: BoundingBox2d) -> bool: ...
+    def is_completely_outside(self, other: BoundingBox2d) -> bool: ...
 
     @abc.abstractmethod
     def clip_point(self, point: Vec2) -> Optional[Vec2]: ...
@@ -247,10 +247,12 @@ class ClippingPolygon(ClippingShape):
 
     def clip_polyline(self, points: NumpyPoints2d) -> Sequence[NumpyPoints2d]:
         clipper = self.clipper
-        polyline_bbox = BoundingBox2d(points.extents())
-        if self.is_completley_outside(polyline_bbox):
+        if len(points) == 0:
             return tuple()
-        if self.is_completley_inside(polyline_bbox):
+        polyline_bbox = BoundingBox2d(points.extents())
+        if self.is_completely_outside(polyline_bbox):
+            return tuple()
+        if self.is_completely_inside(polyline_bbox):
             return (points,)
         return [
             NumpyPoints2d(part)
@@ -260,10 +262,12 @@ class ClippingPolygon(ClippingShape):
 
     def clip_polygon(self, points: NumpyPoints2d) -> Sequence[NumpyPoints2d]:
         clipper = self.clipper
-        polygon_bbox = BoundingBox2d(points.extents())
-        if self.is_completley_outside(polygon_bbox):
+        if len(points) < 2:
             return tuple()
-        if self.is_completley_inside(polygon_bbox):
+        polygon_bbox = BoundingBox2d(points.extents())
+        if self.is_completely_outside(polygon_bbox):
+            return tuple()
+        if self.is_completely_inside(polygon_bbox):
             return (points,)
         return [
             NumpyPoints2d(part)
@@ -278,10 +282,12 @@ class ClippingPolygon(ClippingShape):
         for path in paths:
             for sub_path in path.sub_paths():
                 path_bbox = BoundingBox2d(sub_path.control_vertices())
-                if self.is_completley_inside(path_bbox):
+                if not path_bbox.has_data:
+                    continue
+                if self.is_completely_inside(path_bbox):
                     yield sub_path
                     continue
-                if self.is_completley_outside(path_bbox):
+                if self.is_completely_outside(path_bbox):
                     continue
                 polyline = Vec2.list(sub_path.flattening(max_sagitta, segments=4))
                 for part in clipper.clip_polyline(polyline):
@@ -297,10 +303,10 @@ class ClippingPolygon(ClippingShape):
                 if len(sub_path) < 2:
                     continue
                 path_bbox = BoundingBox2d(sub_path.control_vertices())
-                if self.is_completley_inside(path_bbox):
+                if self.is_completely_inside(path_bbox):
                     yield sub_path
                     continue
-                if self.is_completley_outside(path_bbox):
+                if self.is_completely_outside(path_bbox):
                     continue
                 for part in clipper.clip_polygon(
                     Vec2.list(sub_path.flattening(max_sagitta, segments=4))
@@ -328,10 +334,10 @@ class ClippingRect(ClippingPolygon):
 
         super().__init__(bbox, ClippingRect2d(bbox.extmin, bbox.extmax))
 
-    def is_completley_inside(self, other: BoundingBox2d) -> bool:
+    def is_completely_inside(self, other: BoundingBox2d) -> bool:
         return self._bbox.contains(other)
 
-    def is_completley_outside(self, other: BoundingBox2d) -> bool:
+    def is_completely_outside(self, other: BoundingBox2d) -> bool:
         return not self._bbox.has_intersection(other)
 
     def clip_point(self, point: Vec2) -> Optional[Vec2]:
@@ -381,10 +387,10 @@ class ConvexClippingPolygon(ClippingPolygon):
         polygon = Vec2.list(vertices)
         super().__init__(BoundingBox2d(polygon), ConvexClippingPolygon2d(polygon))
 
-    def is_completley_inside(self, other: BoundingBox2d) -> bool:
+    def is_completely_inside(self, other: BoundingBox2d) -> bool:
         return False  # I don't know!
 
-    def is_completley_outside(self, other: BoundingBox2d) -> bool:
+    def is_completely_outside(self, other: BoundingBox2d) -> bool:
         return not self._bbox.has_intersection(other)
 
 
@@ -400,16 +406,20 @@ class ConcaveClippingPolygon(ClippingPolygon):
         polygon = Vec2.list(vertices)
         super().__init__(BoundingBox2d(polygon), ConcaveClippingPolygon2d(polygon))
 
-    def is_completley_inside(self, other: BoundingBox2d) -> bool:
+    def is_completely_inside(self, other: BoundingBox2d) -> bool:
         return False  # I don't know!
 
-    def is_completley_outside(self, other: BoundingBox2d) -> bool:
+    def is_completely_outside(self, other: BoundingBox2d) -> bool:
         return not self._bbox.has_intersection(other)
 
 
 class InvertedClippingPolygon(ClippingPolygon):
     """Represents an arbitrary inverted clipping polygon.  Removes the geometry
     inside the clipping polygon.
+
+    .. Important:: 
+    
+        The `outer_bounds` must be larger than the content to clip to work correctly.
 
     """
 
@@ -419,11 +429,11 @@ class InvertedClippingPolygon(ClippingPolygon):
         polygon = Vec2.list(vertices)
         super().__init__(outer_bounds, InvertedClippingPolygon2d(polygon, outer_bounds))
 
-    def is_completley_inside(self, other: BoundingBox2d) -> bool:
+    def is_completely_inside(self, other: BoundingBox2d) -> bool:
         # returning False means: I don't know!
         return False  # not easy to detect
 
-    def is_completley_outside(self, other: BoundingBox2d) -> bool:
+    def is_completely_outside(self, other: BoundingBox2d) -> bool:
         return not self._bbox.has_intersection(other)
 
 

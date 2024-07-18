@@ -1,5 +1,42 @@
-## Version 1.3.0 - dev
-id:: 65e30c28-021e-4c24-ab6e-a9e9fa7c6a51
+## Version 1.3.2 - 2024-07-12
+id:: 66657380-1ad7-45c3-a552-e9e4b1a3069d
+	- ((65ed4f6c-edc8-4390-880c-c604a3fa5ec0))
+	- NEW: `recover` module can load DXF R12 files with subclass markers in table entries
+		- {{discussion 1106}}
+	- NEW: `DXFGraphic.rgb` deleter
+		- {{pr 1113}}
+	- BUGFIX: `numpy` v2.0 adaptation, `str()` function returns `"np.float64(...)"` for numpy floats
+		- This affects the following add-on modules:
+			- `ezdxf.addons.dxf2code`
+			- `ezdxf.addons.openscad`
+	- BUGFIX: line clipping  of inverted clipping polygons
+		- {{issue 1101}}
+	- BUGFIX: `Drawing.filename` has to be `str|None`
+		- {{issue 1114}}
+	- BUGFIX: clipping function returned `None` values
+		- {{issue 1113}}
+		-
+- ## Version 1.3.1 - 2024-06-06
+  id:: 6634bed7-9a8c-4136-9a0c-96ce3078c948
+	- ((65ed4f6c-edc8-4390-880c-c604a3fa5ec0))
+	- NEW: `ezdxf.acis.api.vertices_from_body()` function
+	- CHANGE: optional empty string as default value of the `plotter_configuration_file` attribute for modelspace and paperspace layouts
+		- CAD applications will use the default printer/plotter when the `plotter_configuration_file` attribute is missing.
+	- BUGFIX: fixed rendering of collinear polyline segments for polylines with a "width"
+		- {{issue 1078}}
+	- BUGFIX: added `audit()` support for the  `HATCH` entity
+		- {{issue 1081}}
+	- BUGIX: `dxf2code` add-on failed to write `HATCH` patterns
+		- {{issue 1082}}
+	- BUGFIX: add reactors to entities in `GROUP`
+		- {{issue 1085}}
+	- BUGFIX: `clipping.is_inside_polygon()` function was incorrect
+		- {{issue 1094}}
+	- BUGFIX: `ClippingPolygon` raises exception clipping empty data
+		- {{issue 1096}}
+		-
+- ## Version 1.3.0 - 2024-05-01
+  id:: 65e30c28-021e-4c24-ab6e-a9e9fa7c6a51
 	- ((65ed4f6c-edc8-4390-880c-c604a3fa5ec0))
 	- moved static setup data from `setup.py` to `pyproject.toml`
 	- REMOVE: `pp` command, use `browse` command to explore DXF files
@@ -14,6 +51,11 @@ id:: 65e30c28-021e-4c24-ab6e-a9e9fa7c6a51
 		- `ezdxf.math.gps_to_world_mercator()`
 	- NEW: `ezdxf.revcloud` module to render revision clouds similar to the `REVCLOUD` command in CAD applications
 	- NEW: `ezdxf.select` module for location based entity selection
+	- NEW: support for copying of [[ACIS]] based entities, this adds support for loading these entities by the `xref` module
+	- NEW: support for transformation of [[ACIS]] based entities
+		- the transformation is stored as temporary transformation and will be applied automatically before export
+		- the applied transformation is a transformed anonymous block that contains that [[ACIS]] entity
+	- NEW: function `ezdxf.transform.apply_temporary_transformations()`
 	- CHANGE: class `RenderContext` accepts ctb files as instances of `acadctb.ColorDependentPlotStyles`
 	- CHANGE: replaced the `Designer` class of the `drawing` add-on by a render pipeline with separated render stages
 	- CHANGE: better support for viewports with curved clipping paths for the `drawing` add-on

@@ -28,9 +28,11 @@
 		- {{discussion 769}}
 	- LATER add support for multi-line [[ATTRIB]] entities in `Insert.add_auto_attribs()`
 	  id:: 65508de8-19be-495f-b83c-94600d9556bc
-	- LATER [[ACIS]] `copy()` method support
-		- ACIS data does not reference any DXF resources and copying is not expensive, all copies share the same immutable ACIS data.
-		- This feature allows loading ACIS entities from external references by the `xref` module.
+	- #maybe add support for [[REGION]] entities:
+		- A [[REGION]] consist of one or more flat loops that enclose a space based on [[ACIS]].
+		- The [[SAT]] and [[SAB]] representation of curved edges and faces within [[ACIS]] data needs to be reverse engineered.
+		- Explode curved faces into virtual [[LINE]], [[ARC]], [[ELLIPSE]] and [[SPLINE]] entities or a [[Path]] instance
+	- #maybe associative arrays, [ARRAY](https://help.bricsys.com/document/_commandreference--CMD_-array/V23/EN_US?id=165079036414) command in CAD applications
 -
 - # Boundary Path Constructor
 	- LATER A module to create boundary paths for [[HATCH]] and [[MPOLYGON]] entities.

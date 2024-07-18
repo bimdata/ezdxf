@@ -20,7 +20,7 @@ selection in CAD applications.
 
 The selection functions accept any iterable of DXF entities as input and return an 
 :class:`ezdxf.query.EntityQuery` container, that provides further selection tools 
-base on entity type and DXF attributes.
+based on entity type and DXF attributes.
 
 Usage
 -----
@@ -90,3 +90,16 @@ The following selection shapes are implemented:
 .. autoclass:: Circle
 
 .. autoclass:: Polygon
+
+Planar Search Index
+-------------------
+
+.. versionadded:: 1.4
+    
+.. autoclass:: PlanarSearchIndex
+
+    .. automethod:: detection_point_in_circle
+
+    .. automethod:: detection_point_in_rect
+
+    .. automethod:: detection_points

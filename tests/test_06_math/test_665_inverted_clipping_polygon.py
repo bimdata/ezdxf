@@ -3,7 +3,7 @@
 from __future__ import annotations
 import pytest
 
-from ezdxf.math import Vec2, BoundingBox2d
+from ezdxf.math import Vec2, BoundingBox2d, is_point_in_polygon_2d
 from ezdxf.math.clipping import InvertedClippingPolygon2d as ICP
 from ezdxf.math.clipping import (
     find_closest_vertices,
@@ -158,10 +158,28 @@ class TestLineClipping:
         assert l2[0].isclose((6, 4))
         assert l2[1].isclose((8, 4))
 
-    def test_connection_line_create_intersection_point(self, inverted_polygon: ICP):
+    def test_is_point_inside_inverted_polygon(self, inverted_polygon: ICP):
+        polygon = inverted_polygon._clipping_polygon
+        assert is_point_in_polygon_2d(Vec2(1.5, 2), polygon) == 1
+        assert is_point_in_polygon_2d(Vec2(7.5, 2), polygon) == 1
+
+    @pytest.mark.parametrize(
+        "s,e,xs,xe",
+        [
+            [(0, 2), (9, 2), (1, 2), (8, 2)],  # outside, outside
+            [(1, 2), (8, 2), (1, 2), (8, 2)],  # border, border
+            [(1.5, 2), (7.5, 2), (1.5, 2), (7.5, 2)],  # inside, inside
+        ],
+        ids=["outside, outside", "border, border", "inside, inside"],
+    )
+    def test_connection_line_create_intersection_point(
+        self, s, e, xs, xe, inverted_polygon: ICP
+    ):
         """A line should be clipped at the diagonal connection line between 4<->0.
         There are two clipping lines 4->0 and 4<-0. The zero-length segment between the
         real segments should not be returned.
+
+        inside, inside: #1101 <https://github.com/mozman/ezdxf/issues/1101>
         """
         # 5  .|.|..|.|.
         # 4  .|.|..|.|.
@@ -170,14 +188,48 @@ class TestLineClipping:
         # 1  .4------+.
         # 0  ..........
         #    0123456789
-        result = inverted_polygon.clip_line(Vec2(0, 2), Vec2(9, 2))
+        result = inverted_polygon.clip_line(Vec2(s), Vec2(e))
         assert len(result) == 2
         l1, l2 = result
-        assert l1[0].isclose((1, 2))
+        assert l1[0].isclose(xs)
         assert l1[1].isclose((2, 2))
         # zero-length segment (2, 2) -> (2, 2) is ignored or outside!
         assert l2[0].isclose((2, 2))
-        assert l2[1].isclose((8, 2))
+        assert l2[1].isclose(xe)
+
+    def test_line_touches_vertex_at_coincident_edge(self, inverted_polygon: ICP):
+        """Intersection point at coincident edge."""
+        # 4  .|a|..|.|.
+        # 3  .|.x--1.|.
+        # 2  .|/.b...|.
+        # 1  .4------+.
+        # 0  ..........
+        #    0123456789
+        result = inverted_polygon.clip_line(Vec2(2, 4), Vec2(4, 2))
+        assert len(result) == 2
+
+        s, e = result[0]
+        assert s.isclose((2, 4))
+        assert e.isclose((3, 3))
+
+        s, e = result[1]
+        assert s.isclose((3, 3))
+        assert e.isclose((4, 2))
+
+    def test_line_touches_vertex_inside_inside(self, inverted_polygon: ICP):
+        """No intersection point at vertex 1."""
+        # 4  .|.|..|a|.
+        # 3  .|.0--1.|.
+        # 2  .|/..b..|.
+        # 1  .4------+.
+        # 0  ..........
+        #    0123456789
+        result = inverted_polygon.clip_line(Vec2(7, 4), Vec2(5, 2))
+        assert len(result) == 1
+
+        s, e = result[0]
+        assert s.isclose((7, 4))
+        assert e.isclose((5, 2))
 
     def test_colinear_line(self, inverted_polygon: ICP):
         """Colinear line segments are inside per definition."""
@@ -236,8 +288,8 @@ class TestPolygonClipping:
         )
         assert len(result) == 1
         clipped_polygon = result[0]
-        # The clipped polygon doesn't have to be closed, future implementation may 
-        # change and the results of the Greiner-Horman algorithm for "edge-cases" are 
+        # The clipped polygon doesn't have to be closed, future implementation may
+        # change and the results of the Greiner-Horman algorithm for "edge-cases" are
         # not consistent!
         assert len(clipped_polygon) in (4, 5)
         if len(clipped_polygon) == 5:

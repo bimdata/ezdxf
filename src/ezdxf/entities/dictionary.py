@@ -1,7 +1,8 @@
-# Copyright (c) 2019-2023, Manfred Moitzi
+# Copyright (c) 2019-2024, Manfred Moitzi
 # License: MIT-License
 from __future__ import annotations
 from typing import TYPE_CHECKING, Union, Optional
+from typing_extensions import Self
 import logging
 from ezdxf.lldxf import validator
 from ezdxf.lldxf.const import (
@@ -100,7 +101,7 @@ class Dictionary(DXFObject):
         self._data: dict[str, Union[str, DXFObject]] = dict()
         self._value_code = VALUE_CODE
 
-    def copy_data(self, entity: DXFEntity, copy_strategy=default_copy) -> None:
+    def copy_data(self, entity: Self, copy_strategy=default_copy) -> None:
         """Copy hard owned entities but do not store the copies in the entity
         database, this is a second step (factory.bind), this is just real copying.
         """
@@ -140,7 +141,7 @@ class Dictionary(DXFObject):
                 handle_mapping[entity.dxf.handle] = copied_entry.dxf.handle
         return handle_mapping
 
-    def map_resources(self, clone: DXFEntity, mapping: xref.ResourceMapper) -> None:
+    def map_resources(self, clone: Self, mapping: xref.ResourceMapper) -> None:
         """Translate resources from self to the copied entity."""
         assert isinstance(clone, Dictionary)
         super().map_resources(clone, mapping)
@@ -553,7 +554,7 @@ class DictionaryWithDefault(Dictionary):
         super().__init__()
         self._default: Optional[DXFObject] = None
 
-    def copy_data(self, entity: DXFEntity, copy_strategy=default_copy) -> None:
+    def copy_data(self, entity: Self, copy_strategy=default_copy) -> None:
         super().copy_data(entity, copy_strategy=copy_strategy)
         assert isinstance(entity, DictionaryWithDefault)
         entity._default = self._default

@@ -2,6 +2,7 @@
 # License: MIT License
 from __future__ import annotations
 from typing import TYPE_CHECKING, Iterable, Optional, Iterator
+from typing_extensions import Self
 import copy
 from ezdxf.math import Vec3, Matrix44
 from ezdxf.lldxf.tags import Tags, group_tags
@@ -249,7 +250,7 @@ class AcadTable(DXFGraphic):
         super().__init__()
         self.data = None
 
-    def copy_data(self, entity: DXFEntity, copy_strategy=default_copy) -> None:
+    def copy_data(self, entity: Self, copy_strategy=default_copy) -> None:
         """Copy data."""
         assert isinstance(entity, AcadTable)
         entity.data = copy.deepcopy(self.data)
@@ -445,10 +446,12 @@ def read_acad_table_content(table: DXFTagStorage) -> list[list[str]]:
         raise const.DXFTypeError(f"Expected ACAD_TABLE entity, got {str(table)}")
     acdb_table = table.xtags.get_subclass("AcDbTable")
 
-    values = [tag.value for tag in acdb_table.find_all(302)]
     nrows = acdb_table.get_first_value(91, 0)
     ncols = acdb_table.get_first_value(92, 0)
-    values = _load_table_values(acdb_table)
+    split_code = 171  # DXF R2004
+    if acdb_table.has_tag(302):
+        split_code = 301  # DXF R2007 and later
+    values = _load_table_values(acdb_table, split_code)
     if nrows * ncols == 0:
         return [values]
     content: list[list[str]] = []
@@ -458,18 +461,17 @@ def read_acad_table_content(table: DXFTagStorage) -> list[list[str]]:
     return content
 
 
-def _load_table_values(tags: Tags) -> list[str]:
+def _load_table_values(tags: Tags, split_code: int) -> list[str]:
     values: list[str] = []
-    for group in group_tags(tags, splitcode=301):
+    for group in group_tags(tags, splitcode=split_code):
         g_tags = Tags(group)
-        if g_tags.has_tag(302):
+        if g_tags.has_tag(302):  # DXF R2007 and later
             # contains all text as one long string, with more than 66000 chars tested
             values.append(g_tags.get_first_value(302))
-        elif g_tags.has_tag(2):
-            # text is divided into chunks (2, 2, 2, ..., 1)
-            s = "".join(t.value for t in g_tags.find_all(2))
-            s += g_tags.get_first_value(1, "")
+        else:  
+            # DXF R2004
+            # Text is divided into chunks (2, 2, 2, ..., 1) or (3, 3, 3, ..., 1)
+            # DXF reference says group code 2, BricsCAD writes group code 3
+            s = "".join(tag.value for tag in g_tags if 1 <= tag.code <= 3)
             values.append(s)
-        else:  # unknown tag structure
-            values.append("")
     return values
