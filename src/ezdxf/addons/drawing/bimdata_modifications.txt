@@ -98,6 +98,22 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
 
 
 
+██████╗ ██╗██████╗ ███████╗██╗     ██╗███╗   ██╗███████╗
+██╔══██╗██║██╔══██╗██╔════╝██║     ██║████╗  ██║██╔════╝
+██████╔╝██║██████╔╝█████╗  ██║     ██║██╔██╗ ██║█████╗  
+██╔═══╝ ██║██╔═══╝ ██╔══╝  ██║     ██║██║╚██╗██║██╔══╝  
+██║     ██║██║     ███████╗███████╗██║██║ ╚████║███████╗
+╚═╝     ╚═╝╚═╝     ╚══════╝╚══════╝╚═╝╚═╝  ╚═══╝╚══════╝
+
+- src/ezdxf/addons/drawing/pipeline.py :
+    
+    - Ajout de l'output "output_id" dans la méthode RenderPipeline2d.get_backend_properties()
+                                                        
+
+
+
+
+
 
 
 

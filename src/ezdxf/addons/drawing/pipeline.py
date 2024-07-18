@@ -64,21 +64,26 @@ class AbstractPipeline(abc.ABC):
     draw_entities: DrawEntitiesCallback
 
     @abc.abstractmethod
-    def set_draw_entities_callback(self, callback: DrawEntitiesCallback) -> None: ...
+    def set_draw_entities_callback(self, callback: DrawEntitiesCallback) -> None:
+        ...
 
     @abc.abstractmethod
-    def set_config(self, config: Configuration) -> None: ...
+    def set_config(self, config: Configuration) -> None:
+        ...
 
     @abc.abstractmethod
-    def set_current_entity_handle(self, handle: str) -> None: ...
+    def set_current_entity_handle(self, handle: str) -> None:
+        ...
 
     @abc.abstractmethod
     def push_clipping_shape(
         self, shape: ClippingShape, transform: Matrix44 | None
-    ) -> None: ...
+    ) -> None:
+        ...
 
     @abc.abstractmethod
-    def pop_clipping_shape(self) -> None: ...
+    def pop_clipping_shape(self) -> None:
+        ...
 
     @abc.abstractmethod
     def draw_viewport(
@@ -91,30 +96,36 @@ class AbstractPipeline(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def draw_point(self, pos: AnyVec, properties: Properties) -> None: ...
+    def draw_point(self, pos: AnyVec, properties: Properties) -> None:
+        ...
 
     @abc.abstractmethod
-    def draw_line(self, start: AnyVec, end: AnyVec, properties: Properties): ...
+    def draw_line(self, start: AnyVec, end: AnyVec, properties: Properties):
+        ...
 
     @abc.abstractmethod
     def draw_solid_lines(
         self, lines: Iterable[tuple[AnyVec, AnyVec]], properties: Properties
-    ) -> None: ...
+    ) -> None:
+        ...
 
     @abc.abstractmethod
-    def draw_path(self, path: Path, properties: Properties): ...
+    def draw_path(self, path: Path, properties: Properties):
+        ...
 
     @abc.abstractmethod
     def draw_filled_paths(
         self,
         paths: Iterable[Path],
         properties: Properties,
-    ) -> None: ...
+    ) -> None:
+        ...
 
     @abc.abstractmethod
     def draw_filled_polygon(
         self, points: Iterable[AnyVec], properties: Properties
-    ) -> None: ...
+    ) -> None:
+        ...
 
     @abc.abstractmethod
     def draw_text(
@@ -124,16 +135,20 @@ class AbstractPipeline(abc.ABC):
         properties: Properties,
         cap_height: float,
         dxftype: str = "TEXT",
-    ) -> None: ...
+    ) -> None:
+        ...
 
     @abc.abstractmethod
-    def draw_image(self, image_data: ImageData, properties: Properties) -> None: ...
+    def draw_image(self, image_data: ImageData, properties: Properties) -> None:
+        ...
 
     @abc.abstractmethod
-    def finalize(self) -> None: ...
+    def finalize(self) -> None:
+        ...
 
     @abc.abstractmethod
-    def set_background(self, color: Color) -> None: ...
+    def set_background(self, color: Color) -> None:
+        ...
 
     @abc.abstractmethod
     def enter_entity(self, entity: DXFGraphic, properties: Properties) -> None:
@@ -141,7 +156,8 @@ class AbstractPipeline(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def exit_entity(self, entity: DXFGraphic) -> None: ...
+    def exit_entity(self, entity: DXFGraphic) -> None:
+        ...
 
 
 class RenderStage2d(abc.ABC):
@@ -151,33 +167,38 @@ class RenderStage2d(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def draw_point(self, pos: Vec2, properties: Properties) -> None: ...
+    def draw_point(self, pos: Vec2, properties: Properties) -> None:
+        ...
 
     @abc.abstractmethod
-    def draw_line(self, start: Vec2, end: Vec2, properties: Properties): ...
+    def draw_line(self, start: Vec2, end: Vec2, properties: Properties):
+        ...
 
     @abc.abstractmethod
     def draw_solid_lines(
         self, lines: list[tuple[Vec2, Vec2]], properties: Properties
-    ) -> None: ...
+    ) -> None:
+        ...
 
     @abc.abstractmethod
-    def draw_path(self, path: BkPath2d, properties: Properties): ...
+    def draw_path(self, path: BkPath2d, properties: Properties):
+        ...
 
     @abc.abstractmethod
     def draw_filled_paths(
         self,
         paths: list[BkPath2d],
         properties: Properties,
-    ) -> None: ...
+    ) -> None:
+        ...
 
     @abc.abstractmethod
-    def draw_filled_polygon(
-        self, points: BkPoints2d, properties: Properties
-    ) -> None: ...
+    def draw_filled_polygon(self, points: BkPoints2d, properties: Properties) -> None:
+        ...
 
     @abc.abstractmethod
-    def draw_image(self, image_data: ImageData, properties: Properties) -> None: ...
+    def draw_image(self, image_data: ImageData, properties: Properties) -> None:
+        ...
 
 
 class RenderPipeline2d(AbstractPipeline):
@@ -231,6 +252,7 @@ class RenderPipeline2d(AbstractPipeline):
             properties.layer,
             properties.pen,
             self._current_entity_handle,
+            output_id=properties.output_id,
         )
 
     def set_draw_entities_callback(self, callback: DrawEntitiesCallback) -> None:
