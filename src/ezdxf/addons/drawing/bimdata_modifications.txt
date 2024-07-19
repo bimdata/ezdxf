@@ -12,6 +12,9 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
 
     - import de librairies supplémentaires : ces dernière sont précédées du commentaire "# For BIMData use"
 
+    - Rajout de plusieurs méthodes pour gerer le cas des géométries a trous. Dans la mesure ou nous nes sommes pas capable d'afficheir ces géométries correctement sur la plateforme, un correctif (discutable) est présent. 
+        - L'ensemble des méthodes utilisées sont précéder du commentaire  "--------------- BIMDATA fix - remove holes from Hatch entitiy ---------------""
+
     - Ajout de la méthode UniversalFrontend.skip_entities_bimdata()
 
     - Modification la méthode UniversalFrontend._build_dispatch_table() :
@@ -33,6 +36,9 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
     - Gestion d'erreur dans UniversalFrontend.draw_curve_entity():
         - cf bugfix_175 : https://bimdata.backlog.com/view/BUFIXMANAGMENT-175
         - Gestion des exeption de type ZeroDivisionError
+
+    - Utilisation de l'ancienne méthode draw_hatch_entity et comment de l'actuelle
+        - Nous somme obliger de procéder de la sorte afin de garder les méthode permattant d'identifier les trous dans les polygon pour les fixer
 
     - Gestion d'erreur dans la méthode UniversalFrontend.draw_composite_entity()
         - cf bugfix 219 : https://bimdata.backlog.com/view/BUFIXMANAGMENT-219

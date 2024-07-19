@@ -93,6 +93,13 @@ from .type_hints import Color
 if TYPE_CHECKING:
     from .pipeline import AbstractPipeline
 
+# For BIMData use
+import numpy as np
+from ezdxf.math import is_point_in_polygon_2d
+from ezdxf.path import winding_deconstruction
+from ezdxf.path import make_polygon_structure
+import itertools
+
 
 __all__ = ["Frontend", "UniversalFrontend"]
 
@@ -103,6 +110,87 @@ POST_ISSUE_MSG = (
     "Please post sample DXF file at https://github.com/mozman/ezdxf/issues."
 )
 logger = logging.getLogger("ezdxf")
+
+
+# --------------- BIMDATA fix - remove holes from Hatch entitiy ---------------
+def make_holes_in_polygons(external_paths, holes):
+    """
+    Create polygons without holes by incorporating holes into polygon geometry
+
+    :param external_paths: (list) external paths from Hatch entity
+    :param holes: (list) holes from hatch entity
+    """
+
+    # Distribution of holes by external_path
+    center_holes = [hole.bbox().center for hole in holes]
+    polygons_bbox = [external_poly.bbox() for external_poly in external_paths]
+    holes_by_polygons = {i: [] for i in range(0, len(polygons_bbox))}
+    for hole_idx, center_hole in enumerate(center_holes):
+        for external_path_idx, polygon_bbox in enumerate(polygons_bbox):
+            if polygon_bbox.inside(center_hole):
+                holes_by_polygons[external_path_idx].append(holes[hole_idx])
+                break
+
+    # making incisions from holes to create holes without having any
+    for external_path_idx, path_holes in holes_by_polygons.items():
+        external_path = external_paths[external_path_idx]
+        for path_hole in path_holes:
+            try:
+                output_idx = closest_node(
+                    path_hole._vertices[0].xyz[:2],
+                    [
+                        (vertice.x, vertice.y)
+                        for vertice in external_path.control_vertices()
+                    ],
+                )
+
+                external_path = ezdxf.path.from_vertices(
+                    external_path._vertices[: output_idx + 1]
+                    + path_hole._vertices
+                    + external_path._vertices[output_idx:]
+                )
+            except TypeError:
+                pass
+
+    return external_paths, []
+
+
+def distance(xy_1, xy_2):
+    """
+    calculating the distance between two points
+
+    :param xy_1: (tuple) first point coordinate (xy)
+    :param xy_2: (tuple) second point coordinate (xy)
+
+    :return: (float) distance beetween xy_1 & xy_2
+    """
+
+    pt_1 = np.array((xy_1[0], xy_1[1]))
+    pt_2 = np.array((xy_2[0], xy_2[1]))
+    return np.linalg.norm(pt_1 - pt_2)
+
+
+def closest_node(input_node, nodes):
+    """
+    Finding the nearest point
+
+    :param input_node: (list) xy coordinates to test
+    :param nodes: (tuple) XY point of origin
+
+    :return out_idx: (int) nearest node index
+    """
+
+    dist = 1e100
+    out_idx = None
+    for node_idx, node in enumerate(nodes):
+        if distance(input_node, node) <= dist:
+            dist = distance(input_node, node)
+            out_idx = node_idx
+
+    return out_idx
+
+
+# --------------- END - BIMDATA fix - remove holes from Hatch entitiy ---------------
 
 
 class UniversalFrontend:
@@ -623,32 +711,98 @@ class UniversalFrontend:
         if filling.type == Filling.PATTERN:
             if loops is None:
                 loops = hatching.hatch_boundary_paths(polygon, filter_text_boxes=True)
-            try:
-                self.draw_hatch_pattern(polygon, loops, properties)
-            except hatching.DenseHatchingLinesError:
-                pass  # fallthrough to solid fill rendering
-            else:
-                return
+            self.draw_hatch_pattern(polygon, loops, properties)
+            return
 
         # draw SOLID filling
         ocs = polygon.ocs()
         # all OCS coordinates have the same z-axis stored as vector (0, 0, z),
         # default (0, 0, 0)
         elevation = entity.dxf.elevation.z
-        paths: list[Path]
+
+        external_paths: list[Path]
+        holes: list[Path]
+
         if loops is not None:  # only MPOLYGON
-            paths = loops
-        else:  # only HATCH
-            boundary_paths = list(
-                polygon.paths.rendering_paths(polygon.dxf.hatch_style)
+            external_paths, holes = winding_deconstruction(  # type: ignore
+                make_polygon_structure(loops)
             )
-            paths = closed_loops(boundary_paths, ocs, elevation)
+        else:  # only HATCH
+            paths = polygon.paths.rendering_paths(polygon.dxf.hatch_style)
+            polygons: list = make_polygon_structure(
+                closed_loops(paths, ocs, elevation)  # type: ignore
+            )
+            external_paths, holes = winding_deconstruction(polygons)  # type: ignore
+
         if show_only_outline:
-            for p in ignore_text_boxes(paths):
+            if holes:
+                external_paths, holes = make_holes_in_polygons(external_paths, holes)
+
+            for p in itertools.chain(ignore_text_boxes(external_paths), holes):
                 self.pipeline.draw_path(p, properties)
             return
-        if paths:
-            self.pipeline.draw_filled_paths(ignore_text_boxes(paths), properties)
+
+        if external_paths:
+            self.pipeline.draw_filled_paths(
+                ignore_text_boxes(external_paths), holes, properties
+            )
+        elif holes:
+            # The first path is considered the exterior path, everything else are
+            # holes.
+            self.pipeline.draw_filled_paths([holes[0]], holes[1:], properties)
+
+    # def draw_hatch_entity(
+    #     self,
+    #     entity: DXFGraphic,
+    #     properties: Properties,
+    #     *,
+    #     loops: Optional[list[Path]] = None,
+    # ) -> None:
+    #     if properties.filling is None:
+    #         return
+    #     filling = properties.filling
+    #     show_only_outline = False
+    #     hatch_policy = self.config.hatch_policy
+    #     if hatch_policy == HatchPolicy.NORMAL:
+    #         pass
+    #     elif hatch_policy == HatchPolicy.IGNORE:
+    #         return
+    #     elif hatch_policy == HatchPolicy.SHOW_SOLID:
+    #         filling = Filling()  # solid filling
+    #     elif hatch_policy == HatchPolicy.SHOW_OUTLINE:
+    #         filling = Filling()  # solid filling
+    #         show_only_outline = True
+
+    #     polygon = cast(DXFPolygon, entity)
+    #     if filling.type == Filling.PATTERN:
+    #         if loops is None:
+    #             loops = hatching.hatch_boundary_paths(polygon, filter_text_boxes=True)
+    #         try:
+    #             self.draw_hatch_pattern(polygon, loops, properties)
+    #         except hatching.DenseHatchingLinesError:
+    #             pass  # fallthrough to solid fill rendering
+    #         else:
+    #             return
+
+    #     # draw SOLID filling
+    #     ocs = polygon.ocs()
+    #     # all OCS coordinates have the same z-axis stored as vector (0, 0, z),
+    #     # default (0, 0, 0)
+    #     elevation = entity.dxf.elevation.z
+    #     paths: list[Path]
+    #     if loops is not None:  # only MPOLYGON
+    #         paths = loops
+    #     else:  # only HATCH
+    #         boundary_paths = list(
+    #             polygon.paths.rendering_paths(polygon.dxf.hatch_style)
+    #         )
+    #         paths = closed_loops(boundary_paths, ocs, elevation)
+    #     if show_only_outline:
+    #         for p in ignore_text_boxes(paths):
+    #             self.pipeline.draw_path(p, properties)
+    #         return
+    #     if paths:
+    #         self.pipeline.draw_filled_paths(ignore_text_boxes(paths), properties)
 
     def draw_mpolygon_entity(self, entity: DXFGraphic, properties: Properties):
         def resolve_fill_color() -> str:
