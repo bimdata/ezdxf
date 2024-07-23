@@ -77,57 +77,51 @@ logger = logging.getLogger("ezdxf")
 CTB: TypeAlias = acadctb.ColorDependentPlotStyles
 
 
-def get_gid(entity: Optional[DXFGraphic]) -> str:
+def get_gid(entity):
+    """
+    Recovery of the handle of the entity being processed.
+    Also recovery of:
+        - linetype for line entities
+        - hatch parent for HATCH entities
+
+    :param entity: (Optional[DXFGraphic]) DXF entity being processed.
+    """
+
+    hatch_reference = ""
+    line_suffix = ""
+
     if entity is None:
         return ""
 
-    # BIMDATA suffix for line entities
+    # ----------------------- Specific process by dxf entity type -----------------------
     if entity.DXFTYPE in ["LINE", "XLINE", "RAY", "POLYLINE", "LWPOLYLINE"]:
+        # BIMDATA suffix for line entities
         line_suffix = "." + entity.dxf.linetype.lower()
     else:
-        line_suffix = ""
-
-    handle = entity.dxf.handle
-    if handle is not None:
-        return handle + line_suffix
-
-    # BIMDATA suffix for sub-hatch
-    try:
+        # BIMDATA suffix for hatch
         if entity.DXFTYPE == "HATCH":
-            if entity.origin_of_copy.DXFTYPE == "HATCH":
+            if entity.origin_of_copy and entity.origin_of_copy.DXFTYPE == "HATCH":
                 hatch_reference = f"@{entity.origin_of_copy.dxf.handle}"
             else:
-                hatch_reference = ""
-        else:
-            hatch_reference = ""
-    except AttributeError:
-        return ""
+                hatch_reference = f"@{entity.dxf.handle}"
 
-    # entity has no handle
-    suffix = ""
+    # ----------------------- Extract top level entity handle -----------------------
     if entity.has_source_block_reference:
         if not entity.source_block_reference.is_virtual:
-            suffix += "_" + entity.uuid.hex
             entity = entity.source_block_reference
         else:
             while entity.has_source_block_reference:
-                suffix += "_" + entity.uuid.hex
                 entity = entity.source_block_reference
 
-    assert entity is not None, "this should not happen"
-
-    # handle is None
     if entity.is_copy:
         entity = entity.origin_of_copy
-
     if entity is not None:  # doesn't have to have an origin -> virtual entity
         handle = entity.dxf.handle
-
     if handle is None:
         # virtual entity without a handle or handle is None
         handle = ""
 
-    return handle + suffix + hatch_reference + line_suffix
+    return handle + hatch_reference + line_suffix
 
 
 def is_dark_color(color: Color, dark: float = 0.2) -> bool:
