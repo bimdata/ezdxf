@@ -955,7 +955,7 @@ class RenderContext:
             return ""
 
         # ----------------------- Specific process by dxf entity type -----------------------
-        if getattr(self, "bimdata_vp_handle", None) and entity.DXFTYPE == "HATCH":
+        if getattr(self, "bimdata_vp_handle", None):
             viewport_parent_handle = (
                 "VP" + getattr(self, "bimdata_vp_handle", None) + "_"
             )
