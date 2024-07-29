@@ -81,10 +81,13 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
                                                                              
 
 - src/ezdxf/addons/drawing/properties.py :
-    
-    - ajout de la méthode get_gid, permettant de récupérer la handle d'un element DWG pour le reporter sur sa conversion SVG
-    - Ajout de la variable output_id dans la classe BackendProperties()
-    - Ajout de la variable output_id dans la méthode RenderContext.resolve_all()
+    - Dans la classe RenderContext: 
+        - ajout de la méthode get_gid, permettant de récupérer la handle d'un element DWG pour le reporter sur sa conversion SVG
+        - Ajout de la variable output_id dans la méthode RenderContext.resolve_all()
+
+    - Dans la classe BackendProperties():
+         - Ajout de la variable output_id
+
 
 
 
@@ -96,8 +99,12 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
 ╚═╝     ╚═╝╚═╝     ╚══════╝╚══════╝╚═╝╚═╝  ╚═══╝╚══════╝
 
 - src/ezdxf/addons/drawing/pipeline.py :
-    
-    - Ajout de l'output "output_id" dans la méthode RenderPipeline2d.get_backend_properties()
+
+    - Dans la classe RenderPipeline2d :
+        - Ajout de l'output "output_id" dans la méthode RenderPipeline2d.get_backend_properties()
+        - Export du handle du viewport en cours de conversion dans la méthode RenderContext.draw_viewport(). L'information sera disponible dans une variable bimdata_vp_handle de l'instance vp_layout_ctx
+
+
                                                         
 
 

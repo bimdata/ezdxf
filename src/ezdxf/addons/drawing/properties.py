@@ -77,53 +77,6 @@ logger = logging.getLogger("ezdxf")
 CTB: TypeAlias = acadctb.ColorDependentPlotStyles
 
 
-def get_gid(entity):
-    """
-    Recovery of the handle of the entity being processed.
-    Also recovery of:
-        - linetype for line entities
-        - hatch parent for HATCH entities
-
-    :param entity: (Optional[DXFGraphic]) DXF entity being processed.
-    """
-
-    hatch_reference = ""
-    line_suffix = ""
-
-    if entity is None:
-        return ""
-
-    # ----------------------- Specific process by dxf entity type -----------------------
-    if entity.DXFTYPE in ["LINE", "XLINE", "RAY", "POLYLINE", "LWPOLYLINE"]:
-        # BIMDATA suffix for line entities
-        line_suffix = "." + entity.dxf.linetype.lower()
-    else:
-        # BIMDATA suffix for hatch
-        if entity.DXFTYPE == "HATCH":
-            if entity.origin_of_copy and entity.origin_of_copy.DXFTYPE == "HATCH":
-                hatch_reference = f"@{entity.origin_of_copy.dxf.handle}"
-            else:
-                hatch_reference = f"@{entity.dxf.handle}"
-
-    # ----------------------- Extract top level entity handle -----------------------
-    if entity.has_source_block_reference:
-        if not entity.source_block_reference.is_virtual:
-            entity = entity.source_block_reference
-        else:
-            while entity.has_source_block_reference:
-                entity = entity.source_block_reference
-
-    if entity.is_copy:
-        entity = entity.origin_of_copy
-    if entity is not None:  # doesn't have to have an origin -> virtual entity
-        handle = entity.dxf.handle
-    if handle is None:
-        # virtual entity without a handle or handle is None
-        handle = ""
-
-    return handle + hatch_reference + line_suffix
-
-
 def is_dark_color(color: Color, dark: float = 0.2) -> bool:
     return RGB.from_hex(color).luminance <= dark
 
@@ -664,7 +617,7 @@ class RenderContext:
             p.font = self.resolve_font(entity)
         if isinstance(entity, DXFPolygon):
             p.filling = self.resolve_filling(entity)
-        p.output_id = get_gid(entity)
+        p.output_id = self.get_gid(entity)
         return p
 
     def resolve_units(self) -> InsertUnits:
@@ -982,6 +935,59 @@ class RenderContext:
         else:
             setup_pattern()
         return filling
+
+    def get_gid(self, entity):
+        """
+        Recovery of the handle of the entity being processed.
+        Also recovery of:
+            - linetype for line entities
+            - hatch parent for HATCH entities
+
+        :param entity: (Optional[DXFGraphic]) DXF entity being processed.
+        :return: (str)  poignée de niveau supérieur et données supplémentaires
+        """
+
+        hatch_reference = ""
+        line_suffix = ""
+        viewport_parent_handle = ""
+
+        if entity is None:
+            return ""
+
+        # ----------------------- Specific process by dxf entity type -----------------------
+        if getattr(self, "bimdata_vp_handle", None) and entity.DXFTYPE == "HATCH":
+            viewport_parent_handle = (
+                "VP" + getattr(self, "bimdata_vp_handle", None) + "_"
+            )
+
+        if entity.DXFTYPE in ["LINE", "XLINE", "RAY", "POLYLINE", "LWPOLYLINE"]:
+            # BIMDATA suffix for line entities
+            line_suffix = "." + entity.dxf.linetype.lower()
+        else:
+            # BIMDATA suffix for hatch
+            if entity.DXFTYPE == "HATCH":
+                if entity.origin_of_copy and entity.origin_of_copy.DXFTYPE == "HATCH":
+                    hatch_reference = f"@{entity.origin_of_copy.dxf.handle}"
+                else:
+                    hatch_reference = f"@{entity.dxf.handle}"
+
+        # ----------------------- Extract top level entity handle -----------------------
+        if entity.has_source_block_reference:
+            if not entity.source_block_reference.is_virtual:
+                entity = entity.source_block_reference
+            else:
+                while entity.has_source_block_reference:
+                    entity = entity.source_block_reference
+
+        if entity.is_copy:
+            entity = entity.origin_of_copy
+        if entity is not None:  # doesn't have to have an origin -> virtual entity
+            handle = entity.dxf.handle
+        if handle is None:
+            # virtual entity without a handle or handle is None
+            handle = ""
+
+        return viewport_parent_handle + handle + hatch_reference + line_suffix
 
 
 COLOR_PATTERN = re.compile("#[0-9A-Fa-f]{6,8}")

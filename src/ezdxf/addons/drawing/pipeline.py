@@ -294,8 +294,13 @@ class RenderPipeline2d(AbstractPipeline):
         except ValueError:  # modelspace limits not detectable
             return
         if self.enter_viewport(vp):
+            # Bimdata Add - storing the Viewport handle for future use
+            vp_layout_ctx = layout_ctx.from_viewport(vp)
+            vp_layout_ctx.bimdata_vp_handle = vp.dxf.handle
+
             self.draw_entities(
-                layout_ctx.from_viewport(vp),
+                # layout_ctx.from_viewport(vp),
+                vp_layout_ctx,
                 filter_vp_entities(vp.doc.modelspace(), msp_limits, bbox_cache),
             )
             self.exit_viewport()
