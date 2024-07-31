@@ -70,6 +70,8 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
     - Modification de la méthode qsave :
         - Rajout de l'input margin=True dans la méthode qsave()
         - Rajout de la gestion des marge si non définie dans l'input
+        - utilisation d'une variable pour stoker le viewport (afin de récupérer les textes relatifs aux viewports)
+        - ajout d'un output, contenant les handles des textes relatifs aux viewports
 
 
 ██████╗ ██████╗  ██████╗ ██████╗ ███████╗██████╗ ████████╗██╗███████╗███████╗

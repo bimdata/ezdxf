@@ -349,7 +349,10 @@ def qsave(
         if bg is not None:
             layout_properties.set_colors(bg, fg)
         out = MatplotlibBackend(ax)
-        Frontend(ctx, out, config).draw_layout(
+
+        ezdxf_frontend = Frontend(ctx, out, config)
+        # Frontend(ctx, out, config).draw_layout(
+        ezdxf_frontend.draw_layout(
             layout,
             finalize=True,
             filter_func=filter_func,
@@ -363,7 +366,14 @@ def qsave(
             ratio = _get_aspect_ratio(ax)
             w, h = _get_width_height(ratio, size_inches[0], size_inches[1])
             fig.set_size_inches(w, h, True)
-        fig.savefig(filename, dpi=dpi, facecolor=ax.get_facecolor(), transparent=True)
+        fig.savefig(
+            filename,
+            dpi=dpi,
+            facecolor=ax.get_facecolor(),
+            transparent=True,
+        )
         plt.close(fig)
+        return ezdxf_frontend.bimdata_vp_texts
+
     finally:
         matplotlib.use(old_backend)
