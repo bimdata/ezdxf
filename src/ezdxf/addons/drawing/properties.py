@@ -936,7 +936,7 @@ class RenderContext:
             setup_pattern()
         return filling
 
-    def get_gid(self, entity):
+      def get_gid(self, entity):
         """
         Recovery of the handle of the entity being processed.
         Also recovery of:
@@ -955,6 +955,17 @@ class RenderContext:
             return ""
 
         # ----------------------- Specific process by dxf entity type -----------------------
+        if self.inside_block_reference:
+            # Récupération du handle du viewport du block reference (si sous entité d'un INSERT & cie)
+            if "VP" in getattr(
+                self.current_block_reference_properties, "output_id", ""
+            ):
+                self.bimdata_vp_handle = (
+                    self.current_block_reference_properties.output_id.split("_")[
+                        0
+                    ].split("VP")[1]
+                )
+
         if getattr(self, "bimdata_vp_handle", None):
             viewport_parent_handle = (
                 "VP" + getattr(self, "bimdata_vp_handle", None) + "_"
