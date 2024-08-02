@@ -261,6 +261,7 @@ class UniversalFrontend:
         # Entity property override function stack:
         self._property_override_functions: list[TEntityFunc] = []
         self.push_property_override_function(self.override_properties)
+        self.bimdata_vp_texts = {}
 
     @property
     def text_engine(self):
@@ -268,6 +269,14 @@ class UniversalFrontend:
 
     def skip_entities_bimdata(self, entity: DXFGraphic, properties: Properties):
         self.skip_entity(entity, "BIMData - Disable entity type conversion")
+
+    def process_text_entity_bimdata(self, entity: DXFGraphic, properties: Properties):
+        if "VP" in properties.output_id:
+            self.bimdata_vp_texts.setdefault(
+                properties.output_id.split("_")[0], []
+            ).append(properties.output_id)
+        else:
+            self.skip_entity(entity, "BIMData - Disable entity type conversion")
 
     def _build_dispatch_table(self) -> TDispatchTable:
         dispatch_table: TDispatchTable = {
@@ -277,17 +286,14 @@ class UniversalFrontend:
             "MPOLYGON": self.draw_mpolygon_entity,
             "MESH": self.draw_mesh_entity,
             "WIPEOUT": self.draw_wipeout_entity,
-            # "MTEXT": self.draw_mtext_entity,
-            "MTEXT": self.skip_entities_bimdata,
+            "MTEXT": self.process_text_entity_bimdata,
             "OLE2FRAME": self.draw_ole2frame_entity,
-            # "IMAGE": self.draw_image_entity,
             "IMAGE": self.draw_image_entity,
         }
         for dxftype in ("LINE", "XLINE", "RAY"):
             dispatch_table[dxftype] = self.draw_line_entity
         for dxftype in ("TEXT", "ATTRIB", "ATTDEF"):
-            # dispatch_table[dxftype] = self.draw_text_entity
-            dispatch_table[dxftype] = self.skip_entities_bimdata
+            dispatch_table[dxftype] = self.process_text_entity_bimdata
         for dxftype in ("CIRCLE", "ARC", "ELLIPSE", "SPLINE"):
             dispatch_table[dxftype] = self.draw_curve_entity
         for dxftype in ("3DFACE", "SOLID", "TRACE"):

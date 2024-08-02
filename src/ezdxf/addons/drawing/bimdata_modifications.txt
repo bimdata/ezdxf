@@ -46,6 +46,10 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
     - Gestion d'erreur dans la méthode _draw_entities():
         - gestion des exeptions de type ZeroDivisionError
 
+    - Ajout de la méthode UniversalFrontend.process_text_entity_bimdata
+        - permet de récupérer le handle de l'entités si cette dernière est présente dans un viewports
+
+
 
 ███╗   ███╗ █████╗ ████████╗██████╗ ██╗      ██████╗ ████████╗██╗     ██╗██████╗ 
 ████╗ ████║██╔══██╗╚══██╔══╝██╔══██╗██║     ██╔═══██╗╚══██╔══╝██║     ██║██╔══██╗
