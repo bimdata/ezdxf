@@ -950,6 +950,7 @@ class RenderContext:
         hatch_reference = ""
         line_suffix = ""
         viewport_parent_handle = ""
+        viewport_text_suffix = ""
 
         if entity is None:
             return ""
@@ -970,6 +971,11 @@ class RenderContext:
             viewport_parent_handle = (
                 "VP" + getattr(self, "bimdata_vp_handle", None) + "_"
             )
+            if entity.DXFTYPE in ["MTEXT", "TEXT", "ATTRIB", "ATTDEF"]:
+                if entity.is_copy:
+                    viewport_text_suffix = "-" + entity.origin_of_copy.dxf.handle
+                else:
+                    viewport_text_suffix = "-" + entity.dxf.handle
 
         if entity.DXFTYPE in ["LINE", "XLINE", "RAY", "POLYLINE", "LWPOLYLINE"]:
             # BIMDATA suffix for line entities
@@ -998,7 +1004,13 @@ class RenderContext:
             # virtual entity without a handle or handle is None
             handle = ""
 
-        return viewport_parent_handle + handle + hatch_reference + line_suffix
+        return (
+            viewport_parent_handle
+            + handle
+            + hatch_reference
+            + line_suffix
+            + viewport_text_suffix
+        )
 
 
 COLOR_PATTERN = re.compile("#[0-9A-Fa-f]{6,8}")
