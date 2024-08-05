@@ -936,7 +936,7 @@ class RenderContext:
             setup_pattern()
         return filling
 
-        def get_gid(self, entity):
+    def get_gid(self, entity):
         """
         Recovery of the handle of the entity being processed.
         Also recovery of:
