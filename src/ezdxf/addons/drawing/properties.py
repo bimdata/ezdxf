@@ -936,7 +936,7 @@ class RenderContext:
             setup_pattern()
         return filling
 
-    def get_gid(self, entity):
+        def get_gid(self, entity):
         """
         Recovery of the handle of the entity being processed.
         Also recovery of:
@@ -972,10 +972,13 @@ class RenderContext:
                 "VP" + getattr(self, "bimdata_vp_handle", None) + "_"
             )
             if entity.DXFTYPE in ["MTEXT", "TEXT", "ATTRIB", "ATTDEF"]:
-                if entity.is_copy:
-                    viewport_text_suffix = "-" + entity.origin_of_copy.dxf.handle
-                else:
-                    viewport_text_suffix = "-" + entity.dxf.handle
+                try:
+                    if entity.is_copy:
+                        viewport_text_suffix = "-" + entity.origin_of_copy.dxf.handle
+                    else:
+                        viewport_text_suffix = "-" + entity.dxf.handle
+                except TypeError:
+                    return ""  # doesn't have to have an origin -> virtual entity
 
         if entity.DXFTYPE in ["LINE", "XLINE", "RAY", "POLYLINE", "LWPOLYLINE"]:
             # BIMDATA suffix for line entities
