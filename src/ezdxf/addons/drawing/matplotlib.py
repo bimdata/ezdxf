@@ -350,9 +350,7 @@ def qsave(
             layout_properties.set_colors(bg, fg)
         out = MatplotlibBackend(ax)
 
-        ezdxf_frontend = Frontend(ctx, out, config)
-        # Frontend(ctx, out, config).draw_layout(
-        ezdxf_frontend.draw_layout(
+        Frontend(ctx, out, config).draw_layout(
             layout,
             finalize=True,
             filter_func=filter_func,
@@ -373,7 +371,6 @@ def qsave(
             transparent=True,
         )
         plt.close(fig)
-        return ezdxf_frontend.bimdata_vp_texts
 
     finally:
         matplotlib.use(old_backend)
