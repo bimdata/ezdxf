@@ -49,6 +49,8 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
     - Ajout de la méthode UniversalFrontend.process_text_entity_bimdata
         - permet de récupérer le handle de l'entités si cette dernière est présente dans un viewports
 
+    - Ajout d'un try / expect dans la méthode _draw_entities
+
 
 
 ███╗   ███╗ █████╗ ████████╗██████╗ ██╗      ██████╗ ████████╗██╗     ██╗██████╗ 
