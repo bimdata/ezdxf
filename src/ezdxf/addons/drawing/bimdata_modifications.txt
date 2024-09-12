@@ -82,7 +82,7 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
 
 - src/ezdxf/addons/drawing/properties.py :
     
-    - ajout de la méthode get_gid, permettant de récupérer la handle d'un element DWG pour le reporter sur sa conversion SVG
+    - ajout de la méthode get_gid, dans l'object RenderContext, permettant de récupérer la handle d'un element DWG pour le reporter sur sa conversion SVG
     - Ajout de la variable output_id dans la classe BackendProperties()
     - Ajout de la variable output_id dans la méthode RenderContext.resolve_all()
 
