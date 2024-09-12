@@ -974,7 +974,8 @@ class RenderContext:
 
         if entity.DXFTYPE in ["LINE", "XLINE", "RAY", "POLYLINE", "LWPOLYLINE"]:
             # BIMDATA suffix for line entities
-            line_suffix = "." + entity.dxf.linetype.lower()
+            line_suffix = "." + self.resolve_linetype(entity)[0].lower()
+
         else:
             # BIMDATA suffix for hatch
             if entity.DXFTYPE == "HATCH":
