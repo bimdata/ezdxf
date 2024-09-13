@@ -944,7 +944,7 @@ class RenderContext:
             - hatch parent for HATCH entities
 
         :param entity: (Optional[DXFGraphic]) DXF entity being processed.
-        :return: (str)  poignée de niveau supérieur et données supplémentaires
+        :return: (str) top level handle and additional data
         """
 
         hatch_reference = ""
@@ -975,7 +975,6 @@ class RenderContext:
         if entity.DXFTYPE in ["LINE", "XLINE", "RAY", "POLYLINE", "LWPOLYLINE"]:
             # BIMDATA suffix for line entities
             line_suffix = "." + self.resolve_linetype(entity)[0].lower()
-
         else:
             # BIMDATA suffix for hatch
             if entity.DXFTYPE == "HATCH":
@@ -999,7 +998,6 @@ class RenderContext:
         if handle is None:
             # virtual entity without a handle or handle is None
             handle = ""
-
         return (
             viewport_parent_handle
             + handle
