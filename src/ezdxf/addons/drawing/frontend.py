@@ -721,14 +721,10 @@ class UniversalFrontend:
         holes: list[Path]
 
         if loops is not None:  # only MPOLYGON
-            external_paths, holes = winding_deconstruction(  # type: ignore
-                make_polygon_structure(loops)
-            )
+            external_paths, holes = winding_deconstruction(make_polygon_structure(loops))  # type: ignore
         else:  # only HATCH
             paths = polygon.paths.rendering_paths(polygon.dxf.hatch_style)
-            polygons: list = make_polygon_structure(
-                closed_loops(paths, ocs, elevation)  # type: ignore
-            )
+            polygons: list = make_polygon_structure(closed_loops(paths, ocs, elevation))  # type: ignore
             external_paths, holes = winding_deconstruction(polygons)  # type: ignore
 
         if show_only_outline:
@@ -849,9 +845,9 @@ class UniversalFrontend:
         if vp.dxf.status < 1:
             return
 
-        if not vp.is_top_view:
-            self.log_message("Cannot render non top-view viewports")
-            return
+        # if not vp.is_top_view:
+        #     self.log_message("Cannot render non top-view viewports")
+        #     return
         self.pipeline.draw_viewport(vp, self.ctx, self._bbox_cache)
 
     def draw_ole2frame_entity(self, entity: DXFGraphic, properties: Properties) -> None:
