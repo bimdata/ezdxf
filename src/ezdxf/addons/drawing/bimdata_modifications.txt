@@ -46,6 +46,14 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
     - Gestion d'erreur dans la méthode _draw_entities():
         - gestion des exeptions de type ZeroDivisionError
 
+    - Ajout de la méthode UniversalFrontend.process_text_entity_bimdata
+        - permet de récupérer le handle de l'entités si cette dernière est présente dans un viewports
+
+    - Ajout d'un try / expect dans la méthode _draw_entities
+
+    - Désactivation de la non prise en compte des viweport non is-top_view dans UniversalFrontend.draw_viewport
+
+
 
 ███╗   ███╗ █████╗ ████████╗██████╗ ██╗      ██████╗ ████████╗██╗     ██╗██████╗ 
 ████╗ ████║██╔══██╗╚══██╔══╝██╔══██╗██║     ██╔═══██╗╚══██╔══╝██║     ██║██╔══██╗
@@ -70,6 +78,8 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
     - Modification de la méthode qsave :
         - Rajout de l'input margin=True dans la méthode qsave()
         - Rajout de la gestion des marge si non définie dans l'input
+        - utilisation d'une variable pour stoker le viewport (afin de récupérer les textes relatifs aux viewports)
+        - ajout d'un output, contenant les handles des textes relatifs aux viewports
 
 
 ██████╗ ██████╗  ██████╗ ██████╗ ███████╗██████╗ ████████╗██╗███████╗███████╗
@@ -81,10 +91,13 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
                                                                              
 
 - src/ezdxf/addons/drawing/properties.py :
-    
-    - ajout de la méthode get_gid, dans l'object RenderContext, permettant de récupérer la handle d'un element DWG pour le reporter sur sa conversion SVG
-    - Ajout de la variable output_id dans la classe BackendProperties()
-    - Ajout de la variable output_id dans la méthode RenderContext.resolve_all()
+    - Dans la classe RenderContext: 
+        - ajout de la méthode get_gid, permettant de récupérer la handle d'un element DWG pour le reporter sur sa conversion SVG
+        - Ajout de la variable output_id dans la méthode RenderContext.resolve_all()
+
+    - Dans la classe BackendProperties():
+         - Ajout de la variable output_id
+
 
 
 
@@ -96,9 +109,26 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
 ╚═╝     ╚═╝╚═╝     ╚══════╝╚══════╝╚═╝╚═╝  ╚═══╝╚══════╝
 
 - src/ezdxf/addons/drawing/pipeline.py :
-    
-    - Ajout de l'output "output_id" dans la méthode RenderPipeline2d.get_backend_properties()
+
+    - Dans la classe RenderPipeline2d :
+        - Ajout de l'output "output_id" dans la méthode RenderPipeline2d.get_backend_properties()
+        - Export du handle du viewport en cours de conversion dans la méthode RenderContext.draw_viewport(). L'information sera disponible dans une variable bimdata_vp_handle de l'instance vp_layout_ctx
+
+
                                                         
+
+
+██╗   ██╗██╗███████╗██╗    ██╗██████╗  ██████╗ ██████╗ ████████╗
+██║   ██║██║██╔════╝██║    ██║██╔══██╗██╔═══██╗██╔══██╗╚══██╔══╝
+██║   ██║██║█████╗  ██║ █╗ ██║██████╔╝██║   ██║██████╔╝   ██║   
+╚██╗ ██╔╝██║██╔══╝  ██║███╗██║██╔═══╝ ██║   ██║██╔══██╗   ██║   
+ ╚████╔╝ ██║███████╗╚███╔███╔╝██║     ╚██████╔╝██║  ██║   ██║   
+  ╚═══╝  ╚═╝╚══════╝ ╚══╝╚══╝ ╚═╝      ╚═════╝ ╚═╝  ╚═╝   ╚═╝   
+                                                                
+- src/ezdxf/entities/viewport.py :
+    - Modification de la méthode get_view_center_point : ajout du self.dxf.view_target_point si une valeur est présente pour le self.dxf.view_center_point
+
+
 
 
  █████╗ ██╗   ██╗████████╗██████╗ ███████╗        ██╗    ███╗   ██╗ ██████╗ ████████╗███████╗███████╗

@@ -635,6 +635,8 @@ class Viewport(DXFGraphic):
         center_point = Vec3(self.dxf.view_center_point)
         if center_point.is_null:
             center_point = Vec3(self.dxf.view_target_point)
+        else:
+            center_point += Vec3(self.dxf.view_target_point)
         return center_point
 
     def get_transformation_matrix(self) -> Matrix44:

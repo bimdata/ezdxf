@@ -277,16 +277,13 @@ class UniversalFrontend:
             "MPOLYGON": self.draw_mpolygon_entity,
             "MESH": self.draw_mesh_entity,
             "WIPEOUT": self.draw_wipeout_entity,
-            # "MTEXT": self.draw_mtext_entity,
             "MTEXT": self.skip_entities_bimdata,
             "OLE2FRAME": self.draw_ole2frame_entity,
-            # "IMAGE": self.draw_image_entity,
             "IMAGE": self.draw_image_entity,
         }
         for dxftype in ("LINE", "XLINE", "RAY"):
             dispatch_table[dxftype] = self.draw_line_entity
         for dxftype in ("TEXT", "ATTRIB", "ATTDEF"):
-            # dispatch_table[dxftype] = self.draw_text_entity
             dispatch_table[dxftype] = self.skip_entities_bimdata
         for dxftype in ("CIRCLE", "ARC", "ELLIPSE", "SPLINE"):
             dispatch_table[dxftype] = self.draw_curve_entity
@@ -724,14 +721,10 @@ class UniversalFrontend:
         holes: list[Path]
 
         if loops is not None:  # only MPOLYGON
-            external_paths, holes = winding_deconstruction(  # type: ignore
-                make_polygon_structure(loops)
-            )
+            external_paths, holes = winding_deconstruction(make_polygon_structure(loops))  # type: ignore
         else:  # only HATCH
             paths = polygon.paths.rendering_paths(polygon.dxf.hatch_style)
-            polygons: list = make_polygon_structure(
-                closed_loops(paths, ocs, elevation)  # type: ignore
-            )
+            polygons: list = make_polygon_structure(closed_loops(paths, ocs, elevation))  # type: ignore
             external_paths, holes = winding_deconstruction(polygons)  # type: ignore
 
         if show_only_outline:
@@ -852,9 +845,9 @@ class UniversalFrontend:
         if vp.dxf.status < 1:
             return
 
-        if not vp.is_top_view:
-            self.log_message("Cannot render non top-view viewports")
-            return
+        # if not vp.is_top_view:
+        #     self.log_message("Cannot render non top-view viewports")
+        #     return
         self.pipeline.draw_viewport(vp, self.ctx, self._bbox_cache)
 
     def draw_ole2frame_entity(self, entity: DXFGraphic, properties: Properties) -> None:
@@ -1190,25 +1183,28 @@ def _draw_entities(
         entities = filter(filter_func, entities)
     viewports: list[Viewport] = []
     for entity in entities:
-        if isinstance(entity, Viewport):
-            viewports.append(entity)
-            continue
-        if not isinstance(entity, DXFGraphic):
-            if frontend.config.proxy_graphic_policy != ProxyGraphicPolicy.IGNORE:
-                entity = DXFGraphicProxy(entity)
-            else:
-                frontend.skip_entity(entity, "Cannot parse DXF entity")
-                continue
         try:
-            properties = ctx.resolve_all(entity)
-            frontend.exec_property_override(entity, properties)
-        except ZeroDivisionError:  # BIMData Add
-            frontend.skip_entity(entity, "ZeroDivisionError")
+            if isinstance(entity, Viewport):
+                viewports.append(entity)
+                continue
+            if not isinstance(entity, DXFGraphic):
+                if frontend.config.proxy_graphic_policy != ProxyGraphicPolicy.IGNORE:
+                    entity = DXFGraphicProxy(entity)
+                else:
+                    frontend.skip_entity(entity, "Cannot parse DXF entity")
+                    continue
+            try:
+                properties = ctx.resolve_all(entity)
+                frontend.exec_property_override(entity, properties)
+            except ZeroDivisionError:  # BIMData Add
+                frontend.skip_entity(entity, "ZeroDivisionError")
 
-        if properties.is_visible:
-            frontend.draw_entity(entity, properties)
-        else:
-            frontend.skip_entity(entity, "invisible")
+            if properties.is_visible:
+                frontend.draw_entity(entity, properties)
+            else:
+                frontend.skip_entity(entity, "invisible")
+        except TypeError:  # Bimdata add
+            pass
     _draw_viewports(frontend, viewports)
 
 

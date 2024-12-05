@@ -944,15 +944,34 @@ class RenderContext:
             - hatch parent for HATCH entities
 
         :param entity: (Optional[DXFGraphic]) DXF entity being processed.
+        :return: (str) top level handle and additional data
         """
 
         hatch_reference = ""
         line_suffix = ""
+        viewport_parent_handle = ""
+        viewport_text_suffix = ""
 
         if entity is None:
             return ""
 
         # ----------------------- Specific process by dxf entity type -----------------------
+        if self.inside_block_reference:
+            # Récupération du handle du viewport du block reference (si sous entité d'un INSERT & cie)
+            if "VP" in getattr(
+                self.current_block_reference_properties, "output_id", ""
+            ):
+                self.bimdata_vp_handle = (
+                    self.current_block_reference_properties.output_id.split("_")[
+                        0
+                    ].split("VP")[1]
+                )
+
+        if getattr(self, "bimdata_vp_handle", None):
+            viewport_parent_handle = (
+                "VP" + getattr(self, "bimdata_vp_handle", None) + "_"
+            )
+
         if entity.DXFTYPE in ["LINE", "XLINE", "RAY", "POLYLINE", "LWPOLYLINE"]:
             # BIMDATA suffix for line entities
             line_suffix = "." + self.resolve_linetype(entity)[0].lower()
@@ -979,8 +998,13 @@ class RenderContext:
         if handle is None:
             # virtual entity without a handle or handle is None
             handle = ""
-
-        return handle + hatch_reference + line_suffix
+        return (
+            viewport_parent_handle
+            + handle
+            + hatch_reference
+            + line_suffix
+            + viewport_text_suffix
+        )
 
 
 COLOR_PATTERN = re.compile("#[0-9A-Fa-f]{6,8}")
