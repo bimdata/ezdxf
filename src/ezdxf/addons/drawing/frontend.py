@@ -857,119 +857,125 @@ class UniversalFrontend:
             self._draw_filled_rect(bbox.rect_vertices(), OLE2FRAME_COLOR)
 
     def draw_image_entity(self, entity: DXFGraphic, properties: Properties) -> None:
-        image = cast(Image, entity)
-        image_policy = self.config.image_policy
-        image_def = image.image_def
-        assert image_def is not None
+        try:
+            image = cast(Image, entity)
+            image_policy = self.config.image_policy
+            image_def = image.image_def
+            assert image_def is not None
 
-        if image_policy in (
-            ImagePolicy.DISPLAY,
-            ImagePolicy.RECT,
-            ImagePolicy.MISSING,
-        ):
-            loaded_image = None
-            show_filename_if_missing = True
-
-            if (
-                image_policy == ImagePolicy.RECT
-                or not image.dxf.flags & Image.SHOW_IMAGE
+            if image_policy in (
+                ImagePolicy.DISPLAY,
+                ImagePolicy.RECT,
+                ImagePolicy.MISSING,
             ):
                 loaded_image = None
-                show_filename_if_missing = False
-            elif (
-                image_policy != ImagePolicy.MISSING
-                and self.ctx.document_dir is not None
-            ):
-                image_path = _find_image_path(
-                    self.ctx.document_dir, image_def.dxf.filename
-                )
-                with contextlib.suppress(FileNotFoundError):
-                    loaded_image = PIL.Image.open(image_path)
+                show_filename_if_missing = True
 
-            if loaded_image is not None:
-                color: RGB | RGBA
-                loaded_image = loaded_image.convert("RGBA")
+                if (
+                    image_policy == ImagePolicy.RECT
+                    or not image.dxf.flags & Image.SHOW_IMAGE
+                ):
+                    loaded_image = None
+                    show_filename_if_missing = False
+                elif (
+                    image_policy != ImagePolicy.MISSING
+                    and self.ctx.document_dir is not None
+                ):
+                    image_path = _find_image_path(
+                        self.ctx.document_dir, image_def.dxf.filename
+                    )
+                    with contextlib.suppress(FileNotFoundError):
+                        loaded_image = PIL.Image.open(image_path)
 
-                if image.dxf.contrast != 50:
-                    # note: this is only an approximation.
-                    # Unclear what the exact operation AutoCAD uses
-                    amount = image.dxf.contrast / 50
-                    loaded_image = PIL.ImageEnhance.Contrast(loaded_image).enhance(
-                        amount
+                if loaded_image is not None:
+                    color: RGB | RGBA
+                    loaded_image = loaded_image.convert("RGBA")
+
+                    if image.dxf.contrast != 50:
+                        # note: this is only an approximation.
+                        # Unclear what the exact operation AutoCAD uses
+                        amount = image.dxf.contrast / 50
+                        loaded_image = PIL.ImageEnhance.Contrast(loaded_image).enhance(
+                            amount
+                        )
+
+                    if image.dxf.fade != 0:
+                        # note: this is only an approximation.
+                        # Unclear what the exact operation AutoCAD uses
+                        amount = image.dxf.fade / 100
+                        color = RGB.from_hex(
+                            self.ctx.current_layout_properties.background_color
+                        )
+                        loaded_image = _blend_image_towards(loaded_image, amount, color)
+
+                    if image.dxf.brightness != 50:
+                        # note: this is only an approximation.
+                        # Unclear what the exact operation AutoCAD uses
+                        amount = image.dxf.brightness / 50 - 1
+                        if amount > 0:
+                            color = RGBA(255, 255, 255, 255)
+                        else:
+                            color = RGBA(0, 0, 0, 255)
+                            amount = -amount
+                        loaded_image = _blend_image_towards(loaded_image, amount, color)
+
+                    if not image.dxf.flags & Image.USE_TRANSPARENCY:
+                        loaded_image.putalpha(255)
+
+                    if image.transparency != 0.0:
+                        loaded_image = _multiply_alpha(
+                            loaded_image, 1.0 - image.transparency
+                        )
+                    image_data = ImageData(
+                        image=np.array(loaded_image),
+                        transform=image.get_wcs_transform(),
+                        pixel_boundary_path=NumpyPoints2d(image.pixel_boundary_path()),
+                        use_clipping_boundary=image.dxf.flags
+                        & Image.USE_CLIPPING_BOUNDARY,
+                        remove_outside=image.dxf.clip_mode == 0,
+                    )
+                    self.pipeline.draw_image(image_data, properties)
+
+                elif show_filename_if_missing:
+                    default_cap_height = 20
+                    text = image_def.dxf.filename
+                    font = self.pipeline.text_engine.get_font(
+                        self.get_font_face(properties)
+                    )
+                    text_width = font.text_width_ex(text, default_cap_height)
+                    image_size = image.dxf.image_size
+                    desired_width = image_size.x * 0.75
+                    scale = desired_width / text_width
+                    translate = Matrix44.translate(
+                        (image_size.x - desired_width) / 2,
+                        (image_size.y - default_cap_height * scale) / 2,
+                        0,
+                    )
+                    transform = (
+                        Matrix44.scale(scale) @ translate @ image.get_wcs_transform()
+                    )
+                    self.pipeline.draw_text(
+                        text,
+                        transform,
+                        properties,
+                        default_cap_height,
                     )
 
-                if image.dxf.fade != 0:
-                    # note: this is only an approximation.
-                    # Unclear what the exact operation AutoCAD uses
-                    amount = image.dxf.fade / 100
-                    color = RGB.from_hex(
-                        self.ctx.current_layout_properties.background_color
-                    )
-                    loaded_image = _blend_image_towards(loaded_image, amount, color)
-
-                if image.dxf.brightness != 50:
-                    # note: this is only an approximation.
-                    # Unclear what the exact operation AutoCAD uses
-                    amount = image.dxf.brightness / 50 - 1
-                    if amount > 0:
-                        color = RGBA(255, 255, 255, 255)
-                    else:
-                        color = RGBA(0, 0, 0, 255)
-                        amount = -amount
-                    loaded_image = _blend_image_towards(loaded_image, amount, color)
-
-                if not image.dxf.flags & Image.USE_TRANSPARENCY:
-                    loaded_image.putalpha(255)
-
-                if image.transparency != 0.0:
-                    loaded_image = _multiply_alpha(
-                        loaded_image, 1.0 - image.transparency
-                    )
-                image_data = ImageData(
-                    image=np.array(loaded_image),
-                    transform=image.get_wcs_transform(),
-                    pixel_boundary_path=NumpyPoints2d(image.pixel_boundary_path()),
-                    use_clipping_boundary=image.dxf.flags & Image.USE_CLIPPING_BOUNDARY,
-                    remove_outside=image.dxf.clip_mode == 0,
-                )
-                self.pipeline.draw_image(image_data, properties)
-
-            elif show_filename_if_missing:
-                default_cap_height = 20
-                text = image_def.dxf.filename
-                font = self.pipeline.text_engine.get_font(
-                    self.get_font_face(properties)
-                )
-                text_width = font.text_width_ex(text, default_cap_height)
-                image_size = image.dxf.image_size
-                desired_width = image_size.x * 0.75
-                scale = desired_width / text_width
-                translate = Matrix44.translate(
-                    (image_size.x - desired_width) / 2,
-                    (image_size.y - default_cap_height * scale) / 2,
-                    0,
-                )
-                transform = (
-                    Matrix44.scale(scale) @ translate @ image.get_wcs_transform()
-                )
-                self.pipeline.draw_text(
-                    text,
-                    transform,
-                    properties,
-                    default_cap_height,
+                points = [v.vec2 for v in image.boundary_path_wcs()]
+                self.pipeline.draw_solid_lines(
+                    list(zip(points, points[1:])), properties
                 )
 
-            points = [v.vec2 for v in image.boundary_path_wcs()]
-            self.pipeline.draw_solid_lines(list(zip(points, points[1:])), properties)
+            elif self.config.image_policy == ImagePolicy.PROXY:
+                self.draw_proxy_graphic(entity.proxy_graphic, entity.doc)
 
-        elif self.config.image_policy == ImagePolicy.PROXY:
-            self.draw_proxy_graphic(entity.proxy_graphic, entity.doc)
+            elif self.config.image_policy == ImagePolicy.IGNORE:
+                pass
 
-        elif self.config.image_policy == ImagePolicy.IGNORE:
+            else:
+                raise ValueError(self.config.image_policy)
+        except IsADirectoryError:
             pass
-
-        else:
-            raise ValueError(self.config.image_policy)
 
     def _draw_filled_rect(
         self,

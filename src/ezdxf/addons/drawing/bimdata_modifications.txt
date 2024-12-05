@@ -52,6 +52,9 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
     - Ajout d'un try / expect dans la méthode _draw_entities
 
     - Désactivation de la non prise en compte des viweport non is-top_view dans UniversalFrontend.draw_viewport
+    
+    - Rajout d'une gestion d'exeption dans UniversalFrontend.draw_image_entity()
+        - Ajout d'un try / exept pour passer les images (erreur dans le chemin IsADirectoryError)
 
 
 
