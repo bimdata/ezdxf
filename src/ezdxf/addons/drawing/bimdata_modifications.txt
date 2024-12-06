@@ -44,7 +44,7 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
         - cf bugfix 219 : https://bimdata.backlog.com/view/BUFIXMANAGMENT-219
 
     - Gestion d'erreur dans la méthode _draw_entities():
-        - gestion des exeptions de type ZeroDivisionError
+        - gestion des exeptions de type ZeroDivisionError (global et dans la boucle)
 
     - Ajout de la méthode UniversalFrontend.process_text_entity_bimdata
         - permet de récupérer le handle de l'entités si cette dernière est présente dans un viewports

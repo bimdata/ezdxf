@@ -1188,30 +1188,36 @@ def _draw_entities(
     if filter_func is not None:
         entities = filter(filter_func, entities)
     viewports: list[Viewport] = []
-    for entity in entities:
-        try:
-            if isinstance(entity, Viewport):
-                viewports.append(entity)
-                continue
-            if not isinstance(entity, DXFGraphic):
-                if frontend.config.proxy_graphic_policy != ProxyGraphicPolicy.IGNORE:
-                    entity = DXFGraphicProxy(entity)
-                else:
-                    frontend.skip_entity(entity, "Cannot parse DXF entity")
-                    continue
+    try:
+        for entity in entities:
             try:
-                properties = ctx.resolve_all(entity)
-                frontend.exec_property_override(entity, properties)
-            except ZeroDivisionError:  # BIMData Add
-                frontend.skip_entity(entity, "ZeroDivisionError")
+                if isinstance(entity, Viewport):
+                    viewports.append(entity)
+                    continue
+                if not isinstance(entity, DXFGraphic):
+                    if (
+                        frontend.config.proxy_graphic_policy
+                        != ProxyGraphicPolicy.IGNORE
+                    ):
+                        entity = DXFGraphicProxy(entity)
+                    else:
+                        frontend.skip_entity(entity, "Cannot parse DXF entity")
+                        continue
+                try:
+                    properties = ctx.resolve_all(entity)
+                    frontend.exec_property_override(entity, properties)
+                except ZeroDivisionError:  # BIMData Add
+                    frontend.skip_entity(entity, "ZeroDivisionError")
 
-            if properties.is_visible:
-                frontend.draw_entity(entity, properties)
-            else:
-                frontend.skip_entity(entity, "invisible")
-        except TypeError:  # Bimdata add
-            pass
-    _draw_viewports(frontend, viewports)
+                if properties.is_visible:
+                    frontend.draw_entity(entity, properties)
+                else:
+                    frontend.skip_entity(entity, "invisible")
+            except TypeError:  # Bimdata add
+                pass
+        _draw_viewports(frontend, viewports)
+    except ZeroDivisionError:  # BIMData Add
+        frontend.skip_entity(entity, "ZeroDivisionError")
 
 
 def _draw_viewports(frontend: UniversalFrontend, viewports: list[Viewport]) -> None:
