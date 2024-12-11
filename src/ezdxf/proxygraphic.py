@@ -303,7 +303,8 @@ class ProxyGraphic:
         try:
             yield from self.unsafe_virtual_entities()
         except Exception as e:
-            raise ProxyGraphicError(f"Proxy graphic error: {str(e)}")
+            # raise ProxyGraphicError(f"Proxy graphic error: {str(e)}")
+            pass  # BIMData add
 
     def unsafe_virtual_entities(self) -> Iterable[DXFGraphic]:
         def transform(entity):
