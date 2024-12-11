@@ -1041,9 +1041,12 @@ class UniversalFrontend:
                 properties.filling = Filling()
                 self.pipeline.draw_filled_polygon(points, properties)
             return
-        polyline_path = make_path(entity)
-        if len(polyline_path):
-            self.pipeline.draw_path(polyline_path, properties)
+        try:
+            polyline_path = make_path(entity)
+            if len(polyline_path):
+                self.pipeline.draw_path(polyline_path, properties)
+        except ValueError:
+            pass  # BIMData add
 
     def draw_composite_entity(self, entity: DXFGraphic, properties: Properties) -> None:
         def draw_insert(insert: Insert):

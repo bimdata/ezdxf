@@ -56,6 +56,9 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
     - Rajout d'une gestion d'exeption dans UniversalFrontend.draw_image_entity()
         - Ajout d'un try / exept pour passer les images (erreur dans le chemin IsADirectoryError)
 
+    - Rajout d'une gestion d'exeption dans UniversalFrontend.draw_polyline_entity()
+        - Ajout d'un try / exept pour les ValueError: Invalid major axis (null vector)
+
 
 
 ███╗   ███╗ █████╗ ████████╗██████╗ ██╗      ██████╗ ████████╗██╗     ██╗██████╗ 
