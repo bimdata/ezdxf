@@ -1220,6 +1220,8 @@ def _draw_entities(
                 pass
         _draw_viewports(frontend, viewports)
     except ZeroDivisionError:  # BIMData Add
+        if "entity" not in locals():
+            entity = None
         frontend.skip_entity(entity, "ZeroDivisionError")
 
 
