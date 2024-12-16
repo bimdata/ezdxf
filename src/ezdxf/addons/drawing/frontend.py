@@ -450,41 +450,45 @@ class UniversalFrontend:
 
         """
         self.pipeline.enter_entity(entity, properties)
-        if not entity.is_virtual:
-            # top level entity
-            self.pipeline.set_current_entity_handle(entity.dxf.handle)
-        if (
-            entity.proxy_graphic
-            and self.config.proxy_graphic_policy == ProxyGraphicPolicy.PREFER
-        ):
-            self.draw_proxy_graphic(entity.proxy_graphic, entity.doc)
-        else:
-            try:
-                draw_method = self._dispatch.get(entity.dxftype(), None)
-            except TypeError as e:
-                self.skip_entity(entity, e)  # BIMDATA ADD
-            if draw_method is not None:
-                draw_method(entity, properties)
-            # Composite entities (INSERT, DIMENSION, ...) have to implement the
-            # __virtual_entities__() protocol.
-            # Unsupported DXF types which have proxy graphic, are wrapped into
-            # DXFGraphicProxy, which also implements the __virtual_entities__()
-            # protocol.
-            elif isinstance(entity, SupportsVirtualEntities):
-                assert isinstance(entity, DXFGraphic)
-                # The __virtual_entities__() protocol does not distinguish
-                # content from DXF entities or from proxy graphic.
-                # In the long run ACAD_PROXY_ENTITY should be the only
-                # supported DXF entity which uses proxy graphic. Unsupported
-                # DXF entities (DXFGraphicProxy) do not get to this point if
-                # proxy graphic is ignored.
-                if (
-                    self.config.proxy_graphic_policy != ProxyGraphicPolicy.IGNORE
-                    or entity.dxftype() not in self._proxy_graphic_only_entities
-                ):
-                    self.draw_composite_entity(entity, properties)
+
+        try:
+            if not entity.is_virtual:
+                # top level entity
+                self.pipeline.set_current_entity_handle(entity.dxf.handle)
+            if (
+                entity.proxy_graphic
+                and self.config.proxy_graphic_policy == ProxyGraphicPolicy.PREFER
+            ):
+                self.draw_proxy_graphic(entity.proxy_graphic, entity.doc)
             else:
-                self.skip_entity(entity, "unsupported")
+                try:
+                    draw_method = self._dispatch.get(entity.dxftype(), None)
+                except TypeError as e:
+                    self.skip_entity(entity, e)  # BIMDATA ADD
+                if draw_method is not None:
+                    draw_method(entity, properties)
+                # Composite entities (INSERT, DIMENSION, ...) have to implement the
+                # __virtual_entities__() protocol.
+                # Unsupported DXF types which have proxy graphic, are wrapped into
+                # DXFGraphicProxy, which also implements the __virtual_entities__()
+                # protocol.
+                elif isinstance(entity, SupportsVirtualEntities):
+                    assert isinstance(entity, DXFGraphic)
+                    # The __virtual_entities__() protocol does not distinguish
+                    # content from DXF entities or from proxy graphic.
+                    # In the long run ACAD_PROXY_ENTITY should be the only
+                    # supported DXF entity which uses proxy graphic. Unsupported
+                    # DXF entities (DXFGraphicProxy) do not get to this point if
+                    # proxy graphic is ignored.
+                    if (
+                        self.config.proxy_graphic_policy != ProxyGraphicPolicy.IGNORE
+                        or entity.dxftype() not in self._proxy_graphic_only_entities
+                    ):
+                        self.draw_composite_entity(entity, properties)
+                else:
+                    self.skip_entity(entity, "unsupported")
+        except np.linalg.LinAlgError as numpy_error:
+            self.skip_entity(entity, numpy_error.args[0])
 
         self.pipeline.exit_entity(entity)
 

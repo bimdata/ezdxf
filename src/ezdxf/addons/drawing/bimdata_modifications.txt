@@ -59,6 +59,9 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
     - Rajout d'une gestion d'exeption dans UniversalFrontend.draw_polyline_entity()
         - Ajout d'un try / exept pour les ValueError: Invalid major axis (null vector)
 
+    - Rajout d'une gestion d'exeption dans UniversalFrontend.draw_entity()
+        - Ajout d'un try / exept pour les np.linalg.LinAlgError: Singular matrix
+
 
 
 ███╗   ███╗ █████╗ ████████╗██████╗ ██╗      ██████╗ ████████╗██╗     ██╗██████╗ 
