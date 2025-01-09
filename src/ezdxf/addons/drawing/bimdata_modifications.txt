@@ -123,6 +123,9 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
         - Ajout de l'output "output_id" dans la méthode RenderPipeline2d.get_backend_properties()
         - Export du handle du viewport en cours de conversion dans la méthode RenderContext.draw_viewport(). L'information sera disponible dans une variable bimdata_vp_handle de l'instance vp_layout_ctx
 
+    - Dans la classe ClippingStage2d:
+        - Exclusion de la conversion de la géométrie line réalisant une diagonale sur notre espace de dessin (emprise complète)
+
 
                                                         
 

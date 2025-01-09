@@ -466,9 +466,10 @@ class ClippingStage2d(RenderStage2d):
         clipping_portal = self.clipping_portal
 
         if clipping_portal.is_active:
-            for segment in clipping_portal.clip_line(start, end):
-                next_stage.draw_line(segment[0], segment[1], properties)
-            return
+            if "000B000" not in properties.output_id:
+                for segment in clipping_portal.clip_line(start, end):
+                    next_stage.draw_line(segment[0], segment[1], properties)
+                return
         next_stage.draw_line(start, end, properties)
 
     def draw_solid_lines(
