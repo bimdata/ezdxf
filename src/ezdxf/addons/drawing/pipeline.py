@@ -466,6 +466,8 @@ class ClippingStage2d(RenderStage2d):
         clipping_portal = self.clipping_portal
 
         if clipping_portal.is_active:
+            # Bugfix 256 - Defining a fixed handle for our paperspace / modelspace diagonal
+            # "000B000" - arbitrary value convertible to int16 - ezdxf.reorder.py
             if "000B000" not in properties.output_id:
                 for segment in clipping_portal.clip_line(start, end):
                     next_stage.draw_line(segment[0], segment[1], properties)
