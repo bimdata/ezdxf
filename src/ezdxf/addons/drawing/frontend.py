@@ -496,7 +496,7 @@ class UniversalFrontend:
         d, dxftype = entity.dxf, entity.dxftype()
         if dxftype == "LINE":
             line_prec = self.linear_precision if self.linear_precision else 10
-            if d.start.round(line_prec) != d.end.round(line_prec):
+            if d.start.round(line_prec).xy != d.end.round(line_prec).xy:
                 self.pipeline.draw_line(d.start, d.end, properties)
             else:
                 self.skip_entity(entity, "invalid line's coordinates")
