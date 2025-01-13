@@ -31,7 +31,7 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
 
     - Gestion d'exeption dans la méthode UniversalFrontend.draw_line_entity():
         - Récupération / calcul de la variable line_prec
-        - skip la conversion si les coordonnées de la ligne sont trop petite
+        - skip la conversion si les coordonnées de la ligne sont trop petite (uniquement via les coordonnées 2D)
 
     - Gestion d'erreur dans UniversalFrontend.draw_curve_entity():
         - cf bugfix_175 : https://bimdata.backlog.com/view/BUFIXMANAGMENT-175
