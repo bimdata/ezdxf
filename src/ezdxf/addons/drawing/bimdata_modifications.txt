@@ -138,7 +138,17 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
   ╚═══╝  ╚═╝╚══════╝ ╚══╝╚══╝ ╚═╝      ╚═════╝ ╚═╝  ╚═╝   ╚═╝   
                                                                 
 - src/ezdxf/entities/viewport.py :
-    - Modification de la méthode get_view_center_point : ajout du self.dxf.view_target_point si une valeur est présente pour le self.dxf.view_center_point
+    - Modification de la méthode get_view_center_point() : 
+        - Ajout du self.dxf.view_target_point si une valeur est présente pour le center_point
+        - Ajout d'un partie pour la prise en compte de la rotation (si self.dxf.view_twist_angle)
+
+    - Modification de la méthode get_transformation_matrix():
+        - Ajout d'un partie pour la prise en compte de la rotation (si self.dxf.view_twist_angle)
+        - Mise en forme de la concaténation des matrices de scaling et de translation
+        - Uniformisation de la concaténation des matrices pour la sortie
+
+    - Modification de la méthode get_modelspace_limits() :
+        - EN COURS 
 
 
 
