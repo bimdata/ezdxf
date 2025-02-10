@@ -1086,6 +1086,9 @@ class UniversalFrontend:
                     properties=properties,
                 )
                 self.pipeline.pop_clipping_shape()
+            elif is_clipping_active:
+                # Bimdata add
+                self.pipeline.pop_clipping_shape()
 
         if isinstance(entity, Insert):
             self.ctx.push_state(properties)
