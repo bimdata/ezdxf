@@ -633,10 +633,13 @@ class Viewport(DXFGraphic):
         # TODO: Is there a flag or attribute that determines which of these points is
         #  the center point?
         center_point = Vec3(self.dxf.view_center_point)
-        if center_point.is_null:
-            center_point = Vec3(self.dxf.view_target_point)
-        else:
-            center_point += Vec3(self.dxf.view_target_point)
+
+        if self.dxf.view_twist_angle:
+            angle_radians = math.radians(self.dxf.view_twist_angle)
+            center_point = Matrix44.z_rotate(-angle_radians).transform(center_point)
+
+        center_point += Vec3(self.dxf.view_target_point)
+
         return center_point
 
     def get_transformation_matrix(self) -> Matrix44:
@@ -647,9 +650,16 @@ class Viewport(DXFGraphic):
         msp_center_point: Vec3 = self.get_view_center_point()
         offset: Vec3 = self.dxf.center - (msp_center_point * scale)
         m = Matrix44.scale(scale)
+        m @= Matrix44.translate(offset.x, offset.y, 0)
         if rotation_angle:
-            m @= Matrix44.z_rotate(math.radians(rotation_angle))
-        return m @ Matrix44.translate(offset.x, offset.y, 0)
+            rotation_matrix = (
+                Matrix44.translate(*-self.dxf.center)
+                @ Matrix44.z_rotate(math.radians(rotation_angle))
+                @ Matrix44.translate(*self.dxf.center)
+            )
+            m @= rotation_matrix
+
+        return m
 
     def get_aspect_ratio(self) -> float:
         """Returns the aspect ratio of the viewport, return 0.0 if width or
@@ -663,6 +673,8 @@ class Viewport(DXFGraphic):
     def get_modelspace_limits(self) -> tuple[float, float, float, float]:
         """Returns the limits of the modelspace to view in drawing units
         as tuple (min_x, min_y, max_x, max_y).
+
+        WARNING - Different output format if rotated
         """
         msp_center_point: Vec3 = self.get_view_center_point()
         msp_height: float = self.dxf.view_height
@@ -675,9 +687,9 @@ class Viewport(DXFGraphic):
         h2 = msp_height * 0.5
         if rotation_angle:
             frame = Vec2.list(((-w2, -h2), (w2, -h2), (w2, h2), (-w2, h2)))
-            angle = math.radians(rotation_angle)
-            bbox = BoundingBox2d(v.rotate(angle) + msp_center_point for v in frame)
-            return bbox.extmin.x, bbox.extmin.y, bbox.extmax.x, bbox.extmax.y
+            angle = math.radians(360 - rotation_angle)
+            frame = [v.rotate(angle) + msp_center_point for v in frame]
+            return frame
         else:
             mx, my, _ = msp_center_point
             return mx - w2, my - h2, mx + w2, my + h2
