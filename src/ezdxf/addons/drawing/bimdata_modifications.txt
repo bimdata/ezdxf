@@ -64,6 +64,9 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
 
     - Rajout d'un condition / suppression de clipping part dans draw_composite_entity.draw_insert()
 
+    - Harmonisation de la conversion des entités SOLID & cie 
+        - Désactivation de la gestion de la visibilité / utilisation de draw_path uniquement
+
 
 
 ███╗   ███╗ █████╗ ████████╗██████╗ ██╗      ██████╗ ████████╗██╗     ██╗██████╗ 

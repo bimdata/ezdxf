@@ -633,13 +633,15 @@ class UniversalFrontend:
                 # for AutoCAD
                 self.skip_entity(entity, "missing required vertex attribute")
                 return
-            edge_visibility = entity.get_edges_visibility()
-            if all(edge_visibility):
-                self.pipeline.draw_path(from_vertices(points), properties)
-            else:
-                for a, b, visible in zip(points, points[1:], edge_visibility):
-                    if visible:
-                        self.pipeline.draw_line(a, b, properties)
+            # BIMDATA - bugfix_259
+            # edge_visibility = entity.get_edges_visibility()
+            # if all(edge_visibility):
+            #     self.pipeline.draw_path(from_vertices(points), properties)
+            # else:
+            #     for a, b, visible in zip(points, points[1:], edge_visibility):
+            #         if visible:
+            #             self.pipeline.draw_line(a, b, properties)
+            self.pipeline.draw_path(from_vertices(points), properties)
 
         elif isinstance(entity, Solid):
             # set solid fill type for SOLID and TRACE
