@@ -389,6 +389,33 @@ class UniversalFrontend:
         # set background before drawing entities
         self.set_background(self.ctx.current_layout_properties.background_color)
         self.parent_stack = []
+
+        # ----------------------------------------------------------------------------------------------------------------------
+        # Bugfix_261 - Rotation management in modelspace
+        if layout.is_modelspace:
+            msp_viewport = layout.entitydb.get(layout.dxf.viewport_handle)
+            if msp_viewport.dxf.view_twist:
+                bimdata_diago = [msp_entity for msp_entity in layout][-1]
+                x_min, y_min, z_min = bimdata_diago.dxf.start
+                x_max, y_max, z_max = bimdata_diago.dxf.end
+                x_mean, y_mean, z_meam = (
+                    (x_min + x_max) / 2,
+                    (y_min + y_max) / 2,
+                    (z_min + z_max) / 2,
+                )
+
+                transformation_matrix = (
+                    Matrix44.translate(-x_mean, -y_mean, -z_meam)
+                    @ Matrix44.z_rotate(radians(msp_viewport.dxf.view_twist))
+                    @ Matrix44.translate(x_mean, y_mean, z_meam)
+                )
+
+                self.pipeline.clipping_portal.push(
+                    ClippingRect((Vec2(x_min, y_min), Vec2(x_max, y_max))),
+                    transformation_matrix,
+                )
+        # ----------------------------------------------------------------------------------------------------------------------
+
         handle_mapping = list(layout.get_redraw_order())
         if handle_mapping:
             self.draw_entities(
