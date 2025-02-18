@@ -25,6 +25,7 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
 
     - Modification de la methode UniversalFrontend.draw_layout() :
         - Rajout d'une ligne pour récupérer la linear_precision despuis le header du fichier DWG
+        - Rajout d'une partie (encadré par des '-------') pour la récupération de la rotation du layout si modelspace
 
     - Gestion d'exeption dans la méthode UniversalFrontend.draw_entity() :
         - skip la conversion de l'entité en cours si une exeption de type TypeError est levée
