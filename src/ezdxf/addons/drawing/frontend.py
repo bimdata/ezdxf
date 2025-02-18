@@ -98,7 +98,9 @@ import numpy as np
 from ezdxf.math import is_point_in_polygon_2d
 from ezdxf.path import winding_deconstruction
 from ezdxf.path import make_polygon_structure
+from ezdxf.tools.clipping_portal import ClippingRect
 import itertools
+from math import radians
 
 
 __all__ = ["Frontend", "UniversalFrontend"]
