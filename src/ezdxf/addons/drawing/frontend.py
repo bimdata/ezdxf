@@ -394,22 +394,26 @@ class UniversalFrontend:
 
         # ----------------------------------------------------------------------------------------------------------------------
         # Bugfix_261 - Rotation management in modelspace
+        # Process only top_view VPort for now
         if layout.is_modelspace:
             msp_viewport = layout.entitydb.get(layout.dxf.viewport_handle)
-            if msp_viewport.dxf.view_twist:
-                bimdata_diago = [msp_entity for msp_entity in layout][-1]
+            if getattr(
+                msp_viewport.dxf, "view_twist", None
+            ) is not None and msp_viewport.dxf.direction == Vec3(0.0, 0.0, 1.0):
+                bimdata_diago = next(reversed(layout))
+                rotation_angle = radians(msp_viewport.dxf.view_twist)
                 x_min, y_min, z_min = bimdata_diago.dxf.start
                 x_max, y_max, z_max = bimdata_diago.dxf.end
-                x_mean, y_mean, z_meam = (
+                x_mean, y_mean, z_mean = (
                     (x_min + x_max) / 2,
                     (y_min + y_max) / 2,
                     (z_min + z_max) / 2,
                 )
 
                 transformation_matrix = (
-                    Matrix44.translate(-x_mean, -y_mean, -z_meam)
-                    @ Matrix44.z_rotate(radians(msp_viewport.dxf.view_twist))
-                    @ Matrix44.translate(x_mean, y_mean, z_meam)
+                    Matrix44.translate(-x_mean, -y_mean, -z_mean)
+                    @ Matrix44.z_rotate(rotation_angle)
+                    @ Matrix44.translate(x_mean, y_mean, z_mean)
                 )
 
                 self.pipeline.clipping_portal.push(
