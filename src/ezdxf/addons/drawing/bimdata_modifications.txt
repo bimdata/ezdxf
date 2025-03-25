@@ -43,6 +43,7 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
 
     - Gestion d'erreur dans la méthode UniversalFrontend.draw_composite_entity()
         - cf bugfix 219 : https://bimdata.backlog.com/view/BUFIXMANAGMENT-219
+        - cf bugfix 266 : https://bimdata.backlog.com/view/BUFIXMANAGMENT-266
 
     - Gestion d'erreur dans la méthode _draw_entities():
         - gestion des exeptions de type ZeroDivisionError (global et dans la boucle)
