@@ -1095,17 +1095,21 @@ class UniversalFrontend:
             is_clipping_active = clip.has_clipping_path and clip.is_clipping_enabled
 
             if is_clipping_active:
-                boundary_path = clip.get_wcs_clipping_path()
-                if not boundary_path.is_inverted_clip:
-                    clipping_shape = clipping_portal.find_best_clipping_shape(
-                        boundary_path.vertices
-                    )
-                else:  # inverted clipping path
-                    clipping_shape = clipping_portal.make_inverted_clipping_shape(
-                        boundary_path.inner_polygon(),
-                        outer_bounds=boundary_path.outer_bounds(),
-                    )
-                self.pipeline.push_clipping_shape(clipping_shape, None)
+                if boundary_path.vertices:
+                    boundary_path = clip.get_wcs_clipping_path()
+                    if not boundary_path.is_inverted_clip:
+                        clipping_shape = clipping_portal.find_best_clipping_shape(
+                            boundary_path.vertices
+                        )
+                    else:  # inverted clipping path
+                        clipping_shape = clipping_portal.make_inverted_clipping_shape(
+                            boundary_path.inner_polygon(),
+                            outer_bounds=boundary_path.outer_bounds(),
+                        )
+                    self.pipeline.push_clipping_shape(clipping_shape, None)
+                else:
+                    # Bugfix 266
+                    self.skip_entity(entity, "No boundary_paths")
 
             # draw_entities() includes the visibility check:
             self.draw_entities(
