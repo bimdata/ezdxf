@@ -98,7 +98,9 @@ import numpy as np
 from ezdxf.math import is_point_in_polygon_2d
 from ezdxf.path import winding_deconstruction
 from ezdxf.path import make_polygon_structure
+from ezdxf.tools.clipping_portal import ClippingRect
 import itertools
+from math import radians
 
 
 __all__ = ["Frontend", "UniversalFrontend"]
@@ -389,6 +391,37 @@ class UniversalFrontend:
         # set background before drawing entities
         self.set_background(self.ctx.current_layout_properties.background_color)
         self.parent_stack = []
+
+        # ----------------------------------------------------------------------------------------------------------------------
+        # Bugfix_261 - Rotation management in modelspace
+        # Process only top_view VPort for now
+        if layout.is_modelspace:
+            msp_viewport = layout.entitydb.get(layout.dxf.viewport_handle)
+            if getattr(
+                msp_viewport.dxf, "view_twist", None
+            ) is not None and msp_viewport.dxf.direction == Vec3(0.0, 0.0, 1.0):
+                bimdata_diago = next(reversed(layout))
+                rotation_angle = radians(msp_viewport.dxf.view_twist)
+                x_min, y_min, z_min = bimdata_diago.dxf.start
+                x_max, y_max, z_max = bimdata_diago.dxf.end
+                x_mean, y_mean, z_mean = (
+                    (x_min + x_max) / 2,
+                    (y_min + y_max) / 2,
+                    (z_min + z_max) / 2,
+                )
+
+                transformation_matrix = (
+                    Matrix44.translate(-x_mean, -y_mean, -z_mean)
+                    @ Matrix44.z_rotate(rotation_angle)
+                    @ Matrix44.translate(x_mean, y_mean, z_mean)
+                )
+
+                self.pipeline.clipping_portal.push(
+                    ClippingRect((Vec2(x_min, y_min), Vec2(x_max, y_max))),
+                    transformation_matrix,
+                )
+        # ----------------------------------------------------------------------------------------------------------------------
+
         handle_mapping = list(layout.get_redraw_order())
         if handle_mapping:
             self.draw_entities(
