@@ -136,9 +136,7 @@ class Layer(DXFEntity):
     ) -> DXFNamespace:
         dxf = super().load_dxf_attribs(processor)
         if processor:
-            processor.simple_dxfattribs_loader(
-                dxf, acdb_layer_table_record_group_codes  # type: ignore
-            )
+            processor.simple_dxfattribs_loader(dxf, acdb_layer_table_record_group_codes)  # type: ignore
         return dxf
 
     def export_entity(self, tagwriter: AbstractTagWriter) -> None:
@@ -655,10 +653,14 @@ def load_layer_overrides(layer: Layer) -> dict[str, OverrideAttributes]:
             (const.OVR_LTYPE_KEY, const.OVR_LTYPE_CODE, set_ltype),
             (const.OVR_LW_KEY, const.OVR_LW_CODE, set_lw),
         ]:
-            xrec = cast("XRecord", xdict.get(key))
-            if xrec is not None:
-                for vp_handle, value in _load_ovr_values(xrec, code):
-                    setter(vp_handle, value)
+            try:
+                xrec = cast("XRecord", xdict.get(key))
+                if xrec is not None:
+                    for vp_handle, value in _load_ovr_values(xrec, code):
+                        setter(vp_handle, value)
+            except AttributeError:
+                # Bugfix 267
+                pass
 
     assert layer.doc is not None, "valid DXF document required"
     entitydb: EntityDB = layer.doc.entitydb

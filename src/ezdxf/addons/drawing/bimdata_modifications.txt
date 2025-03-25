@@ -173,6 +173,18 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
     - désactivation de l'apppel de l'erreur ProxyGraphicError dans la __virtual_entities__ 
 
 
+
+██╗      █████╗ ██╗   ██╗███████╗██████╗ 
+██║     ██╔══██╗╚██╗ ██╔╝██╔════╝██╔══██╗
+██║     ███████║ ╚████╔╝ █████╗  ██████╔╝
+██║     ██╔══██║  ╚██╔╝  ██╔══╝  ██╔══██╗
+███████╗██║  ██║   ██║   ███████╗██║  ██║
+╚══════╝╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
+                                         
+
+-scr/ezdxf/layers.py
+    - Ajout d'une gestion d'exeption dans load_layer_overrides.set_xdict_state : cf https://bimdata.backlog.com/view/BUFIXMANAGMENT-267
+
  █████╗ ██╗   ██╗████████╗██████╗ ███████╗        ██╗    ███╗   ██╗ ██████╗ ████████╗███████╗███████╗
 ██╔══██╗██║   ██║╚══██╔══╝██╔══██╗██╔════╝       ██╔╝    ████╗  ██║██╔═══██╗╚══██╔══╝██╔════╝██╔════╝
 ███████║██║   ██║   ██║   ██████╔╝█████╗        ██╔╝     ██╔██╗ ██║██║   ██║   ██║   █████╗  ███████╗
