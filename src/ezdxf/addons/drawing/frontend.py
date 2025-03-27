@@ -1095,7 +1095,7 @@ class UniversalFrontend:
             is_clipping_active = clip.has_clipping_path and clip.is_clipping_enabled
 
             if is_clipping_active:
-                if boundary_path.vertices:
+                try:
                     boundary_path = clip.get_wcs_clipping_path()
                     if not boundary_path.is_inverted_clip:
                         clipping_shape = clipping_portal.find_best_clipping_shape(
@@ -1107,7 +1107,7 @@ class UniversalFrontend:
                             outer_bounds=boundary_path.outer_bounds(),
                         )
                     self.pipeline.push_clipping_shape(clipping_shape, None)
-                else:
+                except IndexError:
                     # Bugfix 266
                     self.skip_entity(entity, "No boundary_paths")
 
