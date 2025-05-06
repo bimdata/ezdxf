@@ -397,9 +397,11 @@ class UniversalFrontend:
         # Process only top_view VPort for now
         if layout.is_modelspace:
             msp_viewport = layout.entitydb.get(layout.dxf.viewport_handle)
-            if getattr(
-                msp_viewport.dxf, "view_twist", None
-            ) is not None and msp_viewport.dxf.direction == Vec3(0.0, 0.0, 1.0):
+            if (
+                msp_viewport
+                and getattr(msp_viewport.dxf, "view_twist", None) is not None
+                and msp_viewport.dxf.direction == Vec3(0.0, 0.0, 1.0)
+            ):
                 bimdata_diago = next(reversed(layout))
                 rotation_angle = radians(msp_viewport.dxf.view_twist)
                 x_min, y_min, z_min = bimdata_diago.dxf.start
