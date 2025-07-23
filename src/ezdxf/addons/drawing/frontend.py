@@ -418,10 +418,14 @@ class UniversalFrontend:
                     @ Matrix44.translate(x_mean, y_mean, z_mean)
                 )
 
-                self.pipeline.clipping_portal.push(
-                    ClippingRect((Vec2(x_min, y_min), Vec2(x_max, y_max))),
-                    transformation_matrix,
-                )
+                try:
+                    self.pipeline.clipping_portal.push(
+                        ClippingRect((Vec2(x_min, y_min), Vec2(x_max, y_max))),
+                        transformation_matrix,
+                    )
+                except ValueError as value_error:
+                    if value_error.args[0] == "clipping box not detectable":
+                        pass  # Bugfix_278
         # ----------------------------------------------------------------------------------------------------------------------
 
         handle_mapping = list(layout.get_redraw_order())
