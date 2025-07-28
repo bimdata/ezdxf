@@ -194,6 +194,9 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
                                                                                                      
 - On retrouve dans les propriétés des objects (dans le process de addons.drawing) une variable "handle" : serait-il possible de l'utiliser pour être davantage proche du code source de ezdxf ? 
 
+- Dans ezdxf.tool.crypt.py :
+    - dans la méthode decode._decode : remplacement de la manière de lire / gérer les erreurs d'encodage
+
 
 
 
