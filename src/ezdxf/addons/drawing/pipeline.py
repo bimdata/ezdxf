@@ -269,14 +269,8 @@ class RenderPipeline2d(AbstractPipeline):
 
         # bugfix_304
         if vp.dxf.clipping_boundary_handle:
-            if (
-                len(
-                    list(
-                        vp.doc.entitydb.get(vp.dxf.clipping_boundary_handle).vertices()
-                    )
-                )
-                > 4
-            ):
+            clipping_bound = vp.doc.entitydb.get(vp.dxf.clipping_boundary_handle)
+            if clipping_bound and len(list(clipping_bound.vertices())) > 4:
                 vp.dxf.clipping_boundary_handle = None
 
         if vp.doc is None:
