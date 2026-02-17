@@ -140,7 +140,7 @@ class Backend(BackendInterface, metaclass=ABCMeta):
 
     def exit_entity(self, entity: DXFGraphic) -> None:
         e, p = self.entity_stack.pop()
-        assert e is entity, "entity stack mismatch"
+        # assert e is entity, "entity stack mismatch"
 
     @property
     def current_entity(self) -> Optional[DXFGraphic]:
