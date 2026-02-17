@@ -197,7 +197,8 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
 - Dans ezdxf.tool.crypt.py :
     - dans la méthode decode._decode : remplacement de la manière de lire / gérer les erreurs d'encodage
 
-
+- Dans ezdxf.addons.drawing.backend : 
+    - désactivation de l'assertion de la méthode exit_entity
 
 
 
