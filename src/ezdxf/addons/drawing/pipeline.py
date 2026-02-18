@@ -267,11 +267,13 @@ class RenderPipeline2d(AbstractPipeline):
     ) -> None:
         """Draw the content of the given viewport current viewport."""
 
-        # bugfix_304
+        # bugfix_304 - 306
         if vp.dxf.clipping_boundary_handle:
             clipping_bound = vp.doc.entitydb.get(vp.dxf.clipping_boundary_handle)
-            if clipping_bound and len(list(clipping_bound.vertices())) > 4:
-                vp.dxf.clipping_boundary_handle = None
+            if clipping_bound:
+                if clipping_bound.DXFTYPE not in {"CIRCLE"}:
+                    if len(list(clipping_bound.vertices())) > 4:
+                        vp.dxf.clipping_boundary_handle = None
 
         if vp.doc is None:
             return
