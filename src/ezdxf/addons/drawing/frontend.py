@@ -1270,6 +1270,12 @@ def _draw_entities(
                     frontend.skip_entity(entity, "invisible")
             except TypeError:  # Bimdata add
                 pass
+            except ValueError as value_error:  # Bimdata add
+                if value_error.args[0] == "More than 1 vertex required.":
+                    continue
+                else:
+                    raise
+
         _draw_viewports(frontend, viewports)
     except ZeroDivisionError:  # BIMData Add
         if "entity" not in locals():
