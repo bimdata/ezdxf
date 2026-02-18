@@ -272,7 +272,11 @@ class RenderPipeline2d(AbstractPipeline):
             clipping_bound = vp.doc.entitydb.get(vp.dxf.clipping_boundary_handle)
             if clipping_bound:
                 if clipping_bound.DXFTYPE not in {"CIRCLE"}:
-                    if len(list(clipping_bound.vertices())) > 4:
+                    clipping_bound_vertices = clipping_bound.vertices
+                    if not isinstance(clipping_bound_vertices, list):
+                        clipping_bound_vertices = list(clipping_bound_vertices())
+
+                    if len(clipping_bound_vertices) > 4:
                         vp.dxf.clipping_boundary_handle = None
 
         if vp.doc is None:
