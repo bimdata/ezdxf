@@ -1304,8 +1304,13 @@ def _draw_viewports(frontend: UniversalFrontend, viewports: list[Viewport]) -> N
     # or there is no "active" viewport at all - in this case the "status" attribute
     # is not reliable at all - but what else is there to do?  The "active" layout should
     # have the id "1", but this information is also not reliable.
-    if viewports[0].dxf.get("status", 1) == 1:
-        viewports.pop(0)
+    # if viewports[0].dxf.get("status", 1) == 1:
+    #     viewports.pop(0)
+
+    # Bugfix_312
+    main_vp = viewports[0].get_layout().main_viewport()
+    viewports = [vp for vp in viewports if vp != main_vp]
+
     # Draw viewports in order of "status"
     for viewport in viewports:
         frontend.draw_viewport(viewport)
