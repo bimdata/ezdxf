@@ -73,8 +73,8 @@ def explode_block_reference(
     Attached ATTRIB entities are converted to TEXT entities, this is the
     behavior of the BURST command of the AutoCAD Express Tools.
 
-    This method does not apply the clipping path created by the XCLIP command. 
-    The method returns all entities and ignores the clipping path polygon and no 
+    This method does not apply the clipping path created by the XCLIP command.
+    The method returns all entities and ignores the clipping path polygon and no
     entity is clipped.
 
     Args:
@@ -182,8 +182,8 @@ def virtual_block_reference_entities(
     These entities are located at the 'exploded' positions, but are not stored in
     the entity database, have no handle and are not assigned to any layout.
 
-    This method does not apply the clipping path created by the XCLIP command. 
-    The method returns all entities and ignores the clipping path polygon and no 
+    This method does not apply the clipping path created by the XCLIP command.
+    The method returns all entities and ignores the clipping path polygon and no
     entity is clipped.
 
     Args:
@@ -243,14 +243,17 @@ def virtual_block_reference_entities(
                 else:
                     skipped_entity_callback(entity, "unsupported non-uniform scaling")
             except InsertTransformationError:
-                # INSERT entity can not be represented in the target coordinate
-                # system defined by transformation matrix `m`.
-                # Yield transformed sub-entities of the INSERT entity:
-                yield from transform(
-                    virtual_block_reference_entities(
-                        entity, skipped_entity_callback=skipped_entity_callback
+                try:
+                    # INSERT entity can not be represented in the target coordinate
+                    # system defined by transformation matrix `m`.
+                    # Yield transformed sub-entities of the INSERT entity:
+                    yield from transform(
+                        virtual_block_reference_entities(
+                            entity, skipped_entity_callback=skipped_entity_callback
+                        )
                     )
-                )
+                except AssertionError:
+                    continue
             else:
                 yield entity
 

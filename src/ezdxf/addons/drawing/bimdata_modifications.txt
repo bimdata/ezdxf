@@ -206,6 +206,9 @@ Fichier regroupant les différences entre la branch Master de ezdxf et notre for
 - Dans ezdxf.addons.drawing.backend : 
     - désactivation de l'assertion de la méthode exit_entity
 
+-Dans ezdxf.explode.transform
+    - Ajout d'une exeption pour ne pas gérer les cas ou l'explosion concerne une entité non INSERT 
+
 
 
 
